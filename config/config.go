@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Homeserver homeserver `yaml:"homeserver"`
 	Appservice appservice `yaml:"appservice"`
+	Bridge     bridge     `yaml:"bridge"`
 }
 
 func FromBytes(data []byte) (*Config, error) {
@@ -32,4 +33,13 @@ func FromFile(filename string) (*Config, error) {
 	}
 
 	return FromBytes(data)
+}
+
+func (cfg *Config) Save(filename string) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(filename, data, 0600)
 }

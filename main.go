@@ -8,13 +8,15 @@ import (
 
 	"gitlab.com/beeper/discord/consts"
 	"gitlab.com/beeper/discord/globals"
+	"gitlab.com/beeper/discord/registration"
 	"gitlab.com/beeper/discord/version"
 )
 
 var cli struct {
 	globals.Globals
 
-	Version version.Cmd `kong:"cmd,help='Display the version and exit'"`
+	GenerateRegistration registration.Cmd `kong:"cmd,help='Generate the registration file for synapse and exit'"`
+	Version              version.Cmd      `kong:"cmd,help='Display the version and exit'"`
 }
 
 func main() {

@@ -2,6 +2,7 @@ package registration
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 
 	"maunium.net/go/mautrix/appservice"
@@ -12,9 +13,17 @@ import (
 
 type Cmd struct {
 	Filename string `kong:"flag,help='The filename to store the registration into',name='REGISTRATION',short='r',default='registration.yaml'"`
+	Force    bool   `kong:"flag,help='Overwrite an existing registration file if it already exists',short='f',default='0'"`
 }
 
 func (c *Cmd) Run(g *globals.Globals) error {
+	// Check if the file exists before blinding overwriting it.
+	if _, err := os.Stat(c.Filename); err == nil {
+		if c.Force == false {
+			return fmt.Errorf("file %q exists, use -f to overwrite", c.Filename)
+		}
+	}
+
 	cfg, err := config.FromFile(g.Config)
 	if err != nil {
 		return err

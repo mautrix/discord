@@ -36,6 +36,8 @@ func (cfg *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return err
 	}
 
+	*cfg = Config(raw)
+
 	return cfg.validate()
 }
 

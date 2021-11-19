@@ -1,8 +1,6 @@
 package config
 
 import (
-	"fmt"
-
 	"bytes"
 	"text/template"
 )
@@ -13,7 +11,7 @@ type bridge struct {
 	usernameTemplate *template.Template `yaml:"-"`
 }
 
-func (b *bridge) setDefaults() error {
+func (b *bridge) validate() error {
 	var err error
 
 	if b.UsernameTemplate == "" {
@@ -40,13 +38,11 @@ func (b *bridge) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	*b = bridge(raw)
 
-	return b.setDefaults()
+	return b.validate()
 }
 
 func (b bridge) FormatUsername(userid string) string {
 	var buffer bytes.Buffer
-
-	fmt.Printf("bridge: %#v\n", b)
 
 	b.usernameTemplate.Execute(&buffer, userid)
 

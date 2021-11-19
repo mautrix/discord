@@ -6,7 +6,7 @@ type bot struct {
 	Avatar      string `yaml:"avatar"`
 }
 
-func (b *bot) setDefaults() error {
+func (b *bot) validate() error {
 	if b.Username == "" {
 		b.Username = "discordbot"
 	}
@@ -29,5 +29,5 @@ func (b *bot) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	*b = bot(raw)
 
-	return b.setDefaults()
+	return b.validate()
 }

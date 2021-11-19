@@ -12,12 +12,16 @@ type Config struct {
 	Bridge     bridge     `yaml:"bridge"`
 }
 
-func (cfg *Config) setDefaults() error {
-	if err := cfg.Appservice.setDefaults(); err != nil {
+func (cfg *Config) validate() error {
+	if err := cfg.Homeserver.validate(); err != nil {
 		return err
 	}
 
-	if err := cfg.Bridge.setDefaults(); err != nil {
+	if err := cfg.Appservice.validate(); err != nil {
+		return err
+	}
+
+	if err := cfg.Bridge.validate(); err != nil {
 		return err
 	}
 
@@ -32,7 +36,7 @@ func (cfg *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return err
 	}
 
-	return cfg.setDefaults()
+	return cfg.validate()
 }
 
 func FromBytes(data []byte) (*Config, error) {
@@ -42,7 +46,9 @@ func FromBytes(data []byte) (*Config, error) {
 		return nil, err
 	}
 
-	cfg.setDefaults()
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
 
 	return &cfg, nil
 }

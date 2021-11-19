@@ -13,12 +13,12 @@ type appservice struct {
 	HSToken string `yaml:"hs_token"`
 }
 
-func (a *appservice) setDefaults() error {
+func (a *appservice) validate() error {
 	if a.ID == "" {
 		a.ID = "discord"
 	}
 
-	if err := a.Bot.setDefaults(); err != nil {
+	if err := a.Bot.validate(); err != nil {
 		return err
 	}
 
@@ -35,5 +35,5 @@ func (a *appservice) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	*a = appservice(raw)
 
-	return a.setDefaults()
+	return a.validate()
 }

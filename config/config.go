@@ -12,12 +12,37 @@ type Config struct {
 	Bridge     bridge     `yaml:"bridge"`
 }
 
+func (cfg *Config) setDefaults() error {
+	if err := cfg.Appservice.setDefaults(); err != nil {
+		return err
+	}
+
+	if err := cfg.Bridge.setDefaults(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cfg *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type rawConfig Config
+
+	raw := rawConfig{}
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
+	return cfg.setDefaults()
+}
+
 func FromBytes(data []byte) (*Config, error) {
 	cfg := Config{}
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+
+	cfg.setDefaults()
 
 	return &cfg, nil
 }

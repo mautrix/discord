@@ -18,6 +18,18 @@ func (a *appservice) validate() error {
 		a.ID = "discord"
 	}
 
+	if a.Address == "" {
+		a.Address = "http://localhost:29350"
+	}
+
+	if a.Hostname == "" {
+		a.Hostname = "0.0.0.0"
+	}
+
+	if a.Port == 0 {
+		a.Port = 29350
+	}
+
 	if err := a.Bot.validate(); err != nil {
 		return err
 	}

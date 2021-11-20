@@ -10,6 +10,7 @@ import (
 	"gitlab.com/beeper/discord/consts"
 	"gitlab.com/beeper/discord/globals"
 	"gitlab.com/beeper/discord/registration"
+	"gitlab.com/beeper/discord/run"
 	"gitlab.com/beeper/discord/version"
 )
 
@@ -18,6 +19,7 @@ var cli struct {
 
 	GenerateConfig       config.Cmd       `kong:"cmd,help='Generate the default configuration and exit.'"`
 	GenerateRegistration registration.Cmd `kong:"cmd,help='Generate the registration file for synapse and exit.'"`
+	Run                  run.Cmd          `kong:"cmd,help='Run the bridge.',default='1'"`
 	Version              version.Cmd      `kong:"cmd,help='Display the version and exit.'"`
 }
 

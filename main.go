@@ -6,6 +6,7 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"gitlab.com/beeper/discord/config"
 	"gitlab.com/beeper/discord/consts"
 	"gitlab.com/beeper/discord/globals"
 	"gitlab.com/beeper/discord/registration"
@@ -15,8 +16,9 @@ import (
 var cli struct {
 	globals.Globals
 
-	GenerateRegistration registration.Cmd `kong:"cmd,help='Generate the registration file for synapse and exit'"`
-	Version              version.Cmd      `kong:"cmd,help='Display the version and exit'"`
+	GenerateConfig       config.Cmd       `kong:"cmd,help='Generate the default configuration and exit.'"`
+	GenerateRegistration registration.Cmd `kong:"cmd,help='Generate the registration file for synapse and exit.'"`
+	Version              version.Cmd      `kong:"cmd,help='Display the version and exit.'"`
 }
 
 func main() {

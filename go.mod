@@ -15,5 +15,5 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83 // indirect
 	golang.org/x/net v0.0.0-20210220033124-5f55cee0dc0d // indirect
-	maunium.net/go/maulogger/v2 v2.2.4 // indirect
+	maunium.net/go/maulogger/v2 v2.3.1 // indirect
 )

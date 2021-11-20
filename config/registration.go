@@ -31,3 +31,16 @@ func (cfg *Config) CopyToRegistration(registration *as.Registration) error {
 
 	return nil
 }
+
+func (cfg *Config) getRegistration() (*as.Registration, error) {
+	registration := as.CreateRegistration()
+
+	if err := cfg.CopyToRegistration(registration); err != nil {
+		return nil, err
+	}
+
+	registration.AppToken = cfg.Appservice.ASToken
+	registration.ServerToken = cfg.Appservice.HSToken
+
+	return registration, nil
+}

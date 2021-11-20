@@ -10,6 +10,7 @@ type Config struct {
 	Homeserver homeserver `yaml:"homeserver"`
 	Appservice appservice `yaml:"appservice"`
 	Bridge     bridge     `yaml:"bridge"`
+	Logging    logging    `yaml:"logging"`
 }
 
 func (cfg *Config) validate() error {
@@ -22,6 +23,10 @@ func (cfg *Config) validate() error {
 	}
 
 	if err := cfg.Bridge.validate(); err != nil {
+		return err
+	}
+
+	if err := cfg.Logging.validate(); err != nil {
 		return err
 	}
 

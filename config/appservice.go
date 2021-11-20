@@ -1,5 +1,9 @@
 package config
 
+import (
+	as "maunium.net/go/mautrix/appservice"
+)
+
 type appservice struct {
 	Address  string `yaml:"address"`
 	Hostname string `yaml:"hostname"`
@@ -48,4 +52,17 @@ func (a *appservice) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	*a = appservice(raw)
 
 	return a.validate()
+}
+
+func (cfg *Config) CreateAppService() (*as.AppService, error) {
+	appservice := as.Create()
+
+	appservice.HomeserverURL = cfg.Homeserver.Address
+	appservice.HomeserverDomain = cfg.Homeserver.Domain
+
+	appservice.Host.Hostname = cfg.Appservice.Hostname
+	appservice.Host.Port = cfg.Appservice.Port
+	appservice.DefaultHTTPRetries = 4
+
+	return appservice, nil
 }

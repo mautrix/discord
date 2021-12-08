@@ -1,11 +1,20 @@
 package bridge
 
 import (
+	"errors"
+	"fmt"
+	"time"
+
 	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 
 	"gitlab.com/beeper/discord/config"
 	"gitlab.com/beeper/discord/version"
+)
+
+const (
+	reconnectDelay = 10 * time.Second
 )
 
 type Bridge struct {
@@ -15,6 +24,7 @@ type Bridge struct {
 
 	as             *appservice.AppService
 	eventProcessor *appservice.EventProcessor
+	matrixHandler  *matrixHandler
 	bot            *appservice.IntentAPI
 }
 
@@ -27,27 +37,83 @@ func New(cfg *config.Config) (*Bridge, error) {
 
 	logger.Infoln("Initializing version", version.String)
 
-	// Create the app service.
+	// Create and initalize the app service.
 	appservice, err := cfg.CreateAppService()
 	if err != nil {
 		return nil, err
 	}
 	appservice.Log = log.Sub("matrix")
 
+	appservice.Init()
+
+	// Create the bot.
+	bot := appservice.BotIntent()
+
 	// Create the bridge.
 	bridge := &Bridge{
+		as:     appservice,
+		bot:    bot,
 		config: cfg,
 		log:    logger,
-		as:     appservice,
 	}
+
+	// Setup the event processors
+	bridge.setupEvents()
 
 	return bridge, nil
 }
 
-func (b *Bridge) Start() {
-	b.log.Infoln("bridge started")
+func (b *Bridge) connect() error {
+	b.log.Debugln("Checking connection to homeserver")
+
+	for {
+		resp, err := b.bot.Whoami()
+		if err != nil {
+			if errors.Is(err, mautrix.MUnknownToken) {
+				b.log.Fatalln("Access token invalid. Is the registration installed in your homeserver correctly?")
+
+				return fmt.Errorf("invalid access token")
+			}
+
+			b.log.Errorfln("Failed to connect to homeserver : %v", err)
+			b.log.Errorfln("reconnecting in %s", reconnectDelay)
+
+			time.Sleep(reconnectDelay)
+		} else if resp.UserID != b.bot.UserID {
+			b.log.Fatalln("Unexpected user ID in whoami call: got %s, expected %s", resp.UserID, b.bot.UserID)
+
+			return fmt.Errorf("expected user id %q but got %q", b.bot.UserID, resp.UserID)
+		} else {
+			break
+		}
+	}
+
+	b.log.Debugln("Connected to homeserver")
+
+	return nil
+}
+
+func (b *Bridge) Start() error {
+	b.log.Infoln("Bridge started")
+
+	if err := b.connect(); err != nil {
+		return err
+	}
+
+	b.log.Debugln("Starting application service HTTP server")
+	go b.as.Start()
+
+	b.log.Debugln("Starting event processor")
+	go b.eventProcessor.Start()
+
+	go b.updateBotProfile()
+
+	// Finally tell the appservice we're ready
+	b.as.Ready = true
+
+	return nil
 }
 
 func (b *Bridge) Stop() {
-	b.log.Infoln("bridge stopped")
+	b.log.Infoln("Bridge stopped")
 }

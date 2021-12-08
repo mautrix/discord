@@ -64,5 +64,12 @@ func (cfg *Config) CreateAppService() (*as.AppService, error) {
 	appservice.Host.Port = cfg.Appservice.Port
 	appservice.DefaultHTTPRetries = 4
 
+	reg, err := cfg.getRegistration()
+	if err != nil {
+		return nil, err
+	}
+
+	appservice.Registration = reg
+
 	return appservice, nil
 }

@@ -23,7 +23,9 @@ func (c *Cmd) Run(g *globals.Globals) error {
 		return err
 	}
 
-	bridge.Start()
+	if err := bridge.Start(); err != nil {
+		return err
+	}
 
 	ch := make(chan os.Signal)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)

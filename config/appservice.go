@@ -13,6 +13,8 @@ type appservice struct {
 
 	Bot bot `yaml:"bot"`
 
+	Database database `yaml:"database"`
+
 	ASToken string `yaml:"as_token"`
 	HSToken string `yaml:"hs_token"`
 }
@@ -32,6 +34,10 @@ func (a *appservice) validate() error {
 
 	if a.Port == 0 {
 		a.Port = 29350
+	}
+
+	if err := a.Database.validate(); err != nil {
+		return err
 	}
 
 	if err := a.Bot.validate(); err != nil {

@@ -2,8 +2,10 @@ package bridge
 
 import (
 	"maunium.net/go/maulogger/v2"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
 type matrixHandler struct {
@@ -25,7 +27,7 @@ func (b *Bridge) setupEvents() {
 	b.eventProcessor.On(event.StateMember, b.matrixHandler.handleMembership)
 }
 
-func (mh *MatrixHandler) join(evt *event.Event, intent *appservice.IntentAPI) *mautrix.RespJoinedMembers {
+func (mh *matrixHandler) join(evt *event.Event, intent *appservice.IntentAPI) *mautrix.RespJoinedMembers {
 	resp, err := intent.JoinRoomByID(evt.RoomID)
 	if err != nil {
 		mh.log.Debugfln("Failed to join room %s as %s with invite from %s: %v", evt.RoomID, intent.UserID, evt.Sender, err)
@@ -74,7 +76,7 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 	}
 
 	// Grab the content of the event.
-	content := evt.Content.AsMessage()
+	content := evt.Content.AsMember()
 
 	// TODO: handle invites from ourselfs?
 

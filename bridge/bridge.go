@@ -10,6 +10,7 @@ import (
 	"maunium.net/go/mautrix/appservice"
 
 	"gitlab.com/beeper/discord/config"
+	"gitlab.com/beeper/discord/database"
 	"gitlab.com/beeper/discord/version"
 )
 
@@ -23,6 +24,7 @@ type Bridge struct {
 	log log.Logger
 
 	as             *appservice.AppService
+	db             *database.Database
 	eventProcessor *appservice.EventProcessor
 	matrixHandler  *matrixHandler
 	bot            *appservice.IntentAPI
@@ -49,9 +51,16 @@ func New(cfg *config.Config) (*Bridge, error) {
 	// Create the bot.
 	bot := appservice.BotIntent()
 
+	// Setup the database.
+	db, err := cfg.CreateDatabase(logger)
+	if err != nil {
+		return nil, err
+	}
+
 	// Create the bridge.
 	bridge := &Bridge{
 		as:     appservice,
+		db:     db,
 		bot:    bot,
 		config: cfg,
 		log:    logger,

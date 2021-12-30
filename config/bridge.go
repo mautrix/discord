@@ -8,6 +8,10 @@ import (
 type bridge struct {
 	UsernameTemplate string `yaml:"username_template"`
 
+	ManagementRoomText managementRoomText `yaml:"management_root_text"`
+
+	PortalMessageBuffer int `yaml:"portal_message_buffer"`
+
 	usernameTemplate *template.Template `yaml:"-"`
 }
 
@@ -18,8 +22,16 @@ func (b *bridge) validate() error {
 		b.UsernameTemplate = "Discord_{{.}}"
 	}
 
+	if b.PortalMessageBuffer <= 0 {
+		b.PortalMessageBuffer = 128
+	}
+
 	b.usernameTemplate, err = template.New("username").Parse(b.UsernameTemplate)
 	if err != nil {
+		return err
+	}
+
+	if err := b.ManagementRoomText.validate(); err != nil {
 		return err
 	}
 

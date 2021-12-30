@@ -3,11 +3,13 @@ package bridge
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
+	"maunium.net/go/mautrix/id"
 
 	"gitlab.com/beeper/discord/config"
 	"gitlab.com/beeper/discord/database"
@@ -28,6 +30,20 @@ type Bridge struct {
 	eventProcessor *appservice.EventProcessor
 	matrixHandler  *matrixHandler
 	bot            *appservice.IntentAPI
+
+	usersByMXID map[id.UserID]*User
+	usersByID   map[string]*User
+	usersLock   sync.Mutex
+
+	managementRooms     map[id.RoomID]*User
+	managementRoomsLock sync.Mutex
+
+	portalsByMXID map[id.RoomID]*Portal
+	portalsByID   map[database.PortalKey]*Portal
+	portalsLock   sync.Mutex
+
+	puppets     map[string]*Puppet
+	puppetsLock sync.Mutex
 }
 
 func New(cfg *config.Config) (*Bridge, error) {
@@ -64,6 +80,14 @@ func New(cfg *config.Config) (*Bridge, error) {
 		bot:    bot,
 		config: cfg,
 		log:    logger,
+
+		usersByMXID: make(map[id.UserID]*User),
+		usersByID:   make(map[string]*User),
+
+		managementRooms: make(map[id.RoomID]*User),
+
+		portalsByMXID: make(map[id.RoomID]*Portal),
+		portalsByID:   make(map[database.PortalKey]*Portal),
 	}
 
 	// Setup the event processors

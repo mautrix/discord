@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	log "maunium.net/go/maulogger/v2"
+
+	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
@@ -92,4 +94,16 @@ func (p *Portal) messageLoop() {
 			p.log.Infoln("got message", msg)
 		}
 	}
+}
+
+func (p *Portal) IsPrivateChat() bool {
+	return false
+}
+
+func (p *Portal) MainIntent() *appservice.IntentAPI {
+	if p.IsPrivateChat() {
+		return p.bridge.GetPuppetByID(p.Key.ID).DefaultIntent()
+	}
+
+	return p.bridge.bot
 }

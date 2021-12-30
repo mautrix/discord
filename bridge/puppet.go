@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/id"
 
 	"gitlab.com/beeper/discord/database"
@@ -84,4 +85,8 @@ func (b *Bridge) FormatPuppetMXID(did string) id.UserID {
 		b.config.Bridge.FormatUsername(did),
 		b.config.Homeserver.Domain,
 	)
+}
+
+func (p *Puppet) DefaultIntent() *appservice.IntentAPI {
+	return p.bridge.as.Intent(p.MXID)
 }

@@ -8,6 +8,8 @@ import (
 type bridge struct {
 	UsernameTemplate string `yaml:"username_template"`
 
+	CommandPrefix string `yaml:"command_prefix"`
+
 	ManagementRoomText managementRoomText `yaml:"management_root_text"`
 
 	PortalMessageBuffer int `yaml:"portal_message_buffer"`
@@ -29,6 +31,10 @@ func (b *bridge) validate() error {
 	b.usernameTemplate, err = template.New("username").Parse(b.UsernameTemplate)
 	if err != nil {
 		return err
+	}
+
+	if b.CommandPrefix == "" {
+		b.CommandPrefix = "!dis"
 	}
 
 	if err := b.ManagementRoomText.validate(); err != nil {

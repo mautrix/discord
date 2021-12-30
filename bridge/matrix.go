@@ -1,6 +1,8 @@
 package bridge
 
 import (
+	"strings"
+
 	"maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -13,6 +15,7 @@ type matrixHandler struct {
 	as     *appservice.AppService
 	bridge *Bridge
 	log    maulogger.Logger
+	cmd    *commandHandler
 }
 
 func (b *Bridge) setupEvents() {
@@ -22,6 +25,7 @@ func (b *Bridge) setupEvents() {
 		as:     b.as,
 		bridge: b,
 		log:    b.log.Sub("Matrix"),
+		cmd:    newCommandHandler(b),
 	}
 
 	b.eventProcessor.On(event.EventMessage, b.matrixHandler.handleMessage)
@@ -61,11 +65,31 @@ func (mh *matrixHandler) ignoreEvent(evt *event.Event) bool {
 }
 
 func (mh *matrixHandler) handleMessage(evt *event.Event) {
-	mh.log.Debugfln("received message from %q: %q", evt.Sender, evt.Content.AsMessage())
 	if mh.ignoreEvent(evt) {
 		return
 	}
 
+	user := mh.bridge.GetUserByMXID(evt.Sender)
+	if user == nil {
+		return
+	}
+
+	content := evt.Content.AsMessage()
+	content.RemoveReplyFallback()
+
+	if content.MsgType == event.MsgText {
+		prefix := mh.bridge.config.Bridge.CommandPrefix
+
+		hasPrefix := strings.HasPrefix(content.Body, prefix)
+		if hasPrefix {
+			content.Body = strings.TrimLeft(content.Body[len(prefix):], " ")
+		}
+
+		if hasPrefix || evt.RoomID == user.ManagementRoom {
+			mh.cmd.handle(evt.RoomID, user, content.Body, content.GetReplyTo())
+			return
+		}
+	}
 }
 
 func (mh *matrixHandler) joinAndCheckMembers(evt *event.Event, intent *appservice.IntentAPI) *mautrix.RespJoinedMembers {

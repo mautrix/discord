@@ -123,7 +123,7 @@ func (l *loginCmd) Run(g *globals) error {
 		return err
 	}
 
-	if err := g.user.login(user.Token); err != nil {
+	if err := g.user.Login(user.Token); err != nil {
 		fmt.Println(g.context.Stdout, "failed to login", err)
 
 		return err

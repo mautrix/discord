@@ -21,10 +21,10 @@ type User struct {
 	Session *discordgo.Session
 }
 
-// Login is just used to create the session and update the database and should
-// only be called by bridge.User.Login which will continue setting up event
-// handlers.
-func (u *User) Login(token string) error {
+// NewSession is just used to create the session and update the database. It
+// should only be called by bridge.User.Connect which will continue setting up
+// event handlers and everything else.
+func (u *User) NewSession(token string) error {
 	session, err := discordgo.New(token)
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (u *User) Scan(row Scannable) *User {
 	}
 
 	if token.Valid {
-		if err := u.Login(token.String); err != nil {
+		if err := u.NewSession(token.String); err != nil {
 			u.log.Errorln("Failed to login: ", err)
 		}
 	}

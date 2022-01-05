@@ -25,3 +25,19 @@ func (uq *UserQuery) GetByMXID(userID id.UserID) *User {
 
 	return uq.New().Scan(row)
 }
+
+func (uq *UserQuery) GetAll() []*User {
+	rows, err := uq.db.Query("SELECT mxid, id, management_room, token FROM user")
+	if err != nil || rows == nil {
+		return nil
+	}
+
+	defer rows.Close()
+
+	users := []*User{}
+	for rows.Next() {
+		users = append(users, uq.New().Scan(rows))
+	}
+
+	return users
+}

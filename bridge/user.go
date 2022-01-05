@@ -74,6 +74,36 @@ func (b *Bridge) NewUser(dbUser *database.User) *User {
 	return user
 }
 
+func (b *Bridge) getAllUsers() []*User {
+	b.usersLock.Lock()
+	defer b.usersLock.Unlock()
+
+	dbUsers := b.db.User.GetAll()
+	users := make([]*User, len(dbUsers))
+
+	for idx, dbUser := range dbUsers {
+		user, ok := b.usersByMXID[dbUser.MXID]
+		if !ok {
+			user = b.loadUser(dbUser, nil)
+		}
+		users[idx] = user
+	}
+
+	return users
+}
+
+func (b *Bridge) startUsers() {
+	b.log.Debugln("Starting users")
+
+	for _, user := range b.getAllUsers() {
+		// if user.ID != "" {
+		// 	haveSessions = true
+		// }
+
+		go user.Connect()
+	}
+}
+
 func (u *User) SetManagementRoom(roomID id.RoomID) {
 	u.bridge.managementRoomsLock.Lock()
 	defer u.bridge.managementRoomsLock.Unlock()
@@ -137,12 +167,16 @@ func (u *User) uploadQRCode(code string) (id.ContentURI, error) {
 	return resp.ContentURI, nil
 }
 
-func (u *User) login(token string) error {
-	err := u.User.Login(token)
+func (u *User) Login(token string) error {
+	err := u.User.NewSession(token)
 	if err != nil {
 		return err
 	}
 
+	return u.Connect()
+}
+
+func (u *User) Connect() error {
 	u.User.Session.AddHandler(u.messageHandler)
 
 	u.log.Warnln("logged in, opening websocket")

@@ -141,6 +141,8 @@ func (b *Bridge) Start() error {
 
 	go b.updateBotProfile()
 
+	go b.startUsers()
+
 	// Finally tell the appservice we're ready
 	b.as.Ready = true
 

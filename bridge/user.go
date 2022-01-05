@@ -1,7 +1,11 @@
 package bridge
 
 import (
+	"github.com/skip2/go-qrcode"
+
 	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/mautrix/appservice"
+	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
 	"gitlab.com/beeper/discord/database"
@@ -90,4 +94,44 @@ func (u *User) SetManagementRoom(roomID id.RoomID) {
 
 func (u *User) HasSession() bool {
 	return u.User.Session != nil
+}
+
+func (u *User) sendQRCode(bot *appservice.IntentAPI, roomID id.RoomID, code string) (id.EventID, error) {
+	url, err := u.uploadQRCode(code)
+	if err != nil {
+		return "", err
+	}
+
+	content := event.MessageEventContent{
+		MsgType: event.MsgImage,
+		Body:    code,
+		URL:     url.CUString(),
+	}
+
+	resp, err := bot.SendMessageEvent(roomID, event.EventMessage, &content)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.EventID, nil
+}
+
+func (u *User) uploadQRCode(code string) (id.ContentURI, error) {
+	qrCode, err := qrcode.Encode(code, qrcode.Low, 256)
+	if err != nil {
+		u.log.Errorln("Failed to encode QR code:", err)
+
+		return id.ContentURI{}, err
+	}
+
+	bot := u.bridge.as.BotClient()
+
+	resp, err := bot.UploadBytes(qrCode, "image/png")
+	if err != nil {
+		u.log.Errorln("Failed to upload QR code:", err)
+
+		return id.ContentURI{}, err
+	}
+
+	return resp.ContentURI, nil
 }

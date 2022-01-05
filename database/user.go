@@ -16,6 +16,9 @@ type User struct {
 	MXID id.UserID
 	ID   string
 
+	Discriminator string
+	Username      string
+
 	ManagementRoom id.RoomID
 
 	Session *discordgo.Session

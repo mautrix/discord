@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/alecthomas/kong"
@@ -11,6 +12,7 @@ import (
 	"maunium.net/go/mautrix/id"
 
 	"gitlab.com/beeper/discord/consts"
+	"gitlab.com/beeper/discord/remoteauth"
 	"gitlab.com/beeper/discord/version"
 )
 
@@ -45,6 +47,7 @@ type commands struct {
 	globals
 
 	Help    helpCmd    `kong:"cmd,help='Displays this message.'"`
+	Login   loginCmd   `kong:"cmd,help='Log in to Discord.'"`
 	Version versionCmd `kong:"cmd,help='Displays the version of the bridge.'"`
 }
 
@@ -76,6 +79,56 @@ type versionCmd struct{}
 
 func (c *versionCmd) Run(g *globals) error {
 	fmt.Fprintln(g.context.Stdout, consts.Name, version.String)
+
+	return nil
+}
+
+type loginCmd struct{}
+
+func (l *loginCmd) Run(g *globals) error {
+	client, err := remoteauth.New()
+	if err != nil {
+		return err
+	}
+
+	qrChan := make(chan string)
+	doneChan := make(chan struct{})
+
+	go func() {
+		code := <-qrChan
+
+		_, err := g.user.sendQRCode(g.bot, g.roomID, code)
+		if err != nil {
+			fmt.Fprintln(g.context.Stdout, "failed to generate the qrcode")
+
+			return
+		}
+	}()
+
+	ctx := context.Background()
+
+	if err := client.Dial(ctx, qrChan, doneChan); err != nil {
+		close(qrChan)
+		close(doneChan)
+
+		return err
+	}
+
+	<-doneChan
+
+	user, err := client.Result()
+	if err != nil {
+		fmt.Printfln(g.context.Stdout, "failed to log in")
+
+		return err
+	}
+
+	g.user.User.ID = user.UserID
+	g.user.User.Discriminator = user.Discriminator
+	g.user.User.Username = user.Username
+
+	g.handler.log.Warnln("users:", user)
+	g.handler.log.Warnln("err:", err)
 
 	return nil
 }

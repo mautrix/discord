@@ -16,12 +16,25 @@ type User struct {
 	MXID id.UserID
 	ID   string
 
-	Discriminator string
-	Username      string
-
 	ManagementRoom id.RoomID
 
 	Session *discordgo.Session
+}
+
+// Login is just used to create the session and update the database and should
+// only be called by bridge.User.Login which will continue setting up event
+// handlers.
+func (u *User) Login(token string) error {
+	session, err := discordgo.New(token)
+	if err != nil {
+		return err
+	}
+
+	u.Session = session
+
+	u.Update()
+
+	return nil
 }
 
 func (u *User) Scan(row Scannable) *User {
@@ -37,11 +50,8 @@ func (u *User) Scan(row Scannable) *User {
 	}
 
 	if token.Valid {
-		session, err := discordgo.New("Bearer " + token.String)
-		if err != nil {
-			u.log.Errorln("Failed to create discord session:", err)
-		} else {
-			u.Session = session
+		if err := u.Login(token.String); err != nil {
+			u.log.Errorln("Failed to login: ", err)
 		}
 	}
 

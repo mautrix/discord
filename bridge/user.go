@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"github.com/bwmarrin/discordgo"
 	"github.com/skip2/go-qrcode"
 
 	log "maunium.net/go/maulogger/v2"
@@ -134,4 +135,21 @@ func (u *User) uploadQRCode(code string) (id.ContentURI, error) {
 	}
 
 	return resp.ContentURI, nil
+}
+
+func (u *User) login(token string) error {
+	err := u.User.Login(token)
+	if err != nil {
+		return err
+	}
+
+	u.User.Session.AddHandler(u.messageHandler)
+
+	u.log.Warnln("logged in, opening websocket")
+
+	return u.User.Session.Open()
+}
+
+func (u *User) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
+	u.log.Warnln("received message", m)
 }

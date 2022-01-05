@@ -118,17 +118,16 @@ func (l *loginCmd) Run(g *globals) error {
 
 	user, err := client.Result()
 	if err != nil {
-		fmt.Printfln(g.context.Stdout, "failed to log in")
+		fmt.Println(g.context.Stdout, "failed to log in")
 
 		return err
 	}
 
-	g.user.User.ID = user.UserID
-	g.user.User.Discriminator = user.Discriminator
-	g.user.User.Username = user.Username
+	if err := g.user.login(user.Token); err != nil {
+		fmt.Println(g.context.Stdout, "failed to login", err)
 
-	g.handler.log.Warnln("users:", user)
-	g.handler.log.Warnln("err:", err)
+		return err
+	}
 
 	return nil
 }

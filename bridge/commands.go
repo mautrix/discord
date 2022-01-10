@@ -129,5 +129,8 @@ func (l *loginCmd) Run(g *globals) error {
 		return err
 	}
 
+	g.user.ID = user.UserID
+	g.user.Update()
+
 	return nil
 }

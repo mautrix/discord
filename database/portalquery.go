@@ -21,8 +21,8 @@ func (pq *PortalQuery) GetAll() []*Portal {
 	return pq.getAll("SELECT * FROM portal")
 }
 
-func (pq *PortalQuery) GetByDID(key PortalKey) *Portal {
-	return pq.get("SELECT * FROM portal WHERE did=$1 AND receiver=$2", key.ID, key.Receiver)
+func (pq *PortalQuery) GetByID(key PortalKey) *Portal {
+	return pq.get("SELECT * FROM portal WHERE id=$1 AND channel_id=$2", key.ID, key.ChannelID)
 }
 
 func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
@@ -30,7 +30,7 @@ func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
 }
 
 func (pq *PortalQuery) GetAllByDID(did string) []*Portal {
-	return pq.getAll("SELECT * FROM portal WHERE did=$1", did)
+	return pq.getAll("SELECT * FROM portal WHERE id=$1", did)
 }
 
 func (pq *PortalQuery) getAll(query string, args ...interface{}) []*Portal {

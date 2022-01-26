@@ -1,13 +1,20 @@
 package database
 
 type PortalKey struct {
-	ID       string
-	Receiver string
+	ID        string
+	ChannelID string
+}
+
+func NewPortalKey(id, channelID string) PortalKey {
+	return PortalKey{
+		ID:        id,
+		ChannelID: channelID,
+	}
 }
 
 func (key PortalKey) String() string {
-	if key.Receiver == key.ID {
+	if key.ChannelID == key.ID {
 		return key.ID
 	}
-	return key.ID + "-" + key.Receiver
+	return key.ID + "-" + key.ChannelID
 }

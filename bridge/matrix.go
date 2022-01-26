@@ -78,7 +78,7 @@ func (mh *matrixHandler) handleMessage(evt *event.Event) {
 	content.RemoveReplyFallback()
 
 	if content.MsgType == event.MsgText {
-		prefix := mh.bridge.config.Bridge.CommandPrefix
+		prefix := mh.bridge.Config.Bridge.CommandPrefix
 
 		hasPrefix := strings.HasPrefix(content.Body, prefix)
 		if hasPrefix {
@@ -150,16 +150,16 @@ func (mh *matrixHandler) handleBotInvite(evt *event.Event) {
 
 	// Wait to send the welcome message until we're sure we're not in an empty
 	// room.
-	mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.config.Bridge.ManagementRoomText.Welcome)
+	mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.Welcome)
 
 	if evt.RoomID == user.ManagementRoom {
 		if user.HasSession() {
-			mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.config.Bridge.ManagementRoomText.Connected)
+			mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.Connected)
 		} else {
-			mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.config.Bridge.ManagementRoomText.NotConnected)
+			mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.NotConnected)
 		}
 
-		additionalHelp := mh.bridge.config.Bridge.ManagementRoomText.AdditionalHelp
+		additionalHelp := mh.bridge.Config.Bridge.ManagementRoomText.AdditionalHelp
 		if additionalHelp != "" {
 			mh.sendNoticeWithmarkdown(evt.RoomID, additionalHelp)
 		}
@@ -200,8 +200,6 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 		if content.Membership == event.MembershipInvite && puppet != nil {
 			mh.handlePuppetInvite(evt, user, puppet)
 		}
-
-		mh.log.Warnln("no existing portal for", evt.RoomID)
 
 		return
 	}

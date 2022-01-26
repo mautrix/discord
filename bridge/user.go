@@ -1,10 +1,14 @@
 package bridge
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/skip2/go-qrcode"
 
 	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -177,13 +181,131 @@ func (u *User) Login(token string) error {
 }
 
 func (u *User) Connect() error {
+	u.log.Debugln("connecting to discord")
+
+	// get our user info
+	user, err := u.User.Session.User("@me")
+	if err != nil {
+		return err
+	}
+
+	u.User.ID = user.ID
+
+	// Add our event handlers
+	u.User.Session.AddHandler(u.connectedHandler)
+	u.User.Session.AddHandler(u.disconnectedHandler)
+
+	u.User.Session.AddHandler(u.channelCreateHandler)
+	u.User.Session.AddHandler(u.channelDeleteHandler)
+	u.User.Session.AddHandler(u.channelPinsUpdateHandler)
+	u.User.Session.AddHandler(u.channelUpdateHandler)
+
 	u.User.Session.AddHandler(u.messageHandler)
 
-	u.log.Warnln("logged in, opening websocket")
+	// u.User.Session.Identify.Capabilities = 125
+	// // Setup our properties
+	// u.User.Session.Identify.Properties = discordgo.IdentifyProperties{
+	// 	OS:                "Windows",
+	// 	OSVersion:         "10",
+	// 	Browser:           "Chrome",
+	// 	BrowserUserAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36",
+	// 	BrowserVersion:    "92.0.4515.159",
+	// 	Referrer:          "https://discord.com/channels/@me",
+	// 	ReferringDomain:   "discord.com",
+	// 	ClientBuildNumber: "83364",
+	// 	ReleaseChannel:    "stable",
+	// }
+
+	u.User.Session.Identify.Presence.Status = "online"
 
 	return u.User.Session.Open()
 }
 
+func (u *User) connectedHandler(s *discordgo.Session, c *discordgo.Connect) {
+	u.log.Debugln("connected to discord")
+}
+
+func (u *User) disconnectedHandler(s *discordgo.Session, d *discordgo.Disconnect) {
+	u.log.Debugln("disconnected from discord")
+}
+
+func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCreate) {
+	key := database.NewPortalKey(u.User.ID, c.ID)
+	portal := u.bridge.GetPortalByID(key)
+
+	portal.Name = c.Name
+	portal.Topic = c.Topic
+
+	if c.Icon != "" {
+		u.log.Debugln("channel icon", c.Icon)
+	}
+
+	portal.Update()
+
+	portal.createMatrixRoom(u, c.Channel)
+}
+
+func (u *User) channelDeleteHandler(s *discordgo.Session, c *discordgo.ChannelDelete) {
+	u.log.Debugln("channel delete handler")
+}
+
+func (u *User) channelPinsUpdateHandler(s *discordgo.Session, c *discordgo.ChannelPinsUpdate) {
+	u.log.Debugln("channel pins update")
+}
+
+func (u *User) channelUpdateHandler(s *discordgo.Session, c *discordgo.ChannelUpdate) {
+	key := database.NewPortalKey(u.User.ID, c.ID)
+	portal := u.bridge.GetPortalByID(key)
+
+	portal.Name = c.Name
+	portal.Topic = c.Topic
+	u.log.Debugln("channel icon", c.Icon)
+	portal.Update()
+
+	u.log.Debugln("channel update")
+}
+
 func (u *User) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	u.log.Warnln("received message", m)
+	if m.GuildID != "" {
+		u.log.Debugln("ignoring guild build messaged")
+
+		return
+	}
+
+	key := database.NewPortalKey(u.User.ID, m.ChannelID)
+	portal := u.bridge.GetPortalByID(key)
+
+	msg := portalDiscordMessage{
+		msg:  m,
+		user: u,
+	}
+
+	portal.discordMessages <- msg
+}
+
+func (u *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isDirect bool) bool {
+	ret := false
+
+	inviteContent := event.Content{
+		Parsed: &event.MemberEventContent{
+			Membership: event.MembershipInvite,
+			IsDirect:   isDirect,
+		},
+		Raw: map[string]interface{}{},
+	}
+
+	resp, err := intent.SendStateEvent(roomID, event.StateMember, u.MXID.String(), &inviteContent)
+	u.log.Warnfln("resp: %#v", resp)
+
+	var httpErr mautrix.HTTPError
+	if err != nil && errors.As(err, &httpErr) && httpErr.RespError != nil && strings.Contains(httpErr.RespError.Err, "is already in the room") {
+		u.bridge.StateStore.SetMembership(roomID, u.MXID, event.MembershipJoin)
+		ret = true
+	} else if err != nil {
+		u.log.Warnfln("Failed to invite user to %s: %v", roomID, err)
+	} else {
+		ret = true
+	}
+
+	return ret
 }

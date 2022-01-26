@@ -54,3 +54,16 @@ func (p *Puppet) Insert() {
 		p.log.Warnfln("Failed to insert %s: %v", p.ID, err)
 	}
 }
+
+func (p *Puppet) Update() {
+	query := "UPDATE puppet" +
+		" SET display_name=$1, avatar=$2, avatar_url=$3, enable_presence=$4" +
+		" WHERE id=$5"
+
+	_, err := p.db.Exec(query, p.DisplayName, p.Avatar, p.AvatarURL.String(),
+		p.EnablePresence, p.ID)
+
+	if err != nil {
+		p.log.Warnfln("Failed to update %s: %v", p.ID, err)
+	}
+}

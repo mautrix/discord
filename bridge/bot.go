@@ -5,7 +5,7 @@ import (
 )
 
 func (b *Bridge) updateBotProfile() {
-	cfg := b.config.Appservice.Bot
+	cfg := b.Config.Appservice.Bot
 
 	// Set the bot's avatar.
 	if cfg.Avatar != "" {

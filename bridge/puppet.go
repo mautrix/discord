@@ -3,6 +3,7 @@ package bridge
 import (
 	"fmt"
 	"regexp"
+	"sync"
 
 	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/appservice"
@@ -18,6 +19,8 @@ type Puppet struct {
 	log    log.Logger
 
 	MXID id.UserID
+
+	syncLock sync.Mutex
 }
 
 var userIDRegex *regexp.Regexp
@@ -36,8 +39,8 @@ func (b *Bridge) ParsePuppetMXID(mxid id.UserID) (string, bool) {
 	if userIDRegex == nil {
 		pattern := fmt.Sprintf(
 			"^@%s:%s$",
-			b.config.Bridge.FormatUsername("([0-9]+)"),
-			b.config.Homeserver.Domain,
+			b.Config.Bridge.FormatUsername("([0-9]+)"),
+			b.Config.Homeserver.Domain,
 		)
 
 		userIDRegex = regexp.MustCompile(pattern)
@@ -82,11 +85,27 @@ func (b *Bridge) GetPuppetByID(id string) *Puppet {
 
 func (b *Bridge) FormatPuppetMXID(did string) id.UserID {
 	return id.NewUserID(
-		b.config.Bridge.FormatUsername(did),
-		b.config.Homeserver.Domain,
+		b.Config.Bridge.FormatUsername(did),
+		b.Config.Homeserver.Domain,
 	)
 }
 
 func (p *Puppet) DefaultIntent() *appservice.IntentAPI {
 	return p.bridge.as.Intent(p.MXID)
+}
+
+func (p *Puppet) SyncContact(user *User) {
+	p.syncLock.Lock()
+	defer p.syncLock.Unlock()
+
+	dUser, err := user.Session.User(p.ID)
+	if err != nil {
+		p.log.Warnfln("failed to sync puppet %s: %v", p.ID, err)
+
+		return
+	}
+
+	p.DisplayName = p.bridge.Config.Bridge.FormatDisplayname(dUser)
+
+	p.Update()
 }

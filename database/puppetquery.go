@@ -19,7 +19,7 @@ func (pq *PuppetQuery) New() *Puppet {
 }
 
 func (pq *PuppetQuery) Get(id string) *Puppet {
-	row := pq.db.QueryRow("SELECT id, displayname, avatar, avatar_url, enable_presence FROM puppet WHERE id=$1", id)
+	row := pq.db.QueryRow("SELECT id, display_name, avatar, avatar_url, enable_presence FROM puppet WHERE id=$1", id)
 	if row == nil {
 		return nil
 	}

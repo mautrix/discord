@@ -1,12 +1,15 @@
 package config
 
 import (
-	"bytes"
+	"strings"
 	"text/template"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 type bridge struct {
-	UsernameTemplate string `yaml:"username_template"`
+	UsernameTemplate    string `yaml:"username_template"`
+	DisplaynameTemplate string `yaml:"displayname_template"`
 
 	CommandPrefix string `yaml:"command_prefix"`
 
@@ -14,7 +17,8 @@ type bridge struct {
 
 	PortalMessageBuffer int `yaml:"portal_message_buffer"`
 
-	usernameTemplate *template.Template `yaml:"-"`
+	usernameTemplate    *template.Template `yaml:"-"`
+	displaynameTemplate *template.Template `yaml:"-"`
 }
 
 func (b *bridge) validate() error {
@@ -24,13 +28,22 @@ func (b *bridge) validate() error {
 		b.UsernameTemplate = "Discord_{{.}}"
 	}
 
-	if b.PortalMessageBuffer <= 0 {
-		b.PortalMessageBuffer = 128
-	}
-
 	b.usernameTemplate, err = template.New("username").Parse(b.UsernameTemplate)
 	if err != nil {
 		return err
+	}
+
+	if b.DisplaynameTemplate == "" {
+		b.DisplaynameTemplate = "{{.Username}}#{{.Discriminator}} (D){{if .Bot}} (bot){{end}}"
+	}
+
+	b.displaynameTemplate, err = template.New("displayname").Parse(b.DisplaynameTemplate)
+	if err != nil {
+		return err
+	}
+
+	if b.PortalMessageBuffer <= 0 {
+		b.PortalMessageBuffer = 128
 	}
 
 	if b.CommandPrefix == "" {
@@ -60,9 +73,35 @@ func (b *bridge) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 func (b bridge) FormatUsername(userid string) string {
-	var buffer bytes.Buffer
+	var buffer strings.Builder
 
 	b.usernameTemplate.Execute(&buffer, userid)
+
+	return buffer.String()
+}
+
+type simplfiedUser struct {
+	Username      string
+	Discriminator string
+	Locale        string
+	Verified      bool
+	MFAEnabled    bool
+	Bot           bool
+	System        bool
+}
+
+func (b bridge) FormatDisplayname(user *discordgo.User) string {
+	var buffer strings.Builder
+
+	b.displaynameTemplate.Execute(&buffer, simplfiedUser{
+		Username:      user.Username,
+		Discriminator: user.Discriminator,
+		Locale:        user.Locale,
+		Verified:      user.Verified,
+		MFAEnabled:    user.MFAEnabled,
+		Bot:           user.Bot,
+		System:        user.System,
+	})
 
 	return buffer.String()
 }

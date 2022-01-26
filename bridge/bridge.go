@@ -21,7 +21,7 @@ const (
 )
 
 type Bridge struct {
-	config *config.Config
+	Config *config.Config
 
 	log log.Logger
 
@@ -44,6 +44,8 @@ type Bridge struct {
 
 	puppets     map[string]*Puppet
 	puppetsLock sync.Mutex
+
+	StateStore *database.SQLStateStore
 }
 
 func New(cfg *config.Config) (*Bridge, error) {
@@ -73,12 +75,17 @@ func New(cfg *config.Config) (*Bridge, error) {
 		return nil, err
 	}
 
+	// Create the state store
+	logger.Debugln("Initializing state store")
+	stateStore := database.NewSQLStateStore(db)
+	appservice.StateStore = stateStore
+
 	// Create the bridge.
 	bridge := &Bridge{
 		as:     appservice,
 		db:     db,
 		bot:    bot,
-		config: cfg,
+		Config: cfg,
 		log:    logger,
 
 		usersByMXID: make(map[id.UserID]*User),
@@ -88,6 +95,10 @@ func New(cfg *config.Config) (*Bridge, error) {
 
 		portalsByMXID: make(map[id.RoomID]*Portal),
 		portalsByID:   make(map[database.PortalKey]*Portal),
+
+		puppets: make(map[string]*Puppet),
+
+		StateStore: stateStore,
 	}
 
 	// Setup the event processors

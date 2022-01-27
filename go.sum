@@ -30,6 +30,8 @@ github.com/gorilla/websocket v1.4.2 h1:+/TMaTYc4QFitKJxsQ7Yye35DkWvkdLcvGKqM+x0U
 github.com/gorilla/websocket v1.4.2/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/grimmy/discordgo v0.23.3-0.20220126043435-7470d1aacd64 h1:KrZb8UPGlmlnUx+eLQDHWnt1uPkdCUeVgUgFRFFdR1o=
 github.com/grimmy/discordgo v0.23.3-0.20220126043435-7470d1aacd64/go.mod h1:c1WtWUGN6nREDmzIpyTp/iD3VYt4Fpx+bVyfBG7JE+M=
+github.com/grimmy/discordgo v0.23.3-0.20220127181915-5589d3741f1b h1:KHIGkNKPsAMOZljqSn/gJRtiXn4+FjbWuEwV+ynL0iU=
+github.com/grimmy/discordgo v0.23.3-0.20220127181915-5589d3741f1b/go.mod h1:FvaIclGb1/7p5Z+Zj4L9/swAEKL7njB7bDreLdN+JDU=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/jessevdk/go-flags v0.0.0-20141203071132-1679536dcc89/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
 github.com/jrick/logrotate v1.0.0/go.mod h1:LNinyqDIJnpAur+b8yyulnQw/wDuN1+BYKlTRt3OuAQ=

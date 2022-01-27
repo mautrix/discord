@@ -19,6 +19,7 @@ require (
 require (
 	github.com/btcsuite/btcutil v1.0.2 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
+	github.com/grimmy/discordgo v0.23.3-0.20220127181915-5589d3741f1b // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect

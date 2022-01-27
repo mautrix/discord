@@ -264,11 +264,6 @@ func (p *Portal) handleMessage(msg *discordgo.Message) {
 	}
 
 	// TODO: Check if we already got the message
-
-	p.log.Debugln("content", msg.Content)
-	p.log.Debugln("embeds", msg.Embeds)
-	p.log.Debugln("msg", msg)
-
 	content := &event.MessageEventContent{
 		Body:    msg.Content,
 		MsgType: event.MsgText,

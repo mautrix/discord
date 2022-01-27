@@ -294,8 +294,7 @@ func (u *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isD
 		Raw: map[string]interface{}{},
 	}
 
-	resp, err := intent.SendStateEvent(roomID, event.StateMember, u.MXID.String(), &inviteContent)
-	u.log.Warnfln("resp: %#v", resp)
+	_, err := intent.SendStateEvent(roomID, event.StateMember, u.MXID.String(), &inviteContent)
 
 	var httpErr mautrix.HTTPError
 	if err != nil && errors.As(err, &httpErr) && httpErr.RespError != nil && strings.Contains(httpErr.RespError.Err, "is already in the room") {

@@ -199,11 +199,11 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 		return
 	}
 
+	puppet := mh.bridge.GetPuppetByMXID(id.UserID(evt.GetStateKey()))
+
 	// Load or create a new portal.
 	portal := mh.bridge.GetPortalByMXID(evt.RoomID)
 	if portal == nil {
-		puppet := mh.bridge.GetPuppetByMXID(id.UserID(evt.GetStateKey()))
-
 		if content.Membership == event.MembershipInvite && puppet != nil {
 			mh.handlePuppetInvite(evt, user, puppet)
 		}
@@ -213,7 +213,20 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 
 	isSelf := id.UserID(evt.GetStateKey()) == evt.Sender
 
-	if content.Membership == event.MembershipInvite && !isSelf {
-		portal.HandleMatrixInvite(user, evt)
+	if content.Membership == event.MembershipLeave {
+		if evt.Unsigned.PrevContent != nil {
+			_ = evt.Unsigned.PrevContent.ParseRaw(evt.Type)
+			prevContent, ok := evt.Unsigned.PrevContent.Parsed.(*event.MemberEventContent)
+			if ok && prevContent.Membership != "join" {
+				return
+			}
+		}
+		if isSelf {
+			portal.handleMatrixLeave(user)
+		} else if puppet != nil {
+			portal.handleMatrixKick(user, puppet)
+		}
+	} else if content.Membership == event.MembershipInvite && !isSelf {
+		portal.handleMatrixInvite(user, evt)
 	}
 }

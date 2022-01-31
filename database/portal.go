@@ -68,3 +68,11 @@ func (p *Portal) Update() {
 		p.log.Warnfln("Failed to update %s: %v", p.Key, err)
 	}
 }
+
+func (p *Portal) Delete() {
+	query := "DELETE FROM portal WHERE channel_id=$1 AND receiver=$2"
+	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver)
+	if err != nil {
+		p.log.Warnfln("Failed to delete %s: %v", p.Key, err)
+	}
+}

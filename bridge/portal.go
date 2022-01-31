@@ -136,7 +136,7 @@ func (b *Bridge) NewPortal(dbPortal *database.Portal) *Portal {
 	return portal
 }
 
-func (p *Portal) HandleMatrixInvite(sender *User, evt *event.Event) {
+func (p *Portal) handleMatrixInvite(sender *User, evt *event.Event) {
 	// Look up an existing puppet or create a new one.
 	puppet := p.bridge.GetPuppetByMXID(id.UserID(evt.GetStateKey()))
 	if puppet != nil {
@@ -353,4 +353,114 @@ func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 
 	sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
 	p.log.Debugln("sent message:", content.Body)
+}
+
+func (p *Portal) handleMatrixLeave(sender *User) {
+	if p.IsPrivateChat() {
+		p.log.Debugln("User left private chat portal, cleaning up and deleting...")
+		p.delete()
+		p.cleanup(false)
+
+		return
+	}
+
+	// TODO: figure out how to close a dm from the API.
+
+	p.cleanupIfEmpty()
+}
+
+func (p *Portal) delete() {
+	p.Portal.Delete()
+	p.bridge.portalsLock.Lock()
+	delete(p.bridge.portalsByID, p.Key)
+
+	if p.MXID != "" {
+		delete(p.bridge.portalsByMXID, p.MXID)
+	}
+
+	p.bridge.portalsLock.Unlock()
+}
+
+func (p *Portal) cleanupIfEmpty() {
+	users, err := p.getMatrixUsers()
+	if err != nil {
+		p.log.Errorfln("Failed to get Matrix user list to determine if portal needs to be cleaned up: %v", err)
+
+		return
+	}
+
+	if len(users) == 0 {
+		p.log.Infoln("Room seems to be empty, cleaning up...")
+		p.delete()
+		p.cleanup(false)
+	}
+}
+
+func (p *Portal) cleanup(puppetsOnly bool) {
+	if p.MXID != "" {
+		return
+	}
+
+	if p.IsPrivateChat() {
+		_, err := p.MainIntent().LeaveRoom(p.MXID)
+		if err != nil {
+			p.log.Warnln("Failed to leave private chat portal with main intent:", err)
+		}
+
+		return
+	}
+
+	intent := p.MainIntent()
+	members, err := intent.JoinedMembers(p.MXID)
+	if err != nil {
+		p.log.Errorln("Failed to get portal members for cleanup:", err)
+
+		return
+	}
+
+	for member := range members.Joined {
+		if member == intent.UserID {
+			continue
+		}
+
+		puppet := p.bridge.GetPuppetByMXID(member)
+		if p != nil {
+			_, err = puppet.DefaultIntent().LeaveRoom(p.MXID)
+			if err != nil {
+				p.log.Errorln("Error leaving as puppet while cleaning up portal:", err)
+			}
+		} else if !puppetsOnly {
+			_, err = intent.KickUser(p.MXID, &mautrix.ReqKickUser{UserID: member, Reason: "Deleting portal"})
+			if err != nil {
+				p.log.Errorln("Error kicking user while cleaning up portal:", err)
+			}
+		}
+	}
+
+	_, err = intent.LeaveRoom(p.MXID)
+	if err != nil {
+		p.log.Errorln("Error leaving with main intent while cleaning up portal:", err)
+	}
+}
+
+func (p *Portal) getMatrixUsers() ([]id.UserID, error) {
+	members, err := p.MainIntent().JoinedMembers(p.MXID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get member list: %w", err)
+	}
+
+	var users []id.UserID
+	for userID := range members.Joined {
+		_, isPuppet := p.bridge.ParsePuppetMXID(userID)
+		if !isPuppet && userID != p.bridge.bot.UserID {
+			users = append(users, userID)
+		}
+	}
+
+	return users, nil
+}
+
+func (p *Portal) handleMatrixKick(sender *User, target *Puppet) {
+	// TODO: need to learn how to make this happen as discordgo proper doesn't
+	// support group dms and it looks like it's a binary blob.
 }

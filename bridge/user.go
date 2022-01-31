@@ -68,6 +68,18 @@ func (b *Bridge) GetUserByMXID(userID id.UserID) *User {
 	return user
 }
 
+func (b *Bridge) GetUserByID(id string) *User {
+	b.usersLock.Lock()
+	defer b.usersLock.Unlock()
+
+	user, ok := b.usersByID[id]
+	if !ok {
+		return b.loadUser(b.db.User.GetByID(id), nil)
+	}
+
+	return user
+}
+
 func (b *Bridge) NewUser(dbUser *database.User) *User {
 	user := &User{
 		User:   dbUser,
@@ -230,7 +242,7 @@ func (u *User) disconnectedHandler(s *discordgo.Session, d *discordgo.Disconnect
 }
 
 func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCreate) {
-	key := database.NewPortalKey(u.User.ID, c.ID)
+	key := database.NewPortalKey(c.ID, u.User.ID)
 	portal := u.bridge.GetPortalByID(key)
 
 	portal.Name = c.Name
@@ -254,7 +266,7 @@ func (u *User) channelPinsUpdateHandler(s *discordgo.Session, c *discordgo.Chann
 }
 
 func (u *User) channelUpdateHandler(s *discordgo.Session, c *discordgo.ChannelUpdate) {
-	key := database.NewPortalKey(u.User.ID, c.ID)
+	key := database.NewPortalKey(c.ID, u.User.ID)
 	portal := u.bridge.GetPortalByID(key)
 
 	portal.Name = c.Name
@@ -272,7 +284,7 @@ func (u *User) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) 
 		return
 	}
 
-	key := database.NewPortalKey(u.User.ID, m.ChannelID)
+	key := database.NewPortalKey(m.ChannelID, u.User.ID)
 	portal := u.bridge.GetPortalByID(key)
 
 	msg := portalDiscordMessage{

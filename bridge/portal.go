@@ -31,7 +31,7 @@ type Portal struct {
 	bridge *Bridge
 	log    log.Logger
 
-	channelType discordgo.ChannelType
+	channel *discordgo.Channel
 
 	roomCreateLock sync.Mutex
 
@@ -92,6 +92,35 @@ func (b *Bridge) GetPortalByID(key database.PortalKey) *Portal {
 	return portal
 }
 
+func (b *Bridge) GetAllPortals() []*Portal {
+	return b.dbPortalsToPortals(b.db.Portal.GetAll())
+}
+
+func (b *Bridge) GetAllPortalsByID(id string) []*Portal {
+	return b.dbPortalsToPortals(b.db.Portal.GetAllByID(id))
+}
+
+func (b *Bridge) dbPortalsToPortals(dbPortals []*database.Portal) []*Portal {
+	b.portalsLock.Lock()
+	defer b.portalsLock.Unlock()
+
+	output := make([]*Portal, len(dbPortals))
+	for index, dbPortal := range dbPortals {
+		if dbPortal == nil {
+			continue
+		}
+
+		portal, ok := b.portalsByID[dbPortal.Key]
+		if !ok {
+			portal = b.loadPortal(dbPortal, nil)
+		}
+
+		output[index] = portal
+	}
+
+	return output
+}
+
 func (b *Bridge) NewPortal(dbPortal *database.Portal) *Portal {
 	portal := &Portal{
 		Portal: dbPortal,
@@ -121,26 +150,48 @@ func (p *Portal) messageLoop() {
 	for {
 		select {
 		case msg := <-p.matrixMessages:
-			p.log.Infoln("got matrix message", msg)
+			p.handleMatrixMessages(msg)
 		case msg := <-p.discordMessages:
-			p.handleDiscordMessage(msg)
+			p.handleDiscordMessages(msg)
 		}
 	}
 }
 
 func (p *Portal) IsPrivateChat() bool {
-	return (p.channelType == discordgo.ChannelTypeDM || p.channelType == discordgo.ChannelTypeGroupDM)
+	if p.channel != nil {
+		return p.channel.Type == discordgo.ChannelTypeDM
+	}
+
+	return false
 }
 
 func (p *Portal) MainIntent() *appservice.IntentAPI {
-	if p.IsPrivateChat() {
-		return p.bridge.GetPuppetByID(p.Key.ID).DefaultIntent()
+	if p.IsPrivateChat() && p.channel != nil && len(p.channel.Recipients) == 1 {
+		return p.bridge.GetPuppetByID(p.channel.Recipients[0].ID).DefaultIntent()
 	}
 
 	return p.bridge.bot
 }
 
+func (p *Portal) getMessagePuppet(user *User, message *discordgo.Message) *Puppet {
+	p.log.Debugf("getMessagePuppet")
+	if message.Author.ID == user.ID {
+		return p.bridge.GetPuppetByID(user.ID)
+	}
+
+	puppet := p.bridge.GetPuppetByID(message.Author.ID)
+	puppet.SyncContact(user)
+
+	return puppet
+}
+
+func (p *Portal) getMessageIntent(user *User, message *discordgo.Message) *appservice.IntentAPI {
+	return p.getMessagePuppet(user, message).IntentFor(p)
+}
+
 func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error {
+	p.channel = channel
+
 	p.roomCreateLock.Lock()
 	defer p.roomCreateLock.Unlock()
 
@@ -149,23 +200,21 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 		return nil
 	}
 
-	p.channelType = channel.Type
-
 	intent := p.MainIntent()
 	if err := intent.EnsureRegistered(); err != nil {
 		return err
 	}
 
-	if p.IsPrivateChat() {
-		puppet := p.bridge.GetPuppetByID(p.Key.ID)
-		puppet.SyncContact(user)
+	// if p.IsPrivateChat() {
+	p.Name = channel.Name
+	p.Topic = channel.Topic
 
-		p.Name = puppet.DisplayName
-		p.Avatar = puppet.Avatar
-		p.AvatarURL = puppet.AvatarURL
-	}
+	// TODO: get avatars figured out
+	// p.Avatar = puppet.Avatar
+	// p.AvatarURL = puppet.AvatarURL
+	// }
 
-	p.log.Infoln("Creating Matrix room. Info source:", p.Portal.Key.ID)
+	p.log.Infoln("Creating Matrix room for channel:", p.Portal.Key.ChannelID)
 
 	initialState := []*event.Event{}
 
@@ -199,20 +248,12 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 	p.bridge.portalsByMXID[p.MXID] = p
 	p.bridge.portalsLock.Unlock()
 
+	p.log.Debugln("inviting user", user)
 	p.ensureUserInvited(user)
 
-	// if p.IsPrivateChat() {
-	// 	puppet := user.bridge.GetPuppetByID(p.Key.ID)
-
-	// if p.bridge.Config.Bridge.Encryption.Default {
-	// 	err = portal.bridge.Bot.EnsureJoined(portal.MXID)
-	// 	if err != nil {
-	// 		portal.log.Errorln("Failed to join created portal with bridge bot for e2be:", err)
-	// 	}
-	// }
-
-	// user.UpdateDirectChats(map[id.UserID][]id.RoomID{puppet.MXID: {portal.MXID}})
-	// }
+	if p.IsPrivateChat() {
+		p.syncParticipants(user, channel.Recipients)
+	}
 
 	firstEventResp, err := p.MainIntent().SendMessageEvent(p.MXID, portalCreationDummyEvent, struct{}{})
 	if err != nil {
@@ -225,7 +266,7 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 	return nil
 }
 
-func (p *Portal) handleDiscordMessage(msg portalDiscordMessage) {
+func (p *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	if p.MXID == "" {
 		p.log.Debugln("Creating Matrix room from incoming message")
 
@@ -246,7 +287,7 @@ func (p *Portal) handleDiscordMessage(msg portalDiscordMessage) {
 
 	switch msg.msg.(type) {
 	case *discordgo.MessageCreate:
-		p.handleMessage(msg.msg.(*discordgo.MessageCreate).Message)
+		p.handleDiscordMessage(msg.msg.(*discordgo.MessageCreate).Message)
 	default:
 		p.log.Warnln("unknown message type")
 	}
@@ -256,10 +297,9 @@ func (p *Portal) ensureUserInvited(user *User) bool {
 	return user.ensureInvited(p.MainIntent(), p.MXID, p.IsPrivateChat())
 }
 
-func (p *Portal) handleMessage(msg *discordgo.Message) {
+func (p *Portal) handleDiscordMessage(msg *discordgo.Message) {
 	if p.MXID == "" {
 		p.log.Warnln("handle message called without a valid portal")
-
 		return
 	}
 
@@ -272,4 +312,45 @@ func (p *Portal) handleMessage(msg *discordgo.Message) {
 	resp, err := p.MainIntent().SendMessageEvent(p.MXID, event.EventMessage, content)
 	p.log.Warnln("response:", resp)
 	p.log.Warnln("error:", err)
+}
+
+func (p *Portal) syncParticipants(source *User, participants []*discordgo.User) {
+	for _, participant := range participants {
+		puppet := p.bridge.GetPuppetByID(participant.ID)
+		puppet.SyncContact(source)
+
+		user := p.bridge.GetUserByID(participant.ID)
+		if user != nil {
+			p.ensureUserInvited(user)
+		}
+
+		if user == nil || !puppet.IntentFor(p).IsCustomPuppet {
+			if err := puppet.IntentFor(p).EnsureJoined(p.MXID); err != nil {
+				p.log.Warnfln("Failed to make puppet of %s join %s: %v", participant.ID, p.MXID, err)
+			}
+		}
+	}
+}
+
+func (p *Portal) handleMatrixMessages(msg portalMatrixMessage) {
+	switch msg.evt.Type {
+	case event.EventMessage:
+		p.handleMatrixMessage(msg.user, msg.evt)
+	}
+}
+
+func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
+	if p.IsPrivateChat() && sender.ID != p.Key.Receiver {
+		return
+	}
+
+	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
+	if !ok {
+		p.log.Debugfln("Failed to handle event %s: unexpected parsed content type %T", evt.ID, evt.Content.Parsed)
+
+		return
+	}
+
+	sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
+	p.log.Debugln("sent message:", content.Body)
 }

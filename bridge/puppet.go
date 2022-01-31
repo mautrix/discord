@@ -2,6 +2,8 @@ package bridge
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"sync"
 
@@ -94,18 +96,153 @@ func (p *Puppet) DefaultIntent() *appservice.IntentAPI {
 	return p.bridge.as.Intent(p.MXID)
 }
 
-func (p *Puppet) SyncContact(user *User) {
+func (p *Puppet) IntentFor(portal *Portal) *appservice.IntentAPI {
+	// TODO: when we add double puppeting we need to adjust this.
+	return p.DefaultIntent()
+}
+
+func (p *Puppet) updatePortalMeta(meta func(portal *Portal)) {
+	for _, portal := range p.bridge.GetAllPortalsByID(p.ID) {
+		meta(portal)
+	}
+}
+
+func (p *Puppet) updateName(source *User) bool {
+	user, err := source.Session.User(p.ID)
+	if err != nil {
+		p.log.Warnln("failed to get user from id:", err)
+		return false
+	}
+
+	newName := p.bridge.Config.Bridge.FormatDisplayname(user)
+
+	if p.DisplayName != newName {
+		err := p.DefaultIntent().SetDisplayName(newName)
+		if err == nil {
+			p.DisplayName = newName
+			go p.updatePortalName()
+			p.Update()
+		} else {
+			p.log.Warnln("failed to set display name:", err)
+		}
+
+		return true
+	}
+
+	return false
+}
+
+func (p *Puppet) updatePortalName() {
+	p.updatePortalMeta(func(portal *Portal) {
+		if portal.MXID != "" {
+			_, err := portal.MainIntent().SetRoomName(portal.MXID, p.DisplayName)
+			if err != nil {
+				portal.log.Warnln("Failed to set name:", err)
+			}
+		}
+
+		portal.Name = p.DisplayName
+		portal.Update()
+	})
+}
+
+func (p *Puppet) uploadAvatar(intent *appservice.IntentAPI, url string) (id.ContentURI, error) {
+	getResp, err := http.DefaultClient.Get(url)
+	if err != nil {
+		return id.ContentURI{}, fmt.Errorf("failed to download avatar: %w", err)
+	}
+
+	data, err := io.ReadAll(getResp.Body)
+	getResp.Body.Close()
+	if err != nil {
+		return id.ContentURI{}, fmt.Errorf("failed to read avatar data: %w", err)
+	}
+
+	mime := http.DetectContentType(data)
+	resp, err := intent.UploadBytes(data, mime)
+	if err != nil {
+		return id.ContentURI{}, fmt.Errorf("failed to upload avatar to Matrix: %w", err)
+	}
+
+	return resp.ContentURI, nil
+}
+
+func (p *Puppet) updateAvatar(source *User) bool {
+	user, err := source.Session.User(p.ID)
+	if err != nil {
+		p.log.Warnln("Failed to get user:", err)
+
+		return false
+	}
+
+	if p.Avatar == user.Avatar {
+		return false
+	}
+
+	if user.Avatar == "" {
+		p.log.Warnln("User does not have an avatar")
+
+		return false
+	}
+
+	url, err := p.uploadAvatar(p.DefaultIntent(), user.AvatarURL(""))
+	if err != nil {
+		p.log.Warnln("Failed to upload user avatar:", err)
+
+		return false
+	}
+
+	p.AvatarURL = url
+
+	err = p.DefaultIntent().SetAvatarURL(p.AvatarURL)
+	if err != nil {
+		p.log.Warnln("Failed to set avatar:", err)
+	}
+
+	p.log.Debugln("Updated avatar", p.Avatar, "->", user.Avatar)
+	p.Avatar = user.Avatar
+	go p.updatePortalAvatar()
+
+	return true
+}
+
+func (p *Puppet) updatePortalAvatar() {
+	p.updatePortalMeta(func(portal *Portal) {
+		if portal.MXID != "" {
+			_, err := portal.MainIntent().SetRoomAvatar(portal.MXID, p.AvatarURL)
+			if err != nil {
+				portal.log.Warnln("Failed to set avatar:", err)
+			}
+		}
+
+		portal.AvatarURL = p.AvatarURL
+		portal.Avatar = p.Avatar
+		portal.Update()
+	})
+
+}
+
+func (p *Puppet) SyncContact(source *User) {
 	p.syncLock.Lock()
 	defer p.syncLock.Unlock()
 
-	dUser, err := user.Session.User(p.ID)
-	if err != nil {
-		p.log.Warnfln("failed to sync puppet %s: %v", p.ID, err)
+	p.log.Debugln("syncing contact", p.DisplayName)
 
-		return
+	err := p.DefaultIntent().EnsureRegistered()
+	if err != nil {
+		p.log.Errorln("Failed to ensure registered:", err)
 	}
 
-	p.DisplayName = p.bridge.Config.Bridge.FormatDisplayname(dUser)
+	update := false
 
-	p.Update()
+	update = p.updateName(source) || update
+
+	if p.Avatar == "" {
+		update = p.updateAvatar(source) || update
+		p.log.Debugln("update avatar returned", update)
+	}
+
+	if update {
+		p.Update()
+	}
 }

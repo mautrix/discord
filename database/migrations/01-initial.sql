@@ -1,6 +1,6 @@
 CREATE TABLE portal (
-	id         TEXT,
 	channel_id TEXT,
+	receiver   TEXT,
 	mxid       TEXT UNIQUE,
 
 	name  TEXT NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE portal (
 
 	first_event_id TEXT,
 
-	PRIMARY KEY (id, channel_id)
+	PRIMARY KEY (channel_id, receiver)
 );
 
 CREATE TABLE puppet (

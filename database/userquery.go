@@ -18,7 +18,18 @@ func (uq *UserQuery) New() *User {
 }
 
 func (uq *UserQuery) GetByMXID(userID id.UserID) *User {
-	row := uq.db.QueryRow("SELECT mxid, id, management_room, token FROM user where mxid=$1", userID)
+	query := "SELECT mxid, id, management_room, token FROM user WHERE mxid=$1"
+	row := uq.db.QueryRow(query, userID)
+	if row == nil {
+		return nil
+	}
+
+	return uq.New().Scan(row)
+}
+
+func (uq *UserQuery) GetByID(id string) *User {
+	query := "SELECT mxid, id, management_room, token FROM user WHERE id=$1"
+	row := uq.db.QueryRow(query, id)
 	if row == nil {
 		return nil
 	}

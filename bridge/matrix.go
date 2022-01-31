@@ -71,6 +71,7 @@ func (mh *matrixHandler) handleMessage(evt *event.Event) {
 
 	user := mh.bridge.GetUserByMXID(evt.Sender)
 	if user == nil {
+		mh.log.Debugln("unknown user", evt.Sender)
 		return
 	}
 
@@ -90,6 +91,12 @@ func (mh *matrixHandler) handleMessage(evt *event.Event) {
 			return
 		}
 	}
+
+	portal := mh.bridge.GetPortalByMXID(evt.RoomID)
+	if portal != nil {
+		portal.matrixMessages <- portalMatrixMessage{user: user, evt: evt}
+	}
+
 }
 
 func (mh *matrixHandler) joinAndCheckMembers(evt *event.Event, intent *appservice.IntentAPI) *mautrix.RespJoinedMembers {
@@ -206,7 +213,6 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 
 	isSelf := id.UserID(evt.GetStateKey()) == evt.Sender
 
-	// Handle matrix invites.
 	if content.Membership == event.MembershipInvite && !isSelf {
 		portal.HandleMatrixInvite(user, evt)
 	}

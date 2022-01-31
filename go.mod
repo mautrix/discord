@@ -26,4 +26,4 @@ require (
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e // indirect
 )
 
-replace github.com/bwmarrin/discordgo v0.32.2 => gitlab.com/beeper/discordgo v0.23.3-0.20220131095000-cb6b649ac596
+replace github.com/bwmarrin/discordgo v0.23.2 => gitlab.com/beeper/discordgo v0.23.3-0.20220131095000-cb6b649ac596

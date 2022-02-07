@@ -213,6 +213,7 @@ func (u *User) Connect() error {
 	u.User.Session.AddHandler(u.channelUpdateHandler)
 
 	u.User.Session.AddHandler(u.messageHandler)
+	u.User.Session.AddHandler(u.reactionHandler)
 
 	// u.User.Session.Identify.Capabilities = 125
 	// // Setup our properties
@@ -279,7 +280,25 @@ func (u *User) channelUpdateHandler(s *discordgo.Session, c *discordgo.ChannelUp
 
 func (u *User) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.GuildID != "" {
-		u.log.Debugln("ignoring guild build messaged")
+		u.log.Debugln("ignoring message for guild")
+
+		return
+	}
+
+	key := database.NewPortalKey(m.ChannelID, u.User.ID)
+	portal := u.bridge.GetPortalByID(key)
+
+	msg := portalDiscordMessage{
+		msg:  m,
+		user: u,
+	}
+
+	portal.discordMessages <- msg
+}
+
+func (u *User) reactionHandler(s *discordgo.Session, m *discordgo.MessageReactionAdd) {
+	if m.GuildID != "" {
+		u.log.Debugln("ignoring reaction for guild message")
 
 		return
 	}

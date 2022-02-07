@@ -288,7 +288,9 @@ func (p *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 
 	switch msg.msg.(type) {
 	case *discordgo.MessageCreate:
-		p.handleDiscordMessage(msg.msg.(*discordgo.MessageCreate).Message)
+		p.handleDiscordMessage(msg.user, msg.msg.(*discordgo.MessageCreate).Message)
+	case *discordgo.MessageReactionAdd:
+		p.handleDiscordReaction(msg.user, msg.msg.(*discordgo.MessageReactionAdd).MessageReaction, true)
 	default:
 		p.log.Warnln("unknown message type")
 	}
@@ -314,7 +316,11 @@ func (p *Portal) markMessageHandled(msg *database.Message, discordID string, mxi
 	return msg
 }
 
-func (p *Portal) handleDiscordMessage(msg *discordgo.Message) {
+func (p *Portal) handleDiscordMessage(user *User, msg *discordgo.Message) {
+	if user.ID == msg.Author.ID {
+		return
+	}
+
 	if p.MXID == "" {
 		p.log.Warnln("handle message called without a valid portal")
 
@@ -535,5 +541,41 @@ func (p *Portal) handleMatrixReaction(evt *event.Event) {
 	user := p.bridge.GetUserByMXID(evt.Sender)
 	if user != nil {
 		user.Session.MessageReactionAdd(p.Key.ChannelID, msg.DiscordID, reaction.RelatesTo.Key)
+	}
+}
+
+func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool) {
+	if user.ID == reaction.UserID {
+		return
+	}
+
+	if reaction.Emoji.ID != "" {
+		p.log.Debugln("ignoring non-unicode reaction")
+
+		return
+	}
+
+	message := p.bridge.db.Message.GetByDiscordID(p.Key, reaction.MessageID)
+	if message == nil {
+		p.log.Debugfln("failed to add reaction to message %s: message not found", reaction.MessageID)
+
+		return
+	}
+
+	intent := p.bridge.GetPuppetByID(reaction.UserID).IntentFor(p)
+
+	content := event.Content{Parsed: &event.ReactionEventContent{
+		RelatesTo: event.RelatesTo{
+			EventID: message.MatrixID,
+			Type:    event.RelAnnotation,
+			Key:     reaction.Emoji.Name,
+		},
+	}}
+
+	_, err := intent.Client.SendMessageEvent(p.MXID, event.EventReaction, &content)
+	if err != nil {
+		p.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
+
+		return
 	}
 }

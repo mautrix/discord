@@ -367,6 +367,8 @@ func (p *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	switch msg.evt.Type {
 	case event.EventMessage:
 		p.handleMatrixMessage(msg.user, msg.evt)
+	default:
+		p.log.Debugln("unknown event type", msg.evt.Type)
 	}
 }
 
@@ -513,4 +515,25 @@ func (p *Portal) getMatrixUsers() ([]id.UserID, error) {
 func (p *Portal) handleMatrixKick(sender *User, target *Puppet) {
 	// TODO: need to learn how to make this happen as discordgo proper doesn't
 	// support group dms and it looks like it's a binary blob.
+}
+
+func (p *Portal) handleMatrixReaction(evt *event.Event) {
+	reaction := evt.Content.AsReaction()
+	if reaction.RelatesTo.Type != event.RelAnnotation {
+		p.log.Errorfln("Ignoring reaction %s due to unknown m.relates_to data", evt.ID)
+
+		return
+	}
+
+	msg := p.bridge.db.Message.GetByMatrixID(p.Key, reaction.RelatesTo.EventID)
+	if msg.DiscordID == "" {
+		p.log.Debugf("Message %s has not yet been sent to discord", reaction.RelatesTo.EventID)
+
+		return
+	}
+
+	user := p.bridge.GetUserByMXID(evt.Sender)
+	if user != nil {
+		user.Session.MessageReactionAdd(p.Key.ChannelID, msg.DiscordID, reaction.RelatesTo.Key)
+	}
 }

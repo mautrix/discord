@@ -213,7 +213,8 @@ func (u *User) Connect() error {
 	u.User.Session.AddHandler(u.channelUpdateHandler)
 
 	u.User.Session.AddHandler(u.messageHandler)
-	u.User.Session.AddHandler(u.reactionHandler)
+	u.User.Session.AddHandler(u.reactionAddHandler)
+	u.User.Session.AddHandler(u.reactionRemoveHandler)
 
 	// u.User.Session.Identify.Capabilities = 125
 	// // Setup our properties
@@ -296,7 +297,25 @@ func (u *User) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) 
 	portal.discordMessages <- msg
 }
 
-func (u *User) reactionHandler(s *discordgo.Session, m *discordgo.MessageReactionAdd) {
+func (u *User) reactionAddHandler(s *discordgo.Session, m *discordgo.MessageReactionAdd) {
+	if m.GuildID != "" {
+		u.log.Debugln("ignoring reaction for guild message")
+
+		return
+	}
+
+	key := database.NewPortalKey(m.ChannelID, u.User.ID)
+	portal := u.bridge.GetPortalByID(key)
+
+	msg := portalDiscordMessage{
+		msg:  m,
+		user: u,
+	}
+
+	portal.discordMessages <- msg
+}
+
+func (u *User) reactionRemoveHandler(s *discordgo.Session, m *discordgo.MessageReactionRemove) {
 	if m.GuildID != "" {
 		u.log.Debugln("ignoring reaction for guild message")
 

@@ -291,6 +291,8 @@ func (p *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 		p.handleDiscordMessage(msg.user, msg.msg.(*discordgo.MessageCreate).Message)
 	case *discordgo.MessageReactionAdd:
 		p.handleDiscordReaction(msg.user, msg.msg.(*discordgo.MessageReactionAdd).MessageReaction, true)
+	case *discordgo.MessageReactionRemove:
+		p.handleDiscordReaction(msg.user, msg.msg.(*discordgo.MessageReactionRemove).MessageReaction, false)
 	default:
 		p.log.Warnln("unknown message type")
 	}
@@ -549,12 +551,18 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		return
 	}
 
-	if reaction.Emoji.ID != "" {
+	// Emoji.ID is only set if it's a custom emote, otherwise Emoji.Name is
+	// used.
+	customEmote := (reaction.Emoji.ID != "")
+
+	// This is temporary until we add support for custom emoji.
+	if customEmote {
 		p.log.Debugln("ignoring non-unicode reaction")
 
 		return
 	}
 
+	// Find the message that we're working with.
 	message := p.bridge.db.Message.GetByDiscordID(p.Key, reaction.MessageID)
 	if message == nil {
 		p.log.Debugfln("failed to add reaction to message %s: message not found", reaction.MessageID)
@@ -562,7 +570,33 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		return
 	}
 
+	// Lookup an existing reaction
+	var existing *database.Reaction
+
+	if customEmote {
+		existing = p.bridge.db.Reaction.GetByDiscordID(p.Key, message.DiscordID, reaction.Emoji.ID)
+	} else {
+		existing = p.bridge.db.Reaction.GetByDiscordName(p.Key, message.DiscordID, reaction.Emoji.Name)
+	}
+
+	if !add && existing == nil {
+		p.log.Debugln("Failed to remove emote for unknown message", reaction.MessageID)
+
+		return
+	}
+
 	intent := p.bridge.GetPuppetByID(reaction.UserID).IntentFor(p)
+
+	if !add {
+		_, err := intent.RedactEvent(p.MXID, existing.MatrixEventID)
+		if err != nil {
+			p.log.Warnfln("Failed to remove reaction from %s: %v", p.MXID, err)
+		}
+
+		existing.Delete()
+
+		return
+	}
 
 	content := event.Content{Parsed: &event.ReactionEventContent{
 		RelatesTo: event.RelatesTo{
@@ -572,10 +606,29 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		},
 	}}
 
-	_, err := intent.Client.SendMessageEvent(p.MXID, event.EventReaction, &content)
-	if err != nil {
-		p.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
+	if add {
+		resp, err := intent.Client.SendMessageEvent(p.MXID, event.EventReaction, &content)
+		if err != nil {
+			p.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
 
-		return
+			return
+		}
+
+		if existing == nil {
+			dbReaction := p.bridge.db.Reaction.New()
+			dbReaction.Channel = p.Key
+			dbReaction.DiscordMessageID = message.DiscordID
+			dbReaction.MatrixEventID = resp.EventID
+			dbReaction.AuthorID = reaction.UserID
+
+			if customEmote {
+				// TODO:
+			} else {
+				dbReaction.MatrixName = reaction.Emoji.Name
+				dbReaction.DiscordName = reaction.Emoji.Name
+			}
+
+			dbReaction.Insert()
+		}
 	}
 }

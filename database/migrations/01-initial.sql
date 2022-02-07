@@ -33,6 +33,20 @@ CREATE TABLE user (
 	token TEXT
 );
 
+CREATE TABLE message (
+	channel_id TEXT NOT NULL,
+	receiver TEXT NOT NULL,
+
+	discord_message_id TEXT NOT NULL,
+	matrix_message_id TEXT NOT NULL UNIQUE,
+
+	author_id TEXT NOT NULL,
+	timestamp BIGINT NOT NULL,
+
+	PRIMARY KEY(discord_message_id, channel_id, receiver),
+	FOREIGN KEY(channel_id, receiver) REFERENCES portal(channel_id, receiver) ON DELETE CASCADE
+);
+
 CREATE TABLE mx_user_profile (
 	room_id     TEXT,
 	user_id     TEXT,

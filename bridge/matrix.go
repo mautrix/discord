@@ -226,7 +226,7 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 		} else if puppet != nil {
 			portal.handleMatrixKick(user, puppet)
 		}
-	} else if content.Membership == event.MembershipInvite && !isSelf {
+	} else if content.Membership == event.MembershipInvite {
 		portal.handleMatrixInvite(user, evt)
 	}
 }

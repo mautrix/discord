@@ -16,9 +16,10 @@ type Database struct {
 	log     log.Logger
 	dialect string
 
-	User   *UserQuery
-	Portal *PortalQuery
-	Puppet *PuppetQuery
+	User    *UserQuery
+	Portal  *PortalQuery
+	Puppet  *PuppetQuery
+	Message *MessageQuery
 }
 
 func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger) (*Database, error) {
@@ -59,6 +60,11 @@ func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger)
 	db.Puppet = &PuppetQuery{
 		db:  db,
 		log: db.log.Sub("Puppet"),
+	}
+
+	db.Message = &MessageQuery{
+		db:  db,
+		log: db.log.Sub("Message"),
 	}
 
 	return db, nil

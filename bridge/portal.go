@@ -3,6 +3,7 @@ package bridge
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -297,21 +298,51 @@ func (p *Portal) ensureUserInvited(user *User) bool {
 	return user.ensureInvited(p.MainIntent(), p.MXID, p.IsPrivateChat())
 }
 
+func (p *Portal) markMessageHandled(msg *database.Message, discordID string, mxid id.EventID, authorID string, timestamp time.Time) *database.Message {
+	if msg == nil {
+		msg := p.bridge.db.Message.New()
+		msg.Channel = p.Key
+		msg.DiscordID = discordID
+		msg.MatrixID = mxid
+		msg.AuthorID = authorID
+		msg.Timestamp = timestamp
+		msg.Insert()
+	} else {
+		msg.UpdateMatrixID(mxid)
+	}
+
+	return msg
+}
+
 func (p *Portal) handleDiscordMessage(msg *discordgo.Message) {
 	if p.MXID == "" {
 		p.log.Warnln("handle message called without a valid portal")
+
 		return
 	}
 
-	// TODO: Check if we already got the message
+	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)
+	if existing != nil {
+		p.log.Debugln("not handling duplicate message", msg.ID)
+
+		return
+	}
+
 	content := &event.MessageEventContent{
 		Body:    msg.Content,
 		MsgType: event.MsgText,
 	}
 
-	resp, err := p.MainIntent().SendMessageEvent(p.MXID, event.EventMessage, content)
-	p.log.Warnln("response:", resp)
-	p.log.Warnln("error:", err)
+	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
+
+	resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	if err != nil {
+		p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
+		return
+	}
+
+	ts, _ := msg.Timestamp.Parse()
+	p.markMessageHandled(nil, msg.ID, resp.EventID, msg.Author.ID, ts)
 }
 
 func (p *Portal) syncParticipants(source *User, participants []*discordgo.User) {
@@ -344,6 +375,13 @@ func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		return
 	}
 
+	existing := p.bridge.db.Message.GetByMatrixID(p.Key, evt.ID)
+	if existing != nil {
+		p.log.Debugln("not handling duplicate message", evt.ID)
+
+		return
+	}
+
 	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
 	if !ok {
 		p.log.Debugfln("Failed to handle event %s: unexpected parsed content type %T", evt.ID, evt.Content.Parsed)
@@ -351,8 +389,20 @@ func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		return
 	}
 
-	sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
-	p.log.Debugln("sent message:", content.Body)
+	msg, err := sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
+	if err != nil {
+		p.log.Errorfln("Failed to send message: %v", err)
+
+		return
+	}
+
+	dbMsg := p.bridge.db.Message.New()
+	dbMsg.Channel = p.Key
+	dbMsg.DiscordID = msg.ID
+	dbMsg.MatrixID = evt.ID
+	dbMsg.AuthorID = sender.ID
+	dbMsg.Timestamp = time.Now()
+	dbMsg.Insert()
 }
 
 func (p *Portal) handleMatrixLeave(sender *User) {

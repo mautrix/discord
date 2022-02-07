@@ -20,6 +20,9 @@ type Portal struct {
 	Avatar    string
 	AvatarURL id.ContentURI
 
+	Type   int
+	DMUser string
+
 	FirstEventID id.EventID
 }
 

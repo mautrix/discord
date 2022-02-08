@@ -30,6 +30,7 @@ func (b *Bridge) setupEvents() {
 
 	b.eventProcessor.On(event.EventMessage, b.matrixHandler.handleMessage)
 	b.eventProcessor.On(event.EventReaction, b.matrixHandler.handleReaction)
+	b.eventProcessor.On(event.EventRedaction, b.matrixHandler.handleRedaction)
 	b.eventProcessor.On(event.StateMember, b.matrixHandler.handleMembership)
 }
 
@@ -240,5 +241,16 @@ func (mh *matrixHandler) handleReaction(evt *event.Event) {
 	portal := mh.bridge.GetPortalByMXID(evt.RoomID)
 	if portal != nil {
 		portal.handleMatrixReaction(evt)
+	}
+}
+
+func (mh *matrixHandler) handleRedaction(evt *event.Event) {
+	if mh.ignoreEvent(evt) {
+		return
+	}
+
+	portal := mh.bridge.GetPortalByMXID(evt.RoomID)
+	if portal != nil {
+		portal.handleMatrixRedaction(evt)
 	}
 }

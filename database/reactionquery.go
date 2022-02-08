@@ -13,7 +13,7 @@ type ReactionQuery struct {
 const (
 	reactionSelect = "SELECT channel_id, receiver, discord_message_id," +
 		" matrix_event_id, author_id, matrix_name, matrix_url, " +
-		" discord_name, discord_id FROM reaction"
+		" discord_id FROM reaction"
 )
 
 func (rq *ReactionQuery) New() *Reaction {
@@ -51,13 +51,6 @@ func (rq *ReactionQuery) getAll(query string, args ...interface{}) []*Reaction {
 	return reactions
 }
 
-func (rq *ReactionQuery) GetByDiscordName(key PortalKey, discordMessageID, discordName string) *Reaction {
-	query := reactionSelect + " WHERE channel_id=$1 AND receiver=$2" +
-		" AND discord_message_id=$3 AND discord_name=$4"
-
-	return rq.get(query, key.ChannelID, key.Receiver, discordMessageID, discordName)
-}
-
 func (rq *ReactionQuery) GetByDiscordID(key PortalKey, discordMessageID, discordID string) *Reaction {
 	query := reactionSelect + " WHERE channel_id=$1 AND receiver=$2" +
 		" AND discord_message_id=$3 AND discord_id=$4"
@@ -65,11 +58,11 @@ func (rq *ReactionQuery) GetByDiscordID(key PortalKey, discordMessageID, discord
 	return rq.get(query, key.ChannelID, key.Receiver, discordMessageID, discordID)
 }
 
-func (rq *ReactionQuery) GetByMatrixName(key PortalKey, matrixEventID id.EventID, matrixName string) *Reaction {
+func (rq *ReactionQuery) GetByMatrixID(key PortalKey, matrixEventID id.EventID) *Reaction {
 	query := reactionSelect + " WHERE channel_id=$1 AND receiver=$2" +
-		" AND matrix_event_id=$3 AND matrix_name=$4"
+		" AND matrix_event_id=$3"
 
-	return rq.get(query, key.ChannelID, key.Receiver, matrixEventID, matrixName)
+	return rq.get(query, key.ChannelID, key.Receiver, matrixEventID)
 }
 
 func (rq *ReactionQuery) get(query string, args ...interface{}) *Reaction {

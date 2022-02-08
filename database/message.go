@@ -54,6 +54,19 @@ func (m *Message) Insert() {
 	}
 }
 
+func (m *Message) Delete() {
+	query := "DELETE FROM message" +
+		" WHERE channel_id=$1 AND receiver=$2 AND discord_message_id=$3 AND" +
+		" matrix_message_id=$4"
+
+	_, err := m.db.Exec(query, m.Channel.ChannelID, m.Channel.Receiver,
+		m.DiscordID, m.MatrixID)
+
+	if err != nil {
+		m.log.Warnfln("Failed to delete %s@%s: %v", m.Channel, m.DiscordID, err)
+	}
+}
+
 func (m *Message) UpdateMatrixID(mxid id.EventID) {
 	query := "UPDATE message SET matrix_message_id=$1 WHERE channel_id=$2" +
 		"AND receiver=$3 AND discord_message_id=$4"

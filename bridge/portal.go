@@ -526,6 +526,17 @@ func (p *Portal) handleMatrixKick(sender *User, target *Puppet) {
 }
 
 func (p *Portal) handleMatrixReaction(evt *event.Event) {
+	user := p.bridge.GetUserByMXID(evt.Sender)
+	if user == nil {
+		p.log.Errorf("failed to find user for %s", evt.Sender)
+
+		return
+	}
+
+	if user.ID != p.Key.Receiver {
+		return
+	}
+
 	reaction := evt.Content.AsReaction()
 	if reaction.RelatesTo.Type != event.RelAnnotation {
 		p.log.Errorfln("Ignoring reaction %s due to unknown m.relates_to data", evt.ID)
@@ -540,10 +551,22 @@ func (p *Portal) handleMatrixReaction(evt *event.Event) {
 		return
 	}
 
-	user := p.bridge.GetUserByMXID(evt.Sender)
-	if user != nil {
-		user.Session.MessageReactionAdd(p.Key.ChannelID, msg.DiscordID, reaction.RelatesTo.Key)
+	err := user.Session.MessageReactionAdd(p.Key.ChannelID, msg.DiscordID, reaction.RelatesTo.Key)
+	if err != nil {
+		p.log.Debugf("Failed to send reaction %s@%s: %v", p.Key, msg.DiscordID, err)
+
+		return
 	}
+
+	dbReaction := p.bridge.db.Reaction.New()
+	dbReaction.Channel.ChannelID = p.Key.ChannelID
+	dbReaction.Channel.Receiver = p.Key.Receiver
+	dbReaction.MatrixEventID = evt.ID
+	dbReaction.DiscordMessageID = msg.DiscordID
+	dbReaction.AuthorID = user.ID
+	dbReaction.MatrixName = reaction.RelatesTo.Key
+	dbReaction.DiscordID = reaction.RelatesTo.Key
+	dbReaction.Insert()
 }
 
 func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool) {
@@ -551,15 +574,16 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		return
 	}
 
-	// Emoji.ID is only set if it's a custom emote, otherwise Emoji.Name is
-	// used.
-	customEmote := (reaction.Emoji.ID != "")
-
 	// This is temporary until we add support for custom emoji.
-	if customEmote {
+	if reaction.Emoji.ID != "" {
 		p.log.Debugln("ignoring non-unicode reaction")
 
 		return
+	}
+
+	emoteID := reaction.Emoji.ID
+	if reaction.Emoji.Name != "" {
+		emoteID = reaction.Emoji.Name
 	}
 
 	// Find the message that we're working with.
@@ -570,24 +594,18 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		return
 	}
 
-	// Lookup an existing reaction
-	var existing *database.Reaction
-
-	if customEmote {
-		existing = p.bridge.db.Reaction.GetByDiscordID(p.Key, message.DiscordID, reaction.Emoji.ID)
-	} else {
-		existing = p.bridge.db.Reaction.GetByDiscordName(p.Key, message.DiscordID, reaction.Emoji.Name)
-	}
-
-	if !add && existing == nil {
-		p.log.Debugln("Failed to remove emote for unknown message", reaction.MessageID)
-
-		return
-	}
-
 	intent := p.bridge.GetPuppetByID(reaction.UserID).IntentFor(p)
 
+	// Lookup an existing reaction
+	existing := p.bridge.db.Reaction.GetByDiscordID(p.Key, message.DiscordID, emoteID)
+
 	if !add {
+		if existing == nil {
+			p.log.Debugln("Failed to remove reaction for unknown message", reaction.MessageID)
+
+			return
+		}
+
 		_, err := intent.RedactEvent(p.MXID, existing.MatrixEventID)
 		if err != nil {
 			p.log.Warnfln("Failed to remove reaction from %s: %v", p.MXID, err)
@@ -606,29 +624,63 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		},
 	}}
 
-	if add {
-		resp, err := intent.Client.SendMessageEvent(p.MXID, event.EventReaction, &content)
-		if err != nil {
-			p.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
+	resp, err := intent.Client.SendMessageEvent(p.MXID, event.EventReaction, &content)
+	if err != nil {
+		p.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
 
-			return
-		}
-
-		if existing == nil {
-			dbReaction := p.bridge.db.Reaction.New()
-			dbReaction.Channel = p.Key
-			dbReaction.DiscordMessageID = message.DiscordID
-			dbReaction.MatrixEventID = resp.EventID
-			dbReaction.AuthorID = reaction.UserID
-
-			if customEmote {
-				// TODO:
-			} else {
-				dbReaction.MatrixName = reaction.Emoji.Name
-				dbReaction.DiscordName = reaction.Emoji.Name
-			}
-
-			dbReaction.Insert()
-		}
+		return
 	}
+
+	if existing == nil {
+		dbReaction := p.bridge.db.Reaction.New()
+		dbReaction.Channel = p.Key
+		dbReaction.DiscordMessageID = message.DiscordID
+		dbReaction.MatrixEventID = resp.EventID
+		dbReaction.AuthorID = reaction.UserID
+
+		dbReaction.MatrixName = reaction.Emoji.Name
+		dbReaction.DiscordID = emoteID
+
+		dbReaction.Insert()
+	}
+}
+
+func (p *Portal) handleMatrixRedaction(evt *event.Event) {
+	user := p.bridge.GetUserByMXID(evt.Sender)
+
+	if user.ID != p.Key.Receiver {
+		return
+	}
+
+	// First look if we're redacting a message
+	message := p.bridge.db.Message.GetByMatrixID(p.Key, evt.Redacts)
+	if message != nil {
+		if message.DiscordID != "" {
+			err := user.Session.ChannelMessageDelete(p.Key.ChannelID, message.DiscordID)
+			if err != nil {
+				p.log.Debugfln("Failed to delete discord message %s: %v", message.DiscordID, err)
+			} else {
+				message.Delete()
+			}
+		}
+
+		return
+	}
+
+	// Now check if it's a reaction.
+	reaction := p.bridge.db.Reaction.GetByMatrixID(p.Key, evt.Redacts)
+	if reaction != nil {
+		if reaction.DiscordID != "" {
+			err := user.Session.MessageReactionRemove(p.Key.ChannelID, reaction.DiscordMessageID, reaction.DiscordID, reaction.AuthorID)
+			if err != nil {
+				p.log.Debugfln("Failed to delete reaction %s for message %s: %v", reaction.DiscordID, reaction.DiscordMessageID, err)
+			} else {
+				reaction.Delete()
+			}
+		}
+
+		return
+	}
+
+	p.log.Warnfln("Failed to redact %s@%s: no event found", p.Key, evt.Redacts)
 }

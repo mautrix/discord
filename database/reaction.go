@@ -23,19 +23,18 @@ type Reaction struct {
 	MatrixName string
 	MatrixURL  string // Used for custom emoji
 
-	DiscordName string // Used for unicode emoji
-	DiscordID   string // Used for custom emoji
+	DiscordID string // The id or unicode of the emoji for discord
 }
 
 func (r *Reaction) Scan(row Scannable) *Reaction {
-	var discordName, discordID sql.NullString
+	var discordID sql.NullString
 
 	err := row.Scan(
 		&r.Channel.ChannelID, &r.Channel.Receiver,
 		&r.DiscordMessageID, &r.MatrixEventID,
 		&r.AuthorID,
 		&r.MatrixName, &r.MatrixURL,
-		&discordName, &discordID)
+		&discordID)
 
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -45,7 +44,6 @@ func (r *Reaction) Scan(row Scannable) *Reaction {
 		return nil
 	}
 
-	r.DiscordName = discordName.String
 	r.DiscordID = discordID.String
 
 	return r
@@ -54,14 +52,10 @@ func (r *Reaction) Scan(row Scannable) *Reaction {
 func (r *Reaction) Insert() {
 	query := "INSERT INTO reaction" +
 		" (channel_id, receiver, discord_message_id, matrix_event_id," +
-		"  author_id, matrix_name, matrix_url, discord_name, discord_id)" +
-		" VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9);"
+		"  author_id, matrix_name, matrix_url, discord_id)" +
+		" VALUES($1, $2, $3, $4, $5, $6, $7, $8);"
 
-	var discordName, discordID sql.NullString
-
-	if r.DiscordName != "" {
-		discordName = sql.NullString{r.DiscordName, true}
-	}
+	var discordID sql.NullString
 
 	if r.DiscordID != "" {
 		discordID = sql.NullString{r.DiscordID, true}
@@ -73,7 +67,7 @@ func (r *Reaction) Insert() {
 		r.DiscordMessageID, r.MatrixEventID,
 		r.AuthorID,
 		r.MatrixName, r.MatrixURL,
-		discordName, discordID,
+		discordID,
 	)
 
 	if err != nil {
@@ -90,14 +84,9 @@ func (r *Reaction) Update() {
 func (r *Reaction) Delete() {
 	query := "DELETE FROM reaction WHERE" +
 		" channel_id=$1 AND receiver=$2 AND discord_message_id=$3 AND" +
-		" author_id=$4 AND discord_name=$5 AND discord_id=$6"
+		" author_id=$4 AND discord_id=$5"
 
-	var discordName, discordID sql.NullString
-
-	if r.DiscordName != "" {
-		discordName = sql.NullString{r.DiscordName, true}
-	}
-
+	var discordID sql.NullString
 	if r.DiscordID != "" {
 		discordID = sql.NullString{r.DiscordID, true}
 	}
@@ -106,7 +95,7 @@ func (r *Reaction) Delete() {
 		query,
 		r.Channel.ChannelID, r.Channel.Receiver,
 		r.DiscordMessageID, r.AuthorID,
-		discordName, discordID,
+		discordID,
 	)
 
 	if err != nil {

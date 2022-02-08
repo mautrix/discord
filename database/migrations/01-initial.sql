@@ -59,11 +59,9 @@ CREATE TABLE reaction (
 	matrix_name TEXT,
 	matrix_url TEXT,
 
-	discord_name TEXT,
 	discord_id TEXT,
 
-	CHECK ((discord_name IS NULL AND discord_id IS NOT NULL) OR (discord_name IS NOT NULL AND discord_id IS NULL)),
-	UNIQUE (discord_name, discord_id, author_id, discord_message_id, channel_id, receiver),
+	UNIQUE (discord_id, author_id, discord_message_id, channel_id, receiver),
 	FOREIGN KEY(channel_id, receiver) REFERENCES portal(channel_id, receiver) ON DELETE CASCADE
 );
 

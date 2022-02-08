@@ -212,7 +212,8 @@ func (u *User) Connect() error {
 	u.User.Session.AddHandler(u.channelPinsUpdateHandler)
 	u.User.Session.AddHandler(u.channelUpdateHandler)
 
-	u.User.Session.AddHandler(u.messageHandler)
+	u.User.Session.AddHandler(u.messageCreateHandler)
+	u.User.Session.AddHandler(u.messageDeleteHandler)
 	u.User.Session.AddHandler(u.reactionAddHandler)
 	u.User.Session.AddHandler(u.reactionRemoveHandler)
 
@@ -249,6 +250,11 @@ func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCr
 
 	portal.Name = c.Name
 	portal.Topic = c.Topic
+	portal.Type = c.Type
+
+	if portal.Type == discordgo.ChannelTypeDM {
+		portal.DMUser = c.Recipients[0].ID
+	}
 
 	if c.Icon != "" {
 		u.log.Debugln("channel icon", c.Icon)
@@ -279,14 +285,32 @@ func (u *User) channelUpdateHandler(s *discordgo.Session, c *discordgo.ChannelUp
 	u.log.Debugln("channel update")
 }
 
-func (u *User) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (u *User) messageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.GuildID != "" {
 		u.log.Debugln("ignoring message for guild")
 
 		return
 	}
 
-	key := database.NewPortalKey(m.ChannelID, u.User.ID)
+	key := database.NewPortalKey(m.ChannelID, u.ID)
+	portal := u.bridge.GetPortalByID(key)
+
+	msg := portalDiscordMessage{
+		msg:  m,
+		user: u,
+	}
+
+	portal.discordMessages <- msg
+}
+
+func (u *User) messageDeleteHandler(s *discordgo.Session, m *discordgo.MessageDelete) {
+	if m.GuildID != "" {
+		u.log.Debugln("ignoring message delete for guild message")
+
+		return
+	}
+
+	key := database.NewPortalKey(m.ChannelID, u.ID)
 	portal := u.bridge.GetPortalByID(key)
 
 	msg := portalDiscordMessage{

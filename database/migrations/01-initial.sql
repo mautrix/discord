@@ -9,6 +9,9 @@ CREATE TABLE portal (
 	avatar     TEXT NOT NULL,
 	avatar_url TEXT,
 
+	type INT,
+	dmuser TEXT,
+
 	first_event_id TEXT,
 
 	PRIMARY KEY (channel_id, receiver)

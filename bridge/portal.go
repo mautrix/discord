@@ -32,8 +32,6 @@ type Portal struct {
 	bridge *Bridge
 	log    log.Logger
 
-	channel *discordgo.Channel
-
 	roomCreateLock sync.Mutex
 
 	discordMessages chan portalDiscordMessage
@@ -159,39 +157,22 @@ func (p *Portal) messageLoop() {
 }
 
 func (p *Portal) IsPrivateChat() bool {
-	if p.channel != nil {
-		return p.channel.Type == discordgo.ChannelTypeDM
-	}
-
-	return false
+	return p.Type == discordgo.ChannelTypeDM
 }
 
 func (p *Portal) MainIntent() *appservice.IntentAPI {
-	if p.IsPrivateChat() && p.channel != nil && len(p.channel.Recipients) == 1 {
-		return p.bridge.GetPuppetByID(p.channel.Recipients[0].ID).DefaultIntent()
+	if p.IsPrivateChat() && p.DMUser != "" {
+		return p.bridge.GetPuppetByID(p.DMUser).DefaultIntent()
 	}
 
 	return p.bridge.bot
 }
 
-func (p *Portal) getMessagePuppet(user *User, message *discordgo.Message) *Puppet {
-	p.log.Debugf("getMessagePuppet")
-	if message.Author.ID == user.ID {
-		return p.bridge.GetPuppetByID(user.ID)
-	}
-
-	puppet := p.bridge.GetPuppetByID(message.Author.ID)
-	puppet.SyncContact(user)
-
-	return puppet
-}
-
-func (p *Portal) getMessageIntent(user *User, message *discordgo.Message) *appservice.IntentAPI {
-	return p.getMessagePuppet(user, message).IntentFor(p)
-}
-
 func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error {
-	p.channel = channel
+	p.Type = channel.Type
+	if p.Type == discordgo.ChannelTypeDM {
+		p.DMUser = channel.Recipients[0].ID
+	}
 
 	p.roomCreateLock.Lock()
 	defer p.roomCreateLock.Unlock()
@@ -288,7 +269,9 @@ func (p *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 
 	switch msg.msg.(type) {
 	case *discordgo.MessageCreate:
-		p.handleDiscordMessage(msg.user, msg.msg.(*discordgo.MessageCreate).Message)
+		p.handleDiscordMessageCreate(msg.user, msg.msg.(*discordgo.MessageCreate).Message)
+	case *discordgo.MessageDelete:
+		p.handleDiscordMessageDelete(msg.user, msg.msg.(*discordgo.MessageDelete).Message)
 	case *discordgo.MessageReactionAdd:
 		p.handleDiscordReaction(msg.user, msg.msg.(*discordgo.MessageReactionAdd).MessageReaction, true)
 	case *discordgo.MessageReactionRemove:
@@ -318,7 +301,7 @@ func (p *Portal) markMessageHandled(msg *database.Message, discordID string, mxi
 	return msg
 }
 
-func (p *Portal) handleDiscordMessage(user *User, msg *discordgo.Message) {
+func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) {
 	if user.ID == msg.Author.ID {
 		return
 	}
@@ -351,6 +334,37 @@ func (p *Portal) handleDiscordMessage(user *User, msg *discordgo.Message) {
 
 	ts, _ := msg.Timestamp.Parse()
 	p.markMessageHandled(nil, msg.ID, resp.EventID, msg.Author.ID, ts)
+}
+
+func (p *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) {
+	// The discord delete message object is pretty empty and doesn't include
+	// the author so we have to use the DMUser from the portal that was added
+	// at creation time if we're a DM. We'll might have similar issues when we
+	// add guild message support, but we'll cross that bridge when we get
+	// there.
+
+	// Find the message that we're working with.
+	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)
+	if existing == nil {
+		p.log.Debugfln("failed to find message", msg.ID)
+
+		return
+	}
+
+	var intent *appservice.IntentAPI
+
+	if p.Type == discordgo.ChannelTypeDM {
+		intent = p.bridge.GetPuppetByID(p.DMUser).IntentFor(p)
+	} else {
+		p.log.Errorfln("no guilds yet...")
+	}
+
+	_, err := intent.RedactEvent(p.MXID, existing.MatrixID)
+	if err != nil {
+		p.log.Warnfln("Failed to remove message %s: %v", existing.MatrixID, err)
+	}
+
+	existing.Delete()
 }
 
 func (p *Portal) syncParticipants(source *User, participants []*discordgo.User) {

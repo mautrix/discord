@@ -413,20 +413,36 @@ func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		return
 	}
 
-	msg, err := sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
-	if err != nil {
-		p.log.Errorfln("Failed to send message: %v", err)
+	if content.RelatesTo != nil && content.RelatesTo.Type == event.RelReplace {
+		existing := p.bridge.db.Message.GetByMatrixID(p.Key, content.RelatesTo.EventID)
 
-		return
+		if existing != nil && existing.DiscordID != "" {
+			// we don't have anything to save for the update message right now
+			// as we're not tracking edited timestamps.
+			_, err := sender.Session.ChannelMessageEdit(p.Key.ChannelID,
+				existing.DiscordID, content.NewContent.Body)
+			if err != nil {
+				p.log.Errorln("Failed to update message %s: %v", existing.DiscordID, err)
+
+				return
+			}
+		}
+	} else {
+		msg, err := sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
+		if err != nil {
+			p.log.Errorfln("Failed to send message: %v", err)
+
+			return
+		}
+
+		dbMsg := p.bridge.db.Message.New()
+		dbMsg.Channel = p.Key
+		dbMsg.DiscordID = msg.ID
+		dbMsg.MatrixID = evt.ID
+		dbMsg.AuthorID = sender.ID
+		dbMsg.Timestamp = time.Now()
+		dbMsg.Insert()
 	}
-
-	dbMsg := p.bridge.db.Message.New()
-	dbMsg.Channel = p.Key
-	dbMsg.DiscordID = msg.ID
-	dbMsg.MatrixID = evt.ID
-	dbMsg.AuthorID = sender.ID
-	dbMsg.Timestamp = time.Now()
-	dbMsg.Insert()
 }
 
 func (p *Portal) handleMatrixLeave(sender *User) {

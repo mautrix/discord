@@ -69,7 +69,7 @@ func (m *Message) Delete() {
 
 func (m *Message) UpdateMatrixID(mxid id.EventID) {
 	query := "UPDATE message SET matrix_message_id=$1 WHERE channel_id=$2" +
-		"AND receiver=$3 AND discord_message_id=$4"
+		" AND receiver=$3 AND discord_message_id=$4"
 	m.MatrixID = mxid
 
 	_, err := m.db.Exec(query, m.MatrixID, m.Channel.ChannelID, m.Channel.Receiver, m.DiscordID)

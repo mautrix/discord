@@ -214,6 +214,7 @@ func (u *User) Connect() error {
 
 	u.User.Session.AddHandler(u.messageCreateHandler)
 	u.User.Session.AddHandler(u.messageDeleteHandler)
+	u.User.Session.AddHandler(u.messageUpdateHandler)
 	u.User.Session.AddHandler(u.reactionAddHandler)
 	u.User.Session.AddHandler(u.reactionRemoveHandler)
 
@@ -306,6 +307,24 @@ func (u *User) messageCreateHandler(s *discordgo.Session, m *discordgo.MessageCr
 func (u *User) messageDeleteHandler(s *discordgo.Session, m *discordgo.MessageDelete) {
 	if m.GuildID != "" {
 		u.log.Debugln("ignoring message delete for guild message")
+
+		return
+	}
+
+	key := database.NewPortalKey(m.ChannelID, u.ID)
+	portal := u.bridge.GetPortalByID(key)
+
+	msg := portalDiscordMessage{
+		msg:  m,
+		user: u,
+	}
+
+	portal.discordMessages <- msg
+}
+
+func (u *User) messageUpdateHandler(s *discordgo.Session, m *discordgo.MessageUpdate) {
+	if m.GuildID != "" {
+		u.log.Debugln("ignoring message update for guild message")
 
 		return
 	}

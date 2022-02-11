@@ -270,6 +270,8 @@ func (p *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	switch msg.msg.(type) {
 	case *discordgo.MessageCreate:
 		p.handleDiscordMessageCreate(msg.user, msg.msg.(*discordgo.MessageCreate).Message)
+	case *discordgo.MessageUpdate:
+		p.handleDiscordMessagesUpdate(msg.user, msg.msg.(*discordgo.MessageUpdate).Message)
 	case *discordgo.MessageDelete:
 		p.handleDiscordMessageDelete(msg.user, msg.msg.(*discordgo.MessageDelete).Message)
 	case *discordgo.MessageReactionAdd:
@@ -329,11 +331,50 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 	resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
 	if err != nil {
 		p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
+
 		return
 	}
 
 	ts, _ := msg.Timestamp.Parse()
-	p.markMessageHandled(nil, msg.ID, resp.EventID, msg.Author.ID, ts)
+	p.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
+}
+
+func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message) {
+	if user.ID == msg.Author.ID {
+		return
+	}
+
+	if p.MXID == "" {
+		p.log.Warnln("handle message called without a valid portal")
+
+		return
+	}
+
+	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)
+	if existing == nil {
+		p.log.Debugln("failed to find previous message to update", msg.ID)
+	}
+
+	content := &event.MessageEventContent{
+		Body:    msg.Content,
+		MsgType: event.MsgText,
+	}
+
+	content.SetEdit(existing.MatrixID)
+
+	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
+
+	_, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	if err != nil {
+		p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
+
+		return
+	}
+
+	// It appears that matrix updates only work against the original event id
+	// so updating it to the new one from an edit makes it so you can't update
+	// it anyways. So we just don't update anything and we can keep updating
+	// the message.
 }
 
 func (p *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) {

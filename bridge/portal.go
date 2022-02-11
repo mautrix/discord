@@ -304,7 +304,7 @@ func (p *Portal) markMessageHandled(msg *database.Message, discordID string, mxi
 }
 
 func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) {
-	if user.ID == msg.Author.ID {
+	if msg.Author != nil && user.ID == msg.Author.ID {
 		return
 	}
 
@@ -340,7 +340,7 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 }
 
 func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message) {
-	if user.ID == msg.Author.ID {
+	if msg.Author != nil && user.ID == msg.Author.ID {
 		return
 	}
 

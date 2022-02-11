@@ -57,7 +57,7 @@ func New(cfg *config.Config) (*Bridge, error) {
 
 	logger.Infoln("Initializing version", version.String)
 
-	// Create and initalize the app service.
+	// Create and initialize the app service.
 	appservice, err := cfg.CreateAppService()
 	if err != nil {
 		return nil, err

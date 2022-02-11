@@ -16,11 +16,12 @@ type Database struct {
 	log     log.Logger
 	dialect string
 
-	User     *UserQuery
-	Portal   *PortalQuery
-	Puppet   *PuppetQuery
-	Message  *MessageQuery
-	Reaction *ReactionQuery
+	User       *UserQuery
+	Portal     *PortalQuery
+	Puppet     *PuppetQuery
+	Message    *MessageQuery
+	Reaction   *ReactionQuery
+	Attachment *AttachmentQuery
 }
 
 func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger) (*Database, error) {
@@ -71,6 +72,11 @@ func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger)
 	db.Reaction = &ReactionQuery{
 		db:  db,
 		log: db.log.Sub("Reaction"),
+	}
+
+	db.Attachment = &AttachmentQuery{
+		db:  db,
+		log: db.log.Sub("Attachment"),
 	}
 
 	return db, nil

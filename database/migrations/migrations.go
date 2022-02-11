@@ -40,6 +40,7 @@ func Run(db *sql.DB, baseLog log.Logger) error {
 		migrator.WithLogger(logger),
 		migrator.Migrations(
 			migrationFromFile("01-initial.sql"),
+			migrationFromFile("02-attachments.sql"),
 		),
 	)
 	if err != nil {

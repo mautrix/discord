@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -303,6 +304,79 @@ func (p *Portal) markMessageHandled(msg *database.Message, discordID string, mxi
 	return msg
 }
 
+func (p *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridgeErr error) {
+	content := &event.MessageEventContent{
+		Body:    fmt.Sprintf("Failed to bridge media: %v", bridgeErr),
+		MsgType: event.MsgNotice,
+	}
+
+	_, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	if err != nil {
+		p.log.Warnfln("failed to send error message to matrix: %v", err)
+	}
+}
+
+func (p *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgID string, attachment *discordgo.MessageAttachment) {
+	// var captionContent *event.MessageEventContent
+
+	// if attachment.Description != "" {
+	// 	captionContent = &event.MessageEventContent{
+	// 		Body:    attachment.Description,
+	// 		MsgType: event.MsgNotice,
+	// 	}
+	// }
+	// p.log.Debugfln("captionContent: %#v", captionContent)
+
+	content := &event.MessageEventContent{
+		Body: attachment.Filename,
+		Info: &event.FileInfo{
+			Height:   attachment.Height,
+			MimeType: attachment.ContentType,
+			Width:    attachment.Width,
+
+			// This gets overwritten later after the file is uploaded to the homeserver
+			Size: attachment.Size,
+		},
+	}
+
+	switch strings.ToLower(strings.Split(attachment.ContentType, "/")[0]) {
+	case "audio":
+		content.MsgType = event.MsgAudio
+	case "image":
+		content.MsgType = event.MsgImage
+	case "video":
+		content.MsgType = event.MsgVideo
+	default:
+		content.MsgType = event.MsgFile
+	}
+
+	data, err := p.downloadDiscordAttachment(attachment.URL)
+	if err != nil {
+		p.sendMediaFailedMessage(intent, err)
+
+		return
+	}
+
+	err = p.uploadMatrixAttachment(intent, data, content)
+	if err != nil {
+		p.sendMediaFailedMessage(intent, err)
+
+		return
+	}
+
+	resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	if err != nil {
+		p.log.Warnfln("failed to send media message to matrix: %v", err)
+	}
+
+	dbAttachment := p.bridge.db.Attachment.New()
+	dbAttachment.Channel = p.Key
+	dbAttachment.DiscordMessageID = msgID
+	dbAttachment.DiscordAttachmentID = attachment.ID
+	dbAttachment.MatrixEventID = resp.EventID
+	dbAttachment.Insert()
+}
+
 func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) {
 	if msg.Author != nil && user.ID == msg.Author.ID {
 		return
@@ -321,22 +395,29 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 		return
 	}
 
-	content := &event.MessageEventContent{
-		Body:    msg.Content,
-		MsgType: event.MsgText,
-	}
-
 	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
 
-	resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
-	if err != nil {
-		p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
+	if msg.Content != "" {
+		content := &event.MessageEventContent{
+			Body:    msg.Content,
+			MsgType: event.MsgText,
+		}
 
-		return
+		resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+		if err != nil {
+			p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
+
+			return
+		}
+
+		ts, _ := msg.Timestamp.Parse()
+		p.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
 	}
 
-	ts, _ := msg.Timestamp.Parse()
-	p.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
+	// now run through any attachments the message has
+	for _, attachment := range msg.Attachments {
+		p.handleDiscordAttachment(intent, msg.ID, attachment)
+	}
 }
 
 func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message) {
@@ -350,9 +431,45 @@ func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message)
 		return
 	}
 
+	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
+
 	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)
 	if existing == nil {
-		p.log.Debugln("failed to find previous message to update", msg.ID)
+		// Due to the differences in Discord and Matrix attachment handling,
+		// existing will return nil if the original message was empty as we
+		// don't store/save those messages so we can determine when we're
+		// working against an attachment and do the attachment lookup instead.
+
+		// Find all the existing attachments and drop them in a map so we can
+		// figure out which, if any have been deleted and clean them up on the
+		// matrix side.
+		attachmentMap := map[string]*database.Attachment{}
+		attachments := p.bridge.db.Attachment.GetAllByDiscordMessageID(p.Key, msg.ID)
+
+		for _, attachment := range attachments {
+			attachmentMap[attachment.DiscordAttachmentID] = attachment
+		}
+
+		// Now run through the list of attachments on this message and remove
+		// them from the map.
+		for _, attachment := range msg.Attachments {
+			if _, found := attachmentMap[attachment.ID]; found {
+				delete(attachmentMap, attachment.ID)
+			}
+		}
+
+		// Finally run through any attachments still in the map and delete them
+		// on the matrix side and our database.
+		for _, attachment := range attachmentMap {
+			_, err := intent.RedactEvent(p.MXID, attachment.MatrixEventID)
+			if err != nil {
+				p.log.Warnfln("Failed to remove attachment %s: %v", attachment.MatrixEventID, err)
+			}
+
+			attachment.Delete()
+		}
+
+		return
 	}
 
 	content := &event.MessageEventContent{
@@ -361,8 +478,6 @@ func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message)
 	}
 
 	content.SetEdit(existing.MatrixID)
-
-	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
 
 	_, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
 	if err != nil {
@@ -384,13 +499,9 @@ func (p *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) 
 	// add guild message support, but we'll cross that bridge when we get
 	// there.
 
-	// Find the message that we're working with.
+	// Find the message that we're working with. This could correctly return
+	// nil if the message was just one or more attachments.
 	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)
-	if existing == nil {
-		p.log.Debugfln("failed to find message", msg.ID)
-
-		return
-	}
 
 	var intent *appservice.IntentAPI
 
@@ -400,12 +511,25 @@ func (p *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) 
 		p.log.Errorfln("no guilds yet...")
 	}
 
-	_, err := intent.RedactEvent(p.MXID, existing.MatrixID)
-	if err != nil {
-		p.log.Warnfln("Failed to remove message %s: %v", existing.MatrixID, err)
+	if existing != nil {
+		_, err := intent.RedactEvent(p.MXID, existing.MatrixID)
+		if err != nil {
+			p.log.Warnfln("Failed to remove message %s: %v", existing.MatrixID, err)
+		}
+
+		existing.Delete()
 	}
 
-	existing.Delete()
+	// Now delete all of the existing attachments.
+	attachments := p.bridge.db.Attachment.GetAllByDiscordMessageID(p.Key, msg.ID)
+	for _, attachment := range attachments {
+		_, err := intent.RedactEvent(p.MXID, attachment.MatrixEventID)
+		if err != nil {
+			p.log.Warnfln("Failed to remove attachment %s: %v", attachment.MatrixEventID, err)
+		}
+
+		attachment.Delete()
+	}
 }
 
 func (p *Portal) syncParticipants(source *User, participants []*discordgo.User) {
@@ -615,16 +739,38 @@ func (p *Portal) handleMatrixReaction(evt *event.Event) {
 		return
 	}
 
-	msg := p.bridge.db.Message.GetByMatrixID(p.Key, reaction.RelatesTo.EventID)
-	if msg.DiscordID == "" {
-		p.log.Debugf("Message %s has not yet been sent to discord", reaction.RelatesTo.EventID)
+	var discordID string
 
-		return
+	msg := p.bridge.db.Message.GetByMatrixID(p.Key, reaction.RelatesTo.EventID)
+
+	// Due to the differences in attachments between Discord and Matrix, if a
+	// user reacts to a media message on discord our lookup above will fail
+	// because the relation of matrix media messages to attachments in handled
+	// in the attachments table instead of messages so we need to check that
+	// before continuing.
+	//
+	// This also leads to interesting problems when a Discord message comes in
+	// with multiple attachments. A user can react to each one individually on
+	// Matrix, which will cause us to send it twice. Discord tends to ignore
+	// this, but if the user removes one of them, discord removes it and now
+	// they're out of sync. Perhaps we should add a counter to the reactions
+	// table to keep them in sync and to avoid sending duplicates to Discord.
+	if msg == nil {
+		attachment := p.bridge.db.Attachment.GetByMatrixID(p.Key, reaction.RelatesTo.EventID)
+		discordID = attachment.DiscordMessageID
+	} else {
+		if msg.DiscordID == "" {
+			p.log.Debugf("Message %s has not yet been sent to discord", reaction.RelatesTo.EventID)
+
+			return
+		}
+
+		discordID = msg.DiscordID
 	}
 
-	err := user.Session.MessageReactionAdd(p.Key.ChannelID, msg.DiscordID, reaction.RelatesTo.Key)
+	err := user.Session.MessageReactionAdd(p.Key.ChannelID, discordID, reaction.RelatesTo.Key)
 	if err != nil {
-		p.log.Debugf("Failed to send reaction %s@%s: %v", p.Key, msg.DiscordID, err)
+		p.log.Debugf("Failed to send reaction %s@%s: %v", p.Key, discordID, err)
 
 		return
 	}
@@ -633,7 +779,7 @@ func (p *Portal) handleMatrixReaction(evt *event.Event) {
 	dbReaction.Channel.ChannelID = p.Key.ChannelID
 	dbReaction.Channel.Receiver = p.Key.Receiver
 	dbReaction.MatrixEventID = evt.ID
-	dbReaction.DiscordMessageID = msg.DiscordID
+	dbReaction.DiscordMessageID = discordID
 	dbReaction.AuthorID = user.ID
 	dbReaction.MatrixName = reaction.RelatesTo.Key
 	dbReaction.DiscordID = reaction.RelatesTo.Key

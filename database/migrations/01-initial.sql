@@ -27,7 +27,7 @@ CREATE TABLE puppet (
 	enable_presence BOOLEAN NOT NULL DEFAULT true
 );
 
-CREATE TABLE user (
+CREATE TABLE "user" (
 	mxid TEXT PRIMARY KEY,
 	id   TEXT UNIQUE,
 

@@ -69,7 +69,7 @@ func (u *User) sessionNonptr() discordgo.Session {
 func (u *User) Insert() {
 	session := u.sessionNonptr()
 
-	query := "INSERT INTO user" +
+	query := "INSERT INTO \"user\"" +
 		" (mxid, id, management_room, token)" +
 		" VALUES ($1, $2, $3, $4);"
 
@@ -84,7 +84,7 @@ func (u *User) Insert() {
 func (u *User) Update() {
 	session := u.sessionNonptr()
 
-	query := "UPDATE user SET" +
+	query := "UPDATE \"user\" SET" +
 		" id=$1, management_room=$2, token=$3" +
 		" WHERE mxid=$4;"
 

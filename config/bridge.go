@@ -4,6 +4,8 @@ import (
 	"strings"
 	"text/template"
 
+	"maunium.net/go/mautrix/id"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -17,8 +19,24 @@ type bridge struct {
 
 	PortalMessageBuffer int `yaml:"portal_message_buffer"`
 
+	SyncWithCustomPuppets bool `yaml:"sync_with_custom_puppets"`
+	SyncDirectChatList    bool `yaml:"sync_direct_chat_list"`
+	DefaultBridgeReceipts bool `yaml:"default_bridge_receipts"`
+	DefaultBridgePresence bool `yaml:"default_bridge_presence"`
+
+	DoublePuppetServerMap      map[string]string `yaml:"double_puppet_server_map"`
+	DoublePuppetAllowDiscovery bool              `yaml:"double_puppet_allow_discovery"`
+	LoginSharedSecretMap       map[string]string `yaml:"login_shared_secret_map"`
+
 	usernameTemplate    *template.Template `yaml:"-"`
 	displaynameTemplate *template.Template `yaml:"-"`
+}
+
+func (config *Config) CanAutoDoublePuppet(userID id.UserID) bool {
+	_, homeserver, _ := userID.Parse()
+	_, hasSecret := config.Bridge.LoginSharedSecretMap[homeserver]
+
+	return hasSecret
 }
 
 func (b *bridge) validate() error {
@@ -60,7 +78,12 @@ func (b *bridge) validate() error {
 func (b *bridge) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type rawBridge bridge
 
-	raw := rawBridge{}
+	// Set our defaults that aren't zero values.
+	raw := rawBridge{
+		SyncWithCustomPuppets: true,
+		DefaultBridgeReceipts: true,
+		DefaultBridgePresence: true,
+	}
 
 	err := unmarshal(&raw)
 	if err != nil {

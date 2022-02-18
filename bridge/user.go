@@ -3,6 +3,7 @@ package bridge
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -123,11 +124,18 @@ func (b *Bridge) startUsers() {
 	b.log.Debugln("Starting users")
 
 	for _, user := range b.getAllUsers() {
-		// if user.ID != "" {
-		// 	haveSessions = true
-		// }
-
 		go user.Connect()
+	}
+
+	b.log.Debugln("Starting custom puppets")
+	for _, customPuppet := range b.GetAllPuppetsWithCustomMXID() {
+		go func(puppet *Puppet) {
+			b.log.Debugln("Starting custom puppet", puppet.CustomMXID)
+
+			if err := puppet.StartCustomMXID(true); err != nil {
+				puppet.log.Errorln("Failed to start custom puppet:", err)
+			}
+		}(customPuppet)
 	}
 }
 
@@ -190,6 +198,53 @@ func (u *User) uploadQRCode(code string) (id.ContentURI, error) {
 	return resp.ContentURI, nil
 }
 
+func (u *User) tryAutomaticDoublePuppeting() {
+	u.Lock()
+	defer u.Unlock()
+
+	if !u.bridge.Config.CanAutoDoublePuppet(u.MXID) {
+		return
+	}
+
+	u.log.Debugln("Checking if double puppeting needs to be enabled")
+
+	puppet := u.bridge.GetPuppetByID(u.ID)
+	if puppet.CustomMXID != "" {
+		u.log.Debugln("User already has double-puppeting enabled")
+
+		return
+	}
+
+	accessToken, err := puppet.loginWithSharedSecret(u.MXID)
+	if err != nil {
+		u.log.Warnln("Failed to login with shared secret:", err)
+
+		return
+	}
+
+	err = puppet.SwitchCustomMXID(accessToken, u.MXID)
+	if err != nil {
+		puppet.log.Warnln("Failed to switch to auto-logined custom puppet:", err)
+
+		return
+	}
+
+	u.log.Infoln("Successfully automatically enabled custom puppet")
+}
+
+func (u *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) {
+	doublePuppet := portal.bridge.GetPuppetByCustomMXID(u.MXID)
+	if doublePuppet == nil {
+		return
+	}
+
+	if doublePuppet == nil || doublePuppet.CustomIntent() == nil || portal.MXID == "" {
+		return
+	}
+
+	// TODO sync mute status
+}
+
 func (u *User) Login(token string) error {
 	if token == "" {
 		return fmt.Errorf("No token specified")
@@ -214,6 +269,14 @@ func (u *User) Logout() error {
 
 	if u.Session == nil {
 		return ErrNotLoggedIn
+	}
+
+	puppet := u.bridge.GetPuppetByID(u.ID)
+	if puppet.CustomMXID != "" {
+		err := puppet.SwitchCustomMXID("", "")
+		if err != nil {
+			u.log.Warnln("Failed to logout-matrix while logging out of Discord:", err)
+		}
 	}
 
 	if err := u.Session.Close(); err != nil {
@@ -299,6 +362,8 @@ func (u *User) Disconnect() error {
 
 func (u *User) connectedHandler(s *discordgo.Session, c *discordgo.Connect) {
 	u.log.Debugln("connected to discord")
+
+	u.tryAutomaticDoublePuppeting()
 }
 
 func (u *User) disconnectedHandler(s *discordgo.Session, d *discordgo.Disconnect) {
@@ -447,6 +512,11 @@ func (u *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isD
 		Raw: map[string]interface{}{},
 	}
 
+	customPuppet := u.bridge.GetPuppetByCustomMXID(u.MXID)
+	if customPuppet != nil && customPuppet.CustomIntent() != nil {
+		inviteContent.Raw["fi.mau.will_auto_accept"] = true
+	}
+
 	_, err := intent.SendStateEvent(roomID, event.StateMember, u.MXID.String(), &inviteContent)
 
 	var httpErr mautrix.HTTPError
@@ -459,5 +529,90 @@ func (u *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isD
 		ret = true
 	}
 
+	if customPuppet != nil && customPuppet.CustomIntent() != nil {
+		err = customPuppet.CustomIntent().EnsureJoined(roomID, appservice.EnsureJoinedParams{IgnoreCache: true})
+		if err != nil {
+			u.log.Warnfln("Failed to auto-join %s: %v", roomID, err)
+			ret = false
+		} else {
+			ret = true
+		}
+	}
+
 	return ret
+}
+
+func (u *User) getDirectChats() map[id.UserID][]id.RoomID {
+	chats := map[id.UserID][]id.RoomID{}
+
+	privateChats := u.bridge.db.Portal.FindPrivateChats(u.ID)
+	for _, portal := range privateChats {
+		if portal.MXID != "" {
+			puppetMXID := u.bridge.FormatPuppetMXID(portal.Key.Receiver)
+
+			chats[puppetMXID] = []id.RoomID{portal.MXID}
+		}
+	}
+
+	return chats
+}
+
+func (u *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
+	if !u.bridge.Config.Bridge.SyncDirectChatList {
+		return
+	}
+
+	puppet := u.bridge.GetPuppetByMXID(u.MXID)
+	if puppet == nil {
+		return
+	}
+
+	intent := puppet.CustomIntent()
+	if intent == nil {
+		return
+	}
+
+	method := http.MethodPatch
+	if chats == nil {
+		chats = u.getDirectChats()
+		method = http.MethodPut
+	}
+
+	u.log.Debugln("Updating m.direct list on homeserver")
+
+	var err error
+	if u.bridge.Config.Homeserver.Asmux {
+		urlPath := intent.BuildBaseURL("_matrix", "client", "unstable", "com.beeper.asmux", "dms")
+		_, err = intent.MakeFullRequest(mautrix.FullRequest{
+			Method:      method,
+			URL:         urlPath,
+			Headers:     http.Header{"X-Asmux-Auth": {u.bridge.as.Registration.AppToken}},
+			RequestJSON: chats,
+		})
+	} else {
+		existingChats := map[id.UserID][]id.RoomID{}
+
+		err = intent.GetAccountData(event.AccountDataDirectChats.Type, &existingChats)
+		if err != nil {
+			u.log.Warnln("Failed to get m.direct list to update it:", err)
+
+			return
+		}
+
+		for userID, rooms := range existingChats {
+			if _, ok := u.bridge.ParsePuppetMXID(userID); !ok {
+				// This is not a ghost user, include it in the new list
+				chats[userID] = rooms
+			} else if _, ok := chats[userID]; !ok && method == http.MethodPatch {
+				// This is a ghost user, but we're not replacing the whole list, so include it too
+				chats[userID] = rooms
+			}
+		}
+
+		err = intent.SetAccountData(event.AccountDataDirectChats.Type, &chats)
+	}
+
+	if err != nil {
+		u.log.Warnln("Failed to update m.direct list:", err)
+	}
 }

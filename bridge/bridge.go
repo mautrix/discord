@@ -43,8 +43,9 @@ type Bridge struct {
 	portalsByID   map[database.PortalKey]*Portal
 	portalsLock   sync.Mutex
 
-	puppets     map[string]*Puppet
-	puppetsLock sync.Mutex
+	puppets             map[string]*Puppet
+	puppetsByCustomMXID map[id.UserID]*Puppet
+	puppetsLock         sync.Mutex
 
 	StateStore *database.SQLStateStore
 }
@@ -97,7 +98,8 @@ func New(cfg *config.Config) (*Bridge, error) {
 		portalsByMXID: make(map[id.RoomID]*Portal),
 		portalsByID:   make(map[database.PortalKey]*Portal),
 
-		puppets: make(map[string]*Puppet),
+		puppets:             make(map[string]*Puppet),
+		puppetsByCustomMXID: make(map[id.UserID]*Puppet),
 
 		StateStore: stateStore,
 	}

@@ -12,6 +12,7 @@ var (
 type homeserver struct {
 	Address        string `yaml:"address"`
 	Domain         string `yaml:"domain"`
+	Asmux          bool   `yaml:"asmux"`
 	StatusEndpoint string `yaml:"status_endpoint"`
 }
 

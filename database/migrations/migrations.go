@@ -43,6 +43,7 @@ func Run(db *sql.DB, baseLog log.Logger) error {
 			migrationFromFile("02-attachments.sql"),
 			migrationFromFile("03-emoji.sql"),
 			migrationFromFile("04-custom-puppet.sql"),
+			migrationFromFile("05-additional-puppet-fields.sql"),
 		),
 	)
 	if err != nil {

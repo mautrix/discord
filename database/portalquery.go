@@ -1,6 +1,7 @@
 package database
 
 import (
+	"github.com/bwmarrin/discordgo"
 	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
@@ -31,6 +32,12 @@ func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
 
 func (pq *PortalQuery) GetAllByID(id string) []*Portal {
 	return pq.getAll("SELECT * FROM portal WHERE receiver=$1", id)
+}
+
+func (pq *PortalQuery) FindPrivateChats(receiver string) []*Portal {
+	query := "SELECT * FROM portal WHERE receiver=$1 AND type=$2;"
+
+	return pq.getAll(query, receiver, discordgo.ChannelTypeDM)
 }
 
 func (pq *PortalQuery) getAll(query string, args ...interface{}) []*Portal {

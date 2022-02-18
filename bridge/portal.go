@@ -232,11 +232,16 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 	p.bridge.portalsByMXID[p.MXID] = p
 	p.bridge.portalsLock.Unlock()
 
-	p.log.Debugln("inviting user", user)
 	p.ensureUserInvited(user)
+	user.syncChatDoublePuppetDetails(p, true)
+
+	p.syncParticipants(user, channel.Recipients)
 
 	if p.IsPrivateChat() {
-		p.syncParticipants(user, channel.Recipients)
+		puppet := user.bridge.GetPuppetByID(p.Key.Receiver)
+
+		chats := map[id.UserID][]id.RoomID{puppet.MXID: {p.MXID}}
+		user.updateDirectChats(chats)
 	}
 
 	firstEventResp, err := p.MainIntent().SendMessageEvent(p.MXID, portalCreationDummyEvent, struct{}{})

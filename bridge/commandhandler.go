@@ -90,7 +90,7 @@ func (h *commandHandler) handle(roomID id.RoomID, user *User, message string, re
 	if err != nil {
 		h.log.Warnf("Failed to parse command %q: %v", message, err)
 
-		cmd.globals.reply("failed to process the command")
+		cmd.globals.reply(fmt.Sprintf("failed to process the command: %v", err))
 
 		return
 	}

@@ -9,15 +9,14 @@ require (
 	github.com/gorilla/websocket v1.5.0
 	github.com/lib/pq v1.9.0
 	github.com/lopezator/migrator v0.3.0
-	github.com/mattn/go-sqlite3 v1.14.10
+	github.com/mattn/go-sqlite3 v1.14.11
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	gopkg.in/yaml.v2 v2.4.0
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.10.10
+	maunium.net/go/mautrix v0.10.11
 )
 
 require (
-	github.com/btcsuite/btcutil v1.0.2 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect

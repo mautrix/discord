@@ -22,6 +22,9 @@ type Puppet struct {
 
 	MXID id.UserID
 
+	customIntent *appservice.IntentAPI
+	customUser   *User
+
 	syncLock sync.Mutex
 }
 
@@ -85,6 +88,59 @@ func (b *Bridge) GetPuppetByID(id string) *Puppet {
 	return puppet
 }
 
+func (b *Bridge) GetPuppetByCustomMXID(mxid id.UserID) *Puppet {
+	b.puppetsLock.Lock()
+	defer b.puppetsLock.Unlock()
+
+	puppet, ok := b.puppetsByCustomMXID[mxid]
+	if !ok {
+		dbPuppet := b.db.Puppet.GetByCustomMXID(mxid)
+		if dbPuppet == nil {
+			return nil
+		}
+
+		puppet = b.NewPuppet(dbPuppet)
+		b.puppets[puppet.ID] = puppet
+		b.puppetsByCustomMXID[puppet.CustomMXID] = puppet
+	}
+
+	return puppet
+}
+
+func (b *Bridge) GetAllPuppetsWithCustomMXID() []*Puppet {
+	return b.dbPuppetsToPuppets(b.db.Puppet.GetAllWithCustomMXID())
+}
+
+func (b *Bridge) GetAllPuppets() []*Puppet {
+	return b.dbPuppetsToPuppets(b.db.Puppet.GetAll())
+}
+
+func (b *Bridge) dbPuppetsToPuppets(dbPuppets []*database.Puppet) []*Puppet {
+	b.puppetsLock.Lock()
+	defer b.puppetsLock.Unlock()
+
+	output := make([]*Puppet, len(dbPuppets))
+	for index, dbPuppet := range dbPuppets {
+		if dbPuppet == nil {
+			continue
+		}
+
+		puppet, ok := b.puppets[dbPuppet.ID]
+		if !ok {
+			puppet = b.NewPuppet(dbPuppet)
+			b.puppets[dbPuppet.ID] = puppet
+
+			if dbPuppet.CustomMXID != "" {
+				b.puppetsByCustomMXID[dbPuppet.CustomMXID] = puppet
+			}
+		}
+
+		output[index] = puppet
+	}
+
+	return output
+}
+
 func (b *Bridge) FormatPuppetMXID(did string) id.UserID {
 	return id.NewUserID(
 		b.Config.Bridge.FormatUsername(did),
@@ -97,8 +153,15 @@ func (p *Puppet) DefaultIntent() *appservice.IntentAPI {
 }
 
 func (p *Puppet) IntentFor(portal *Portal) *appservice.IntentAPI {
-	// TODO: when we add double puppeting we need to adjust this.
-	return p.DefaultIntent()
+	if p.customIntent == nil || portal.Key.Receiver == p.ID {
+		return p.DefaultIntent()
+	}
+
+	return p.customIntent
+}
+
+func (p *Puppet) CustomIntent() *appservice.IntentAPI {
+	return p.customIntent
 }
 
 func (p *Puppet) updatePortalMeta(meta func(portal *Portal)) {

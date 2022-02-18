@@ -52,8 +52,15 @@ type commands struct {
 	Logout     logoutCmd     `kong:"cmd,help='Log out of Discord.'"`
 	Reconnect  reconnectCmd  `kong:"cmd,help='Reconnect to Discord'"`
 	Version    versionCmd    `kong:"cmd,help='Displays the version of the bridge.'"`
+
+	LoginMatrix  loginMatrixCmd  `kong:"cmd,help='Replace the puppet for your Discord account with your real Matrix account.'"`
+	LogoutMatrix logoutMatrixCmd `kong:"cmd,help='Switch the puppet for your Discord account back to the default one.'"`
+	PingMatrix   pingMatrixCmd   `kong:"cmd,help='check if your double puppet is working properly'"`
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Help Command
+///////////////////////////////////////////////////////////////////////////////
 type helpCmd struct {
 	Command []string `kong:"arg,optional,help='The command to get help on.'"`
 }
@@ -78,6 +85,9 @@ func (c *helpCmd) Run(g *globals) error {
 	return nil
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Version Command
+///////////////////////////////////////////////////////////////////////////////
 type versionCmd struct{}
 
 func (c *versionCmd) Run(g *globals) error {
@@ -86,6 +96,9 @@ func (c *versionCmd) Run(g *globals) error {
 	return nil
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Login Command
+///////////////////////////////////////////////////////////////////////////////
 type loginCmd struct{}
 
 func (l *loginCmd) Run(g *globals) error {
@@ -108,7 +121,7 @@ func (l *loginCmd) Run(g *globals) error {
 
 		_, err := g.user.sendQRCode(g.bot, g.roomID, code)
 		if err != nil {
-			fmt.Fprintln(g.context.Stdout, "failed to generate the qrcode")
+			fmt.Fprintln(g.context.Stdout, "Failed to generate the qrcode")
 
 			return
 		}
@@ -127,23 +140,30 @@ func (l *loginCmd) Run(g *globals) error {
 
 	user, err := client.Result()
 	if err != nil {
-		fmt.Println(g.context.Stdout, "failed to log in")
+		fmt.Fprintln(g.context.Stdout, "Failed to log in")
 
 		return err
 	}
 
 	if err := g.user.Login(user.Token); err != nil {
-		fmt.Println(g.context.Stdout, "failed to login", err)
+		fmt.Fprintln(g.context.Stdout, "Failed to login", err)
 
 		return err
 	}
 
+	g.user.Lock()
 	g.user.ID = user.UserID
 	g.user.Update()
+	g.user.Unlock()
+
+	fmt.Fprintln(g.context.Stdout, "Successfully logged in")
 
 	return nil
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Logout Command
+///////////////////////////////////////////////////////////////////////////////
 type logoutCmd struct{}
 
 func (l *logoutCmd) Run(g *globals) error {
@@ -165,6 +185,9 @@ func (l *logoutCmd) Run(g *globals) error {
 	return nil
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Disconnect Command
+///////////////////////////////////////////////////////////////////////////////
 type disconnectCmd struct{}
 
 func (d *disconnectCmd) Run(g *globals) error {
@@ -185,6 +208,9 @@ func (d *disconnectCmd) Run(g *globals) error {
 	return nil
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Reconnect Command
+///////////////////////////////////////////////////////////////////////////////
 type reconnectCmd struct{}
 
 func (r *reconnectCmd) Run(g *globals) error {
@@ -201,6 +227,62 @@ func (r *reconnectCmd) Run(g *globals) error {
 	}
 
 	fmt.Fprintln(g.context.Stdout, "Successfully connected")
+
+	return nil
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// LoginMatrix Command
+///////////////////////////////////////////////////////////////////////////////
+type loginMatrixCmd struct {
+	AccessToken string `kong:"arg,help='The shared secret to use the bridge'"`
+}
+
+func (m *loginMatrixCmd) Run(g *globals) error {
+	puppet := g.bridge.GetPuppetByID(g.user.ID)
+
+	err := puppet.SwitchCustomMXID(m.AccessToken, g.user.MXID)
+	if err != nil {
+		fmt.Fprintf(g.context.Stdout, "Failed to switch puppet: %v", err)
+
+		return err
+	}
+
+	fmt.Fprintf(g.context.Stdout, "Successfully switched puppet")
+
+	return nil
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// LogoutMatrix Command
+///////////////////////////////////////////////////////////////////////////////
+type logoutMatrixCmd struct{}
+
+func (m *logoutMatrixCmd) Run(g *globals) error {
+	return nil
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// PingMatrix Command
+///////////////////////////////////////////////////////////////////////////////
+type pingMatrixCmd struct{}
+
+func (m *pingMatrixCmd) Run(g *globals) error {
+	puppet := g.bridge.GetPuppetByCustomMXID(g.user.MXID)
+	if puppet == nil || puppet.CustomIntent() == nil {
+		fmt.Fprintf(g.context.Stdout, "You have not changed your Discord account's Matrix puppet.")
+
+		return fmt.Errorf("double puppet not configured")
+	}
+
+	resp, err := puppet.CustomIntent().Whoami()
+	if err != nil {
+		fmt.Fprintf(g.context.Stdout, "Failed to validate Matrix login: %v", err)
+
+		return err
+	}
+
+	fmt.Fprintf(g.context.Stdout, "Confirmed valid access token for %s / %s", resp.UserID, resp.DeviceID)
 
 	return nil
 }

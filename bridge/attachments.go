@@ -11,6 +11,7 @@ import (
 
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
 func (p *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
@@ -38,6 +39,40 @@ func (p *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	return ioutil.ReadAll(resp.Body)
+}
+
+func (p *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.MessageEventContent) ([]byte, error) {
+	var file *event.EncryptedFileInfo
+	rawMXC := content.URL
+
+	if content.File != nil {
+		file = content.File
+		rawMXC = file.URL
+	}
+
+	mxc, err := rawMXC.Parse()
+	if err != nil {
+		p.log.Errorln("Malformed content URL in %s: %v", eventID, err)
+
+		return nil, err
+	}
+
+	data, err := p.MainIntent().DownloadBytes(mxc)
+	if err != nil {
+		p.log.Errorfln("Failed to download media in %s: %v", eventID, err)
+
+		return nil, err
+	}
+
+	if file != nil {
+		data, err = file.Decrypt(data)
+		if err != nil {
+			p.log.Errorfln("Failed to decrypt media in %s: %v", eventID, err)
+			return nil, err
+		}
+	}
+
+	return data, nil
 }
 
 func (p *Portal) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, content *event.MessageEventContent) error {

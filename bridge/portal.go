@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"sync"
@@ -592,14 +593,47 @@ func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				return
 			}
 		}
-	} else {
-		msg, err := sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
+
+		return
+	}
+
+	var msg *discordgo.Message
+	var err error
+
+	switch content.MsgType {
+	case event.MsgText, event.MsgEmote, event.MsgNotice:
+		msg, err = sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
+	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
+		data, err := p.downloadMatrixAttachment(evt.ID, content)
 		if err != nil {
-			p.log.Errorfln("Failed to send message: %v", err)
+			p.log.Errorfln("Failed to download matrix attachment: %v", err)
 
 			return
 		}
 
+		msgSend := &discordgo.MessageSend{
+			Files: []*discordgo.File{
+				&discordgo.File{
+					Name:        content.Body,
+					ContentType: content.Info.MimeType,
+					Reader:      bytes.NewReader(data),
+				},
+			},
+		}
+
+		msg, err = sender.Session.ChannelMessageSendComplex(p.Key.ChannelID, msgSend)
+	default:
+		p.log.Warnln("unknown message type:", content.MsgType)
+		return
+	}
+
+	if err != nil {
+		p.log.Errorfln("Failed to send message: %v", err)
+
+		return
+	}
+
+	if msg != nil {
 		dbMsg := p.bridge.db.Message.New()
 		dbMsg.Channel = p.Key
 		dbMsg.DiscordID = msg.ID

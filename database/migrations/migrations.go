@@ -41,6 +41,7 @@ func Run(db *sql.DB, baseLog log.Logger) error {
 		migrator.Migrations(
 			migrationFromFile("01-initial.sql"),
 			migrationFromFile("02-attachments.sql"),
+			migrationFromFile("03-emoji.sql"),
 		),
 	)
 	if err != nil {

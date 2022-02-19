@@ -22,6 +22,7 @@ type Database struct {
 	Message    *MessageQuery
 	Reaction   *ReactionQuery
 	Attachment *AttachmentQuery
+	Emoji      *EmojiQuery
 }
 
 func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger) (*Database, error) {
@@ -77,6 +78,11 @@ func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger)
 	db.Attachment = &AttachmentQuery{
 		db:  db,
 		log: db.log.Sub("Attachment"),
+	}
+
+	db.Emoji = &EmojiQuery{
+		db:  db,
+		log: db.log.Sub("Emoji"),
 	}
 
 	return db, nil

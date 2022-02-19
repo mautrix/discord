@@ -802,9 +802,23 @@ func (p *Portal) handleMatrixReaction(evt *event.Event) {
 		discordID = msg.DiscordID
 	}
 
-	err := user.Session.MessageReactionAdd(p.Key.ChannelID, discordID, reaction.RelatesTo.Key)
+	// Figure out if this is a custom emoji or not.
+	emojiID := reaction.RelatesTo.Key
+	if strings.HasPrefix(emojiID, "mxc://") {
+		uri, _ := id.ParseContentURI(emojiID)
+		emoji := p.bridge.db.Emoji.GetByMatrixURL(uri)
+		if emoji == nil {
+			p.log.Errorfln("failed to find emoji for %s", emojiID)
+
+			return
+		}
+
+		emojiID = emoji.APIName()
+	}
+
+	err := user.Session.MessageReactionAdd(p.Key.ChannelID, discordID, emojiID)
 	if err != nil {
-		p.log.Debugf("Failed to send reaction %s@%s: %v", p.Key, discordID, err)
+		p.log.Debugf("Failed to send reaction %s id:%s: %v", p.Key, discordID, err)
 
 		return
 	}
@@ -816,7 +830,7 @@ func (p *Portal) handleMatrixReaction(evt *event.Event) {
 	dbReaction.DiscordMessageID = discordID
 	dbReaction.AuthorID = user.ID
 	dbReaction.MatrixName = reaction.RelatesTo.Key
-	dbReaction.DiscordID = reaction.RelatesTo.Key
+	dbReaction.DiscordID = emojiID
 	dbReaction.Insert()
 }
 
@@ -825,16 +839,41 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		return
 	}
 
-	// This is temporary until we add support for custom emoji.
+	intent := p.bridge.GetPuppetByID(reaction.UserID).IntentFor(p)
+
+	var discordID string
+	var matrixID string
+
 	if reaction.Emoji.ID != "" {
-		p.log.Debugln("ignoring non-unicode reaction")
+		dbEmoji := p.bridge.db.Emoji.GetByDiscordID(reaction.Emoji.ID)
 
-		return
-	}
+		if dbEmoji == nil {
+			data, mimeType, err := p.downloadDiscordEmoji(reaction.Emoji.ID, reaction.Emoji.Animated)
+			if err != nil {
+				p.log.Warnfln("Failed to download emoji %s from discord: %v", reaction.Emoji.ID, err)
 
-	emoteID := reaction.Emoji.ID
-	if reaction.Emoji.Name != "" {
-		emoteID = reaction.Emoji.Name
+				return
+			}
+
+			uri, err := p.uploadMatrixEmoji(intent, data, mimeType)
+			if err != nil {
+				p.log.Warnfln("Failed to upload discord emoji %s to homeserver: %v", reaction.Emoji.ID, err)
+
+				return
+			}
+
+			dbEmoji = p.bridge.db.Emoji.New()
+			dbEmoji.DiscordID = reaction.Emoji.ID
+			dbEmoji.DiscordName = reaction.Emoji.Name
+			dbEmoji.MatrixURL = uri
+			dbEmoji.Insert()
+		}
+
+		discordID = dbEmoji.DiscordID
+		matrixID = dbEmoji.MatrixURL.String()
+	} else {
+		discordID = reaction.Emoji.Name
+		matrixID = reaction.Emoji.Name
 	}
 
 	// Find the message that we're working with.
@@ -845,10 +884,8 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		return
 	}
 
-	intent := p.bridge.GetPuppetByID(reaction.UserID).IntentFor(p)
-
 	// Lookup an existing reaction
-	existing := p.bridge.db.Reaction.GetByDiscordID(p.Key, message.DiscordID, emoteID)
+	existing := p.bridge.db.Reaction.GetByDiscordID(p.Key, message.DiscordID, discordID)
 
 	if !add {
 		if existing == nil {
@@ -871,7 +908,7 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		RelatesTo: event.RelatesTo{
 			EventID: message.MatrixID,
 			Type:    event.RelAnnotation,
-			Key:     reaction.Emoji.Name,
+			Key:     matrixID,
 		},
 	}}
 
@@ -889,8 +926,8 @@ func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageRe
 		dbReaction.MatrixEventID = resp.EventID
 		dbReaction.AuthorID = reaction.UserID
 
-		dbReaction.MatrixName = reaction.Emoji.Name
-		dbReaction.DiscordID = emoteID
+		dbReaction.MatrixName = matrixID
+		dbReaction.DiscordID = discordID
 
 		dbReaction.Insert()
 	}

@@ -1,6 +1,7 @@
 package run
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 type Cmd struct{}
 
 func (c *Cmd) Run(g *globals.Globals) error {
+	fmt.Printf("g.Config: %q\n", g.Config)
 	cfg, err := config.FromFile(g.Config)
 	if err != nil {
 		return err

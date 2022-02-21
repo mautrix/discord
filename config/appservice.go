@@ -13,6 +13,8 @@ type appservice struct {
 
 	Bot bot `yaml:"bot"`
 
+	Provisioning provisioning `yaml:"provisioning"`
+
 	Database database `yaml:"database"`
 
 	ASToken string `yaml:"as_token"`

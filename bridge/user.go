@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -184,12 +185,20 @@ func (u *User) uploadQRCode(code string) (id.ContentURI, error) {
 }
 
 func (u *User) Login(token string) error {
+	if token == "" {
+		return fmt.Errorf("No token specified")
+	}
+
 	err := u.User.NewSession(token)
 	if err != nil {
 		return err
 	}
 
 	return u.Connect()
+}
+
+func (u *User) LoggedIn() bool {
+	return u.Session != nil
 }
 
 func (u *User) Connect() error {

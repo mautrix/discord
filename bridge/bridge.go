@@ -30,6 +30,7 @@ type Bridge struct {
 	eventProcessor *appservice.EventProcessor
 	matrixHandler  *matrixHandler
 	bot            *appservice.IntentAPI
+	provisioning   *ProvisioningAPI
 
 	usersByMXID map[id.UserID]*User
 	usersByID   map[string]*User
@@ -99,6 +100,10 @@ func New(cfg *config.Config) (*Bridge, error) {
 		puppets: make(map[string]*Puppet),
 
 		StateStore: stateStore,
+	}
+
+	if cfg.Appservice.Provisioning.Enabled() {
+		bridge.provisioning = newProvisioningAPI(bridge)
 	}
 
 	// Setup the event processors

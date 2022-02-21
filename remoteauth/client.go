@@ -45,7 +45,7 @@ func New() (*Client, error) {
 	}, nil
 }
 
-// Dialo will start the QRCode login process. ctx may be used to abandon the
+// Dial will start the QRCode login process. ctx may be used to abandon the
 // process.
 func (c *Client) Dial(ctx context.Context, qrChan chan string, doneChan chan struct{}) error {
 	header := http.Header{

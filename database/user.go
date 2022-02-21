@@ -37,6 +37,21 @@ func (u *User) NewSession(token string) error {
 	return nil
 }
 
+// DeleteSession tries to logout and delete the session from the database.
+func (u *User) DeleteSession() error {
+	err := u.Session.Close()
+
+	if err != nil {
+		u.log.Warnfln("failed to close the session for %s: %v", u.ID, err)
+	}
+
+	u.Session = nil
+
+	u.Update()
+
+	return nil
+}
+
 func (u *User) Scan(row Scannable) *User {
 	var token sql.NullString
 

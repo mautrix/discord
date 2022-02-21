@@ -48,6 +48,7 @@ type commands struct {
 
 	Help    helpCmd    `kong:"cmd,help='Displays this message.'"`
 	Login   loginCmd   `kong:"cmd,help='Log in to Discord.'"`
+	Logout  logoutCmd  `kong:"cmd,help='Log out of Discord.'"`
 	Version versionCmd `kong:"cmd,help='Displays the version of the bridge.'"`
 }
 
@@ -131,6 +132,27 @@ func (l *loginCmd) Run(g *globals) error {
 
 	g.user.ID = user.UserID
 	g.user.Update()
+
+	return nil
+}
+
+type logoutCmd struct{}
+
+func (l *logoutCmd) Run(g *globals) error {
+	if !g.user.LoggedIn() {
+		fmt.Fprintln(g.context.Stdout, "You are not logged in")
+
+		return fmt.Errorf("user is not logged in")
+	}
+
+	err := g.user.DeleteSession()
+	if err != nil {
+		fmt.Fprintln(g.context.Stdout, "Failed to log out")
+
+		return err
+	}
+
+	fmt.Fprintln(g.context.Stdout, "Successfully logged out")
 
 	return nil
 }

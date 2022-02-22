@@ -42,9 +42,11 @@ func newProvisioningAPI(bridge *Bridge) *ProvisioningAPI {
 
 	r.Use(p.authMiddleware)
 
-	r.HandleFunc("/ping", p.Ping).Methods(http.MethodGet)
-	r.HandleFunc("/login", p.Login).Methods(http.MethodGet)
-	r.HandleFunc("/logout", p.Logout).Methods(http.MethodPost)
+	r.HandleFunc("/disconnect", p.disconnect).Methods(http.MethodPost)
+	r.HandleFunc("/ping", p.ping).Methods(http.MethodGet)
+	r.HandleFunc("/login", p.login).Methods(http.MethodGet)
+	r.HandleFunc("/logout", p.logout).Methods(http.MethodPost)
+	r.HandleFunc("/reconnect", p.reconnect).Methods(http.MethodPost)
 
 	return p
 }
@@ -138,37 +140,77 @@ var upgrader = websocket.Upgrader{
 }
 
 // Handlers
-func (p *ProvisioningAPI) Ping(w http.ResponseWriter, r *http.Request) {
+func (p *ProvisioningAPI) disconnect(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+
+	if !user.Connected() {
+		jsonResponse(w, http.StatusConflict, Error{
+			Error:   "You're not connected to discord",
+			ErrCode: "not connected",
+		})
+
+		return
+	}
+
+	if err := user.Disconnect(); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, Error{
+			Error:   "Failed to disconnect from discord",
+			ErrCode: "failed to disconnect",
+		})
+	} else {
+		jsonResponse(w, http.StatusOK, Response{
+			Success: true,
+			Status:  "Disconnected from Discord",
+		})
+	}
+}
+
+func (p *ProvisioningAPI) ping(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 
 	discord := map[string]interface{}{
-		"has_session":     user.Session != nil,
-		"management_room": user.ManagementRoom,
-		"conn":            nil,
+		"logged_in": user.LoggedIn(),
+		"connected": user.Connected(),
+		"conn":      nil,
 	}
 
+	user.Lock()
 	if user.ID != "" {
 		discord["id"] = user.ID
 	}
 
 	if user.Session != nil {
+		user.Session.Lock()
 		discord["conn"] = map[string]interface{}{
 			"last_heartbeat_ack":  user.Session.LastHeartbeatAck,
 			"last_heartbeat_sent": user.Session.LastHeartbeatSent,
 		}
+		user.Session.Unlock()
 	}
 
 	resp := map[string]interface{}{
-		"mxid":    user.MXID,
-		"discord": discord,
+		"discord":         discord,
+		"management_room": user.ManagementRoom,
+		"mxid":            user.MXID,
 	}
+
+	user.Unlock()
 
 	jsonResponse(w, http.StatusOK, resp)
 }
 
-func (p *ProvisioningAPI) Logout(w http.ResponseWriter, r *http.Request) {
+func (p *ProvisioningAPI) logout(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 	force := strings.ToLower(r.URL.Query().Get("force")) != "false"
+
+	if !user.LoggedIn() {
+		jsonResponse(w, http.StatusNotFound, Error{
+			Error:   "You're not logged in",
+			ErrCode: "not logged in",
+		})
+
+		return
+	}
 
 	if user.Session == nil {
 		if force {
@@ -183,7 +225,7 @@ func (p *ProvisioningAPI) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := user.DeleteSession()
+	err := user.Logout()
 	if err != nil {
 		user.log.Warnln("Error while logging out:", err)
 
@@ -200,7 +242,7 @@ func (p *ProvisioningAPI) Logout(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, Response{true, "Logged out successfully."})
 }
 
-func (p *ProvisioningAPI) Login(w http.ResponseWriter, r *http.Request) {
+func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	user := p.bridge.GetUserByMXID(id.UserID(userID))
 
@@ -220,7 +262,7 @@ func (p *ProvisioningAPI) Login(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		// Read everything so SetCloseHandler() works
 		for {
-			_, _, err = c.ReadMessage()
+			_, _, err := c.ReadMessage()
 			if err != nil {
 				break
 			}
@@ -235,6 +277,15 @@ func (p *ProvisioningAPI) Login(w http.ResponseWriter, r *http.Request) {
 
 		return nil
 	})
+
+	if user.LoggedIn() {
+		c.WriteJSON(Error{
+			Error:   "You're already logged into Discord",
+			ErrCode: "already logged in",
+		})
+
+		return
+	}
 
 	client, err := remoteauth.New()
 	if err != nil {
@@ -280,6 +331,9 @@ func (p *ProvisioningAPI) Login(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			user.ID = discordUser.UserID
+			user.Update()
+
 			if err := user.Login(discordUser.Token); err != nil {
 				c.WriteJSON(Error{
 					Error:   "Failed to connect to Discord",
@@ -291,9 +345,6 @@ func (p *ProvisioningAPI) Login(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			user.ID = discordUser.UserID
-			user.Update()
-
 			c.WriteJSON(map[string]interface{}{
 				"success": true,
 				"id":      user.ID,
@@ -303,5 +354,30 @@ func (p *ProvisioningAPI) Login(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+
+	if user.Connected() {
+		jsonResponse(w, http.StatusConflict, Error{
+			Error:   "You're already connected to discord",
+			ErrCode: "already connected",
+		})
+
+		return
+	}
+
+	if err := user.Connect(); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, Error{
+			Error:   "Failed to connect to discord",
+			ErrCode: "failed to connect",
+		})
+	} else {
+		jsonResponse(w, http.StatusOK, Response{
+			Success: true,
+			Status:  "Connected to Discord",
+		})
 	}
 }

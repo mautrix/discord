@@ -101,7 +101,12 @@ func (h *commandHandler) handle(roomID id.RoomID, user *User, message string, re
 	if err != nil {
 		h.log.Warnf("Command %q failed: %v", message, err)
 
-		cmd.globals.reply("unexpected failure")
+		output := buf.String()
+		if output != "" {
+			cmd.globals.reply(output)
+		} else {
+			cmd.globals.reply("unexpected failure")
+		}
 
 		return
 	}

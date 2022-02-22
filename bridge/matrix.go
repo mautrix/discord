@@ -162,7 +162,7 @@ func (mh *matrixHandler) handleBotInvite(evt *event.Event) {
 	mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.Welcome)
 
 	if evt.RoomID == user.ManagementRoom {
-		if user.HasSession() {
+		if user.Connected() {
 			mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.Connected)
 		} else {
 			mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.NotConnected)

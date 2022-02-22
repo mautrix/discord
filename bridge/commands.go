@@ -46,10 +46,12 @@ func (g *globals) reply(msg string) {
 type commands struct {
 	globals
 
-	Help    helpCmd    `kong:"cmd,help='Displays this message.'"`
-	Login   loginCmd   `kong:"cmd,help='Log in to Discord.'"`
-	Logout  logoutCmd  `kong:"cmd,help='Log out of Discord.'"`
-	Version versionCmd `kong:"cmd,help='Displays the version of the bridge.'"`
+	Disconnect disconnectCmd `kong:"cmd,help='Disconnect from Discord'"`
+	Help       helpCmd       `kong:"cmd,help='Displays this message.'"`
+	Login      loginCmd      `kong:"cmd,help='Log in to Discord.'"`
+	Logout     logoutCmd     `kong:"cmd,help='Log out of Discord.'"`
+	Reconnect  reconnectCmd  `kong:"cmd,help='Reconnect to Discord'"`
+	Version    versionCmd    `kong:"cmd,help='Displays the version of the bridge.'"`
 }
 
 type helpCmd struct {
@@ -87,6 +89,12 @@ func (c *versionCmd) Run(g *globals) error {
 type loginCmd struct{}
 
 func (l *loginCmd) Run(g *globals) error {
+	if g.user.LoggedIn() {
+		fmt.Fprintf(g.context.Stdout, "You are already logged in")
+
+		return fmt.Errorf("user already logged in")
+	}
+
 	client, err := remoteauth.New()
 	if err != nil {
 		return err
@@ -145,7 +153,7 @@ func (l *logoutCmd) Run(g *globals) error {
 		return fmt.Errorf("user is not logged in")
 	}
 
-	err := g.user.DeleteSession()
+	err := g.user.Logout()
 	if err != nil {
 		fmt.Fprintln(g.context.Stdout, "Failed to log out")
 
@@ -153,6 +161,46 @@ func (l *logoutCmd) Run(g *globals) error {
 	}
 
 	fmt.Fprintln(g.context.Stdout, "Successfully logged out")
+
+	return nil
+}
+
+type disconnectCmd struct{}
+
+func (d *disconnectCmd) Run(g *globals) error {
+	if !g.user.Connected() {
+		fmt.Fprintln(g.context.Stdout, "You are not connected")
+
+		return fmt.Errorf("user is not connected")
+	}
+
+	if err := g.user.Disconnect(); err != nil {
+		fmt.Fprintln(g.context.Stdout, "Failed to disconnect")
+
+		return err
+	}
+
+	fmt.Fprintln(g.context.Stdout, "Successfully disconnected")
+
+	return nil
+}
+
+type reconnectCmd struct{}
+
+func (r *reconnectCmd) Run(g *globals) error {
+	if g.user.Connected() {
+		fmt.Fprintln(g.context.Stdout, "You are already connected")
+
+		return fmt.Errorf("user is already connected")
+	}
+
+	if err := g.user.Connect(); err != nil {
+		fmt.Fprintln(g.context.Stdout, "Failed to connect")
+
+		return err
+	}
+
+	fmt.Fprintln(g.context.Stdout, "Successfully connected")
 
 	return nil
 }

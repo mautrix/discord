@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/skip2/go-qrcode"
@@ -17,11 +18,20 @@ import (
 	"gitlab.com/beeper/discord/database"
 )
 
+var (
+	ErrNotConnected = errors.New("not connected")
+	ErrNotLoggedIn  = errors.New("not logged in")
+)
+
 type User struct {
 	*database.User
 
+	sync.Mutex
+
 	bridge *Bridge
 	log    log.Logger
+
+	Session *discordgo.Session
 }
 
 func (b *Bridge) loadUser(dbUser *database.User, mxid *id.UserID) *User {
@@ -140,10 +150,6 @@ func (u *User) SetManagementRoom(roomID id.RoomID) {
 	u.Update()
 }
 
-func (u *User) HasSession() bool {
-	return u.User.Session != nil
-}
-
 func (u *User) sendQRCode(bot *appservice.IntentAPI, roomID id.RoomID, code string) (id.EventID, error) {
 	url, err := u.uploadQRCode(code)
 	if err != nil {
@@ -189,23 +195,65 @@ func (u *User) Login(token string) error {
 		return fmt.Errorf("No token specified")
 	}
 
-	err := u.User.NewSession(token)
-	if err != nil {
-		return err
-	}
+	u.Token = token
+	u.Update()
 
 	return u.Connect()
 }
 
 func (u *User) LoggedIn() bool {
+	u.Lock()
+	defer u.Unlock()
+
+	return u.Token != ""
+}
+
+func (u *User) Logout() error {
+	u.Lock()
+	defer u.Unlock()
+
+	if u.Session == nil {
+		return ErrNotLoggedIn
+	}
+
+	if err := u.Session.Close(); err != nil {
+		return err
+	}
+
+	u.Session = nil
+
+	u.Token = ""
+	u.Update()
+
+	return nil
+}
+
+func (u *User) Connected() bool {
+	u.Lock()
+	defer u.Unlock()
+
 	return u.Session != nil
 }
 
 func (u *User) Connect() error {
+	u.Lock()
+	defer u.Unlock()
+
+	if u.Token == "" {
+		return ErrNotLoggedIn
+	}
+
 	u.log.Debugln("connecting to discord")
 
+	session, err := discordgo.New(u.Token)
+	if err != nil {
+		return err
+	}
+
+	u.Session = session
+
 	// get our user info
-	user, err := u.User.Session.User("@me")
+	user, err := u.Session.User("@me")
 	if err != nil {
 		return err
 	}
@@ -213,37 +261,40 @@ func (u *User) Connect() error {
 	u.User.ID = user.ID
 
 	// Add our event handlers
-	u.User.Session.AddHandler(u.connectedHandler)
-	u.User.Session.AddHandler(u.disconnectedHandler)
+	u.Session.AddHandler(u.connectedHandler)
+	u.Session.AddHandler(u.disconnectedHandler)
 
-	u.User.Session.AddHandler(u.channelCreateHandler)
-	u.User.Session.AddHandler(u.channelDeleteHandler)
-	u.User.Session.AddHandler(u.channelPinsUpdateHandler)
-	u.User.Session.AddHandler(u.channelUpdateHandler)
+	u.Session.AddHandler(u.channelCreateHandler)
+	u.Session.AddHandler(u.channelDeleteHandler)
+	u.Session.AddHandler(u.channelPinsUpdateHandler)
+	u.Session.AddHandler(u.channelUpdateHandler)
 
-	u.User.Session.AddHandler(u.messageCreateHandler)
-	u.User.Session.AddHandler(u.messageDeleteHandler)
-	u.User.Session.AddHandler(u.messageUpdateHandler)
-	u.User.Session.AddHandler(u.reactionAddHandler)
-	u.User.Session.AddHandler(u.reactionRemoveHandler)
+	u.Session.AddHandler(u.messageCreateHandler)
+	u.Session.AddHandler(u.messageDeleteHandler)
+	u.Session.AddHandler(u.messageUpdateHandler)
+	u.Session.AddHandler(u.reactionAddHandler)
+	u.Session.AddHandler(u.reactionRemoveHandler)
 
-	// u.User.Session.Identify.Capabilities = 125
-	// // Setup our properties
-	// u.User.Session.Identify.Properties = discordgo.IdentifyProperties{
-	// 	OS:                "Windows",
-	// 	OSVersion:         "10",
-	// 	Browser:           "Chrome",
-	// 	BrowserUserAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36",
-	// 	BrowserVersion:    "92.0.4515.159",
-	// 	Referrer:          "https://discord.com/channels/@me",
-	// 	ReferringDomain:   "discord.com",
-	// 	ClientBuildNumber: "83364",
-	// 	ReleaseChannel:    "stable",
-	// }
+	u.Session.Identify.Presence.Status = "online"
 
-	u.User.Session.Identify.Presence.Status = "online"
+	return u.Session.Open()
+}
 
-	return u.User.Session.Open()
+func (u *User) Disconnect() error {
+	u.Lock()
+	defer u.Unlock()
+
+	if u.Session == nil {
+		return ErrNotConnected
+	}
+
+	if err := u.Session.Close(); err != nil {
+		return err
+	}
+
+	u.Session = nil
+
+	return nil
 }
 
 func (u *User) connectedHandler(s *discordgo.Session, c *discordgo.Connect) {

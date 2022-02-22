@@ -8,11 +8,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
 type Client struct {
+	sync.Mutex
+
 	URL    string
 	Origin string
 
@@ -48,6 +51,9 @@ func New() (*Client, error) {
 // Dial will start the QRCode login process. ctx may be used to abandon the
 // process.
 func (c *Client) Dial(ctx context.Context, qrChan chan string, doneChan chan struct{}) error {
+	c.Lock()
+	defer c.Unlock()
+
 	header := http.Header{
 		"Origin": []string{c.Origin},
 	}
@@ -68,10 +74,16 @@ func (c *Client) Dial(ctx context.Context, qrChan chan string, doneChan chan str
 }
 
 func (c *Client) Result() (User, error) {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.user, c.err
 }
 
 func (c *Client) close() error {
+	c.Lock()
+	defer c.Unlock()
+
 	if c.closed {
 		return nil
 	}
@@ -89,6 +101,9 @@ func (c *Client) close() error {
 }
 
 func (c *Client) write(p clientPacket) error {
+	c.Lock()
+	defer c.Unlock()
+
 	payload, err := json.Marshal(p)
 	if err != nil {
 		return err

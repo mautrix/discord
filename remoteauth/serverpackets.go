@@ -22,10 +22,15 @@ func (c *Client) processMessages() {
 	defer c.close()
 
 	for {
+		c.Lock()
 		_, packet, err := c.conn.ReadMessage()
+		c.Unlock()
+
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure) {
+				c.Lock()
 				c.err = err
+				c.Unlock()
 			}
 
 			return
@@ -33,7 +38,9 @@ func (c *Client) processMessages() {
 
 		raw := rawPacket{}
 		if err := json.Unmarshal(packet, &raw); err != nil {
+			c.Lock()
 			c.err = err
+			c.Unlock()
 
 			return
 		}
@@ -57,7 +64,9 @@ func (c *Client) processMessages() {
 		}
 
 		if err := json.Unmarshal(packet, dest); err != nil {
+			c.Lock()
 			c.err = err
+			c.Unlock()
 
 			return
 		}
@@ -65,7 +74,9 @@ func (c *Client) processMessages() {
 		op := dest.(serverPacket)
 		err = op.process(c)
 		if err != nil {
+			c.Lock()
 			c.err = err
+			c.Unlock()
 
 			return
 		}
@@ -92,7 +103,10 @@ func (h *serverHello) process(client *Client) error {
 			case <-ticker.C:
 				h := clientHeartbeat{}
 				if err := h.send(client); err != nil {
+					client.Lock()
 					client.err = err
+					client.Unlock()
+
 					return
 				}
 			}
@@ -104,8 +118,10 @@ func (h *serverHello) process(client *Client) error {
 
 		<-time.After(duration)
 
+		client.Lock()
 		client.err = fmt.Errorf("Timed out after %s", duration)
 		client.close()
+		client.Unlock()
 	}()
 
 	i := clientInit{}

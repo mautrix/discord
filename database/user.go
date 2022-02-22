@@ -3,8 +3,6 @@ package database
 import (
 	"database/sql"
 
-	"github.com/bwmarrin/discordgo"
-
 	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
@@ -18,38 +16,7 @@ type User struct {
 
 	ManagementRoom id.RoomID
 
-	Session *discordgo.Session
-}
-
-// NewSession is just used to create the session and update the database. It
-// should only be called by bridge.User.Connect which will continue setting up
-// event handlers and everything else.
-func (u *User) NewSession(token string) error {
-	session, err := discordgo.New(token)
-	if err != nil {
-		return err
-	}
-
-	u.Session = session
-
-	u.Update()
-
-	return nil
-}
-
-// DeleteSession tries to logout and delete the session from the database.
-func (u *User) DeleteSession() error {
-	err := u.Session.Close()
-
-	if err != nil {
-		u.log.Warnfln("failed to close the session for %s: %v", u.ID, err)
-	}
-
-	u.Session = nil
-
-	u.Update()
-
-	return nil
+	Token string
 }
 
 func (u *User) Scan(row Scannable) *User {
@@ -65,31 +32,25 @@ func (u *User) Scan(row Scannable) *User {
 	}
 
 	if token.Valid {
-		if err := u.NewSession(token.String); err != nil {
-			u.log.Errorln("Failed to login: ", err)
-		}
+		u.Token = token.String
 	}
 
 	return u
 }
 
-func (u *User) sessionNonptr() discordgo.Session {
-	if u.Session != nil {
-		return *u.Session
-	}
-
-	return discordgo.Session{}
-}
-
 func (u *User) Insert() {
-	session := u.sessionNonptr()
-
 	query := "INSERT INTO \"user\"" +
 		" (mxid, id, management_room, token)" +
 		" VALUES ($1, $2, $3, $4);"
 
-	_, err := u.db.Exec(query, u.MXID, u.ID, u.ManagementRoom,
-		session.Identify.Token)
+	var token sql.NullString
+
+	if u.Token != "" {
+		token.String = u.Token
+		token.Valid = true
+	}
+
+	_, err := u.db.Exec(query, u.MXID, u.ID, u.ManagementRoom, token)
 
 	if err != nil {
 		u.log.Warnfln("Failed to insert %s: %v", u.MXID, err)
@@ -97,13 +58,18 @@ func (u *User) Insert() {
 }
 
 func (u *User) Update() {
-	session := u.sessionNonptr()
-
 	query := "UPDATE \"user\" SET" +
 		" id=$1, management_room=$2, token=$3" +
 		" WHERE mxid=$4;"
 
-	_, err := u.db.Exec(query, u.ID, u.ManagementRoom, session.Identify.Token, u.MXID)
+	var token sql.NullString
+
+	if u.Token != "" {
+		token.String = u.Token
+		token.Valid = true
+	}
+
+	_, err := u.db.Exec(query, u.ID, u.ManagementRoom, token, u.MXID)
 
 	if err != nil {
 		u.log.Warnfln("Failed to update %q: %v", u.MXID, err)

@@ -3,7 +3,6 @@ package migrations
 import (
 	"database/sql"
 	"embed"
-	"fmt"
 	"sort"
 
 	"github.com/lopezator/migrator"
@@ -67,11 +66,8 @@ func Run(db *sql.DB, baseLog log.Logger, dialect string) error {
 
 	migrations := make([]interface{}, len(migrationNames))
 	for idx, name := range migrationNames {
-		fmt.Printf("migration: %s\n", name)
 		migrations[idx] = migrationFromFile(name)
 	}
-
-	fmt.Printf("migrations(%d)\n", len(migrations))
 
 	m, err := migrator.New(
 		migrator.TableName("version"),

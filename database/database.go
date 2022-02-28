@@ -40,7 +40,7 @@ func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger)
 
 	dbLog := baseLog.Sub("Database")
 
-	if err := migrations.Run(conn, dbLog); err != nil {
+	if err := migrations.Run(conn, dbLog, dbType); err != nil {
 		return nil, err
 	}
 

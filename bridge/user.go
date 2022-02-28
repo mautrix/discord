@@ -374,6 +374,10 @@ func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCr
 	key := database.NewPortalKey(c.ID, u.User.ID)
 	portal := u.bridge.GetPortalByID(key)
 
+	if portal.MXID != "" {
+		return
+	}
+
 	portal.Name = c.Name
 	portal.Topic = c.Topic
 	portal.Type = c.Type

@@ -171,13 +171,16 @@ func (p *Portal) MainIntent() *appservice.IntentAPI {
 }
 
 func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error {
+	p.roomCreateLock.Lock()
+	defer p.roomCreateLock.Unlock()
+	if p.MXID != "" {
+		return nil
+	}
+
 	p.Type = channel.Type
 	if p.Type == discordgo.ChannelTypeDM {
 		p.DMUser = channel.Recipients[0].ID
 	}
-
-	p.roomCreateLock.Lock()
-	defer p.roomCreateLock.Unlock()
 
 	// If we have a matrix id the room should exist so we have nothing to do.
 	if p.MXID != "" {

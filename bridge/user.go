@@ -374,6 +374,26 @@ func (u *User) Disconnect() error {
 	return nil
 }
 
+func (u *User) bridgeMessage(guildID string) bool {
+	// Non guild message always get bridged.
+	if guildID == "" {
+		return true
+	}
+
+	u.guildsLock.Lock()
+	defer u.guildsLock.Unlock()
+
+	if guild, found := u.guilds[guildID]; found {
+		if guild.Bridge {
+			return true
+		}
+	}
+
+	u.log.Debugfln("ignoring message for unbridged guild %s", guildID)
+
+	return false
+}
+
 func (u *User) readyHandler(s *discordgo.Session, r *discordgo.Ready) {
 	u.log.Debugln("discord connection ready")
 
@@ -529,9 +549,7 @@ func (u *User) channelUpdateHandler(s *discordgo.Session, c *discordgo.ChannelUp
 }
 
 func (u *User) messageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.GuildID != "" {
-		u.log.Debugln("ignoring message for guild")
-
+	if !u.bridgeMessage(m.GuildID) {
 		return
 	}
 
@@ -547,9 +565,7 @@ func (u *User) messageCreateHandler(s *discordgo.Session, m *discordgo.MessageCr
 }
 
 func (u *User) messageDeleteHandler(s *discordgo.Session, m *discordgo.MessageDelete) {
-	if m.GuildID != "" {
-		u.log.Debugln("ignoring message delete for guild message")
-
+	if !u.bridgeMessage(m.GuildID) {
 		return
 	}
 
@@ -565,9 +581,7 @@ func (u *User) messageDeleteHandler(s *discordgo.Session, m *discordgo.MessageDe
 }
 
 func (u *User) messageUpdateHandler(s *discordgo.Session, m *discordgo.MessageUpdate) {
-	if m.GuildID != "" {
-		u.log.Debugln("ignoring message update for guild message")
-
+	if !u.bridgeMessage(m.GuildID) {
 		return
 	}
 
@@ -583,9 +597,7 @@ func (u *User) messageUpdateHandler(s *discordgo.Session, m *discordgo.MessageUp
 }
 
 func (u *User) reactionAddHandler(s *discordgo.Session, m *discordgo.MessageReactionAdd) {
-	if m.GuildID != "" {
-		u.log.Debugln("ignoring reaction for guild message")
-
+	if !u.bridgeMessage(m.MessageReaction.GuildID) {
 		return
 	}
 
@@ -601,9 +613,7 @@ func (u *User) reactionAddHandler(s *discordgo.Session, m *discordgo.MessageReac
 }
 
 func (u *User) reactionRemoveHandler(s *discordgo.Session, m *discordgo.MessageReactionRemove) {
-	if m.GuildID != "" {
-		u.log.Debugln("ignoring reaction for guild message")
-
+	if !u.bridgeMessage(m.MessageReaction.GuildID) {
 		return
 	}
 

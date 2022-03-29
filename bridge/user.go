@@ -32,7 +32,18 @@ type User struct {
 	bridge *Bridge
 	log    log.Logger
 
+	guilds     map[string]*database.Guild
+	guildsLock sync.Mutex
+
 	Session *discordgo.Session
+}
+
+// this assume you are holding the guilds lock!!!
+func (u *User) loadGuilds() {
+	u.guilds = map[string]*database.Guild{}
+	for _, guild := range u.bridge.db.Guild.GetAll(u.ID) {
+		u.guilds[guild.GuildID] = guild
+	}
 }
 
 func (b *Bridge) loadUser(dbUser *database.User, mxid *id.UserID) *User {
@@ -62,6 +73,11 @@ func (b *Bridge) loadUser(dbUser *database.User, mxid *id.UserID) *User {
 		b.managementRooms[user.ManagementRoom] = user
 		b.managementRoomsLock.Unlock()
 	}
+
+	// Load our guilds state from the database and turn it into a map
+	user.guildsLock.Lock()
+	user.loadGuilds()
+	user.guildsLock.Unlock()
 
 	return user
 }
@@ -97,6 +113,7 @@ func (b *Bridge) NewUser(dbUser *database.User) *User {
 		User:   dbUser,
 		bridge: b,
 		log:    b.log.Sub("User").Sub(string(dbUser.MXID)),
+		guilds: map[string]*database.Guild{},
 	}
 
 	return user
@@ -315,17 +332,14 @@ func (u *User) Connect() error {
 
 	u.Session = session
 
-	// get our user info
-	user, err := u.Session.User("@me")
-	if err != nil {
-		return err
-	}
-
-	u.User.ID = user.ID
-
 	// Add our event handlers
+	u.Session.AddHandler(u.readyHandler)
 	u.Session.AddHandler(u.connectedHandler)
 	u.Session.AddHandler(u.disconnectedHandler)
+
+	u.Session.AddHandler(u.guildCreateHandler)
+	u.Session.AddHandler(u.guildDeleteHandler)
+	u.Session.AddHandler(u.guildUpdateHandler)
 
 	u.Session.AddHandler(u.channelCreateHandler)
 	u.Session.AddHandler(u.channelDeleteHandler)
@@ -360,6 +374,59 @@ func (u *User) Disconnect() error {
 	return nil
 }
 
+func (u *User) readyHandler(s *discordgo.Session, r *discordgo.Ready) {
+	u.log.Debugln("discord connection ready")
+
+	// Update our user fields
+	u.ID = r.User.ID
+
+	// Update our guild map to match watch discord thinks we're in. This is the
+	// only time we can get the full guild map as discordgo doesn't make it
+	// available to us later. Also, discord might not give us the full guild
+	// information here, so we use this to remove guilds the user left and only
+	// add guilds whose full information we have. The are told about the
+	// "unavailable" guilds later via the GuildCreate handler.
+	u.guildsLock.Lock()
+	defer u.guildsLock.Unlock()
+
+	// build a list of the current guilds we're in so we can prune the old ones
+	current := []string{}
+
+	for _, guild := range r.Guilds {
+		current = append(current, guild.ID)
+
+		// If we already know about this guild, make sure we reset it's bridge
+		// status.
+		if val, found := u.guilds[guild.ID]; found {
+			bridge := val.Bridge
+			u.guilds[guild.ID].Bridge = bridge
+
+			// Update the name if the guild is available
+			if !guild.Unavailable {
+				u.guilds[guild.ID].GuildName = guild.Name
+			}
+		} else {
+			g := u.bridge.db.Guild.New()
+			g.DiscordID = u.ID
+			g.GuildID = guild.ID
+			u.guilds[guild.ID] = g
+
+			if !guild.Unavailable {
+				g.GuildName = guild.Name
+			}
+		}
+	}
+
+	// Sync the guilds to the database.
+	u.bridge.db.Guild.Prune(u.ID, current)
+
+	// Finally reload from the database since it purged servers we're not in
+	// anymore.
+	u.loadGuilds()
+
+	u.Update()
+}
+
 func (u *User) connectedHandler(s *discordgo.Session, c *discordgo.Connect) {
 	u.log.Debugln("connected to discord")
 
@@ -368,6 +435,52 @@ func (u *User) connectedHandler(s *discordgo.Session, c *discordgo.Connect) {
 
 func (u *User) disconnectedHandler(s *discordgo.Session, d *discordgo.Disconnect) {
 	u.log.Debugln("disconnected from discord")
+}
+
+func (u *User) guildCreateHandler(s *discordgo.Session, g *discordgo.GuildCreate) {
+	u.guildsLock.Lock()
+	defer u.guildsLock.Unlock()
+
+	// If we somehow already know about the guild, just update it's name
+	if guild, found := u.guilds[g.ID]; found {
+		guild.GuildName = g.Name
+		guild.Upsert()
+
+		return
+	}
+
+	// This is a brand new guild so lets get it added.
+	guild := u.bridge.db.Guild.New()
+	guild.DiscordID = u.ID
+	guild.GuildID = g.ID
+	guild.GuildName = g.Name
+	guild.Upsert()
+
+	u.guilds[g.ID] = guild
+}
+
+func (u *User) guildDeleteHandler(s *discordgo.Session, g *discordgo.GuildDelete) {
+	u.guildsLock.Lock()
+	defer u.guildsLock.Unlock()
+
+	if guild, found := u.guilds[g.ID]; found {
+		guild.Delete()
+		delete(u.guilds, g.ID)
+		u.log.Debugln("deleted guild", g.Guild.ID)
+	}
+}
+
+func (u *User) guildUpdateHandler(s *discordgo.Session, g *discordgo.GuildUpdate) {
+	u.guildsLock.Lock()
+	defer u.guildsLock.Unlock()
+
+	// If we somehow already know about the guild, just update it's name
+	if guild, found := u.guilds[g.ID]; found {
+		guild.GuildName = g.Name
+		guild.Upsert()
+
+		u.log.Debugln("updated guild", g.ID)
+	}
 }
 
 func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCreate) {

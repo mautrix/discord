@@ -53,6 +53,8 @@ type commands struct {
 	Reconnect  reconnectCmd  `kong:"cmd,help='Reconnect to Discord'"`
 	Version    versionCmd    `kong:"cmd,help='Displays the version of the bridge.'"`
 
+	Guilds guildsCmd `kong:"cmd,help='Guild bridging management.'"`
+
 	LoginMatrix  loginMatrixCmd  `kong:"cmd,help='Replace the puppet for your Discord account with your real Matrix account.'"`
 	LogoutMatrix logoutMatrixCmd `kong:"cmd,help='Switch the puppet for your Discord account back to the default one.'"`
 	PingMatrix   pingMatrixCmd   `kong:"cmd,help='check if your double puppet is working properly'"`
@@ -283,6 +285,26 @@ func (m *pingMatrixCmd) Run(g *globals) error {
 	}
 
 	fmt.Fprintf(g.context.Stdout, "Confirmed valid access token for %s / %s", resp.UserID, resp.DeviceID)
+
+	return nil
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Guilds Commands
+///////////////////////////////////////////////////////////////////////////////
+type guildsCmd struct {
+	Status guildStatusCmd `kong:"cmd,help='Show the bridge status for the guilds you are in'"`
+}
+
+type guildStatusCmd struct{}
+
+func (c *guildStatusCmd) Run(g *globals) error {
+	g.user.guildsLock.Lock()
+	defer g.user.guildsLock.Unlock()
+
+	for _, guild := range g.user.guilds {
+		fmt.Fprintf(g.context.Stdout, "%s %s %t\n", guild.GuildName, guild.GuildID, guild.Bridge)
+	}
 
 	return nil
 }

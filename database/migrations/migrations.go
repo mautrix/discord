@@ -19,6 +19,7 @@ var (
 		"03-emoji.sql",
 		"04-custom-puppet.sql",
 		"05-additional-puppet-fields.sql",
+		"07-guilds.sql",
 	}
 
 	sqliteMigrations = []string{

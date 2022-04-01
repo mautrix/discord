@@ -43,7 +43,7 @@ func (b *bridge) validate() error {
 	var err error
 
 	if b.UsernameTemplate == "" {
-		b.UsernameTemplate = "Discord_{{.}}"
+		b.UsernameTemplate = "discord_{{.}}"
 	}
 
 	b.usernameTemplate, err = template.New("username").Parse(b.UsernameTemplate)

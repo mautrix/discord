@@ -20,8 +20,9 @@ func (b *Bridge) updateBotProfile() {
 				err = b.bot.SetAvatarURL(mxc)
 			}
 		}
-
-		b.log.Warnln("failed to update the bot's avatar: %v", err)
+		if err != nil {
+			b.log.Warnln("failed to update the bot's avatar: ", err)
+		}
 	}
 
 	// Update the bot's display name.
@@ -35,7 +36,7 @@ func (b *Bridge) updateBotProfile() {
 		}
 
 		if err != nil {
-			b.log.Warnln("failed to update the bot's display name: %v", err)
+			b.log.Warnln("failed to update the bot's display name", err)
 		}
 	}
 }

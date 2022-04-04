@@ -10,6 +10,7 @@ import (
 func (cfg *Config) CopyToRegistration(registration *as.Registration) error {
 	registration.ID = cfg.Appservice.ID
 	registration.URL = cfg.Appservice.Address
+	registration.EphemeralEvents = cfg.Appservice.EphemeralEvents
 
 	falseVal := false
 	registration.RateLimited = &falseVal

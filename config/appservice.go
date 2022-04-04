@@ -17,6 +17,8 @@ type appservice struct {
 
 	Database database `yaml:"database"`
 
+	EphemeralEvents bool `yaml:"ephemeral_events"`
+
 	ASToken string `yaml:"as_token"`
 	HSToken string `yaml:"hs_token"`
 }

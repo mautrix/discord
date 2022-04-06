@@ -153,7 +153,7 @@ func (p *Puppet) DefaultIntent() *appservice.IntentAPI {
 }
 
 func (p *Puppet) IntentFor(portal *Portal) *appservice.IntentAPI {
-	if p.customIntent == nil || portal.Key.Receiver == p.ID {
+	if p.customIntent == nil {
 		return p.DefaultIntent()
 	}
 

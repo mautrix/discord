@@ -226,6 +226,7 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 		CreationContent: creationContent,
 	})
 	if err != nil {
+		p.log.Warnln("Failed to create room:", err)
 		return err
 	}
 
@@ -387,10 +388,6 @@ func (p *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgID str
 }
 
 func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) {
-	if msg.Author != nil && user.ID == msg.Author.ID {
-		return
-	}
-
 	if p.MXID == "" {
 		p.log.Warnln("handle message called without a valid portal")
 

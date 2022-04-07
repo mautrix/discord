@@ -31,7 +31,7 @@ stages:
   - docker build --pull --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH . --file Dockerfile.ci
   - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH
   - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH
-  - if [ "$CI_COMMIT_BRANCH" = "master" ]; then docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest && docker push $CI_REGISTRY_IMAGE:latest; fi
+  - if [ "$CI_COMMIT_BRANCH" = "main" ]; then docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest && docker push $CI_REGISTRY_IMAGE:latest; fi
 
 build amd64:
   <<: *build
@@ -47,7 +47,7 @@ build docker amd64:
     DOCKER_ARCH: amd64
   after_script:
   - |
-    if [[ "$CI_COMMIT_BRANCH" == "master" && "$CI_JOB_STATUS" == "success" ]]; then
+    if [[ "$CI_COMMIT_BRANCH" == "main" && "$CI_JOB_STATUS" == "success" ]]; then
       apk add --update curl jq
       rm -rf /var/cache/apk/*
 

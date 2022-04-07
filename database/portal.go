@@ -51,13 +51,21 @@ func (p *Portal) Scan(row Scannable) *Portal {
 	return p
 }
 
+func (p *Portal) mxidPtr() *id.RoomID {
+	if p.MXID != "" {
+		return &p.MXID
+	}
+
+	return nil
+}
+
 func (p *Portal) Insert() {
 	query := "INSERT INTO portal" +
 		" (channel_id, receiver, mxid, name, topic, avatar, avatar_url," +
 		" type, dmuser, first_event_id)" +
 		" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
 
-	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver, p.MXID,
+	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver, p.mxidPtr(),
 		p.Name, p.Topic, p.Avatar, p.AvatarURL.String(), p.Type, p.DMUser,
 		p.FirstEventID.String())
 
@@ -72,7 +80,7 @@ func (p *Portal) Update() {
 		" dmuser=$7, first_event_id=$8" +
 		" WHERE channel_id=$9 AND receiver=$10"
 
-	_, err := p.db.Exec(query, p.MXID, p.Name, p.Topic, p.Avatar,
+	_, err := p.db.Exec(query, p.mxidPtr(), p.Name, p.Topic, p.Avatar,
 		p.AvatarURL.String(), p.Type, p.DMUser, p.FirstEventID.String(),
 		p.Key.ChannelID, p.Key.Receiver)
 

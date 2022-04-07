@@ -118,15 +118,19 @@ func (l *loginCmd) Run(g *globals) error {
 	qrChan := make(chan string)
 	doneChan := make(chan struct{})
 
+	var qrCodeEvent id.EventID
+
 	go func() {
 		code := <-qrChan
 
-		_, err := g.user.sendQRCode(g.bot, g.roomID, code)
+		resp, err := g.user.sendQRCode(g.bot, g.roomID, code)
 		if err != nil {
 			fmt.Fprintln(g.context.Stdout, "Failed to generate the qrcode")
 
 			return
 		}
+
+		qrCodeEvent = resp
 	}()
 
 	ctx := context.Background()
@@ -139,6 +143,13 @@ func (l *loginCmd) Run(g *globals) error {
 	}
 
 	<-doneChan
+
+	if qrCodeEvent != "" {
+		_, err := g.bot.RedactEvent(g.roomID, qrCodeEvent)
+		if err != nil {
+			fmt.Errorf("Failed to redact the qrcode: %v", err)
+		}
+	}
 
 	user, err := client.Result()
 	if err != nil {

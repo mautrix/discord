@@ -59,7 +59,7 @@ func (gq *GuildQuery) Prune(discordID string, guilds []string) {
 		return
 	}
 
-	gq.log.Debugfln("prunning guilds not in %#v for %s", guilds, discordID)
+	gq.log.Debugfln("prunning guilds for %s", discordID)
 
 	// Build the in query
 	inQuery := "$2"

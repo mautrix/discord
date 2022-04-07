@@ -389,7 +389,7 @@ func (u *User) bridgeMessage(guildID string) bool {
 		}
 	}
 
-	u.log.Debugfln("ignoring message for unbridged guild %s", guildID)
+	u.log.Debugfln("ignoring message for non-bridged guild %s-%s", u.ID, guildID)
 
 	return false
 }

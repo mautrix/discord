@@ -30,8 +30,8 @@ stages:
   - docker pull $CI_REGISTRY_IMAGE:latest || true
   - docker build --pull --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH . --file Dockerfile.ci
   - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH
-  - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH
   - if [ "$CI_COMMIT_BRANCH" = "main" ]; then docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH $CI_REGISTRY_IMAGE:latest && docker push $CI_REGISTRY_IMAGE:latest; fi
+  - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH
 
 build amd64:
   <<: *build

@@ -53,7 +53,7 @@ type commands struct {
 	Reconnect  reconnectCmd  `kong:"cmd,help='Reconnect to Discord'"`
 	Version    versionCmd    `kong:"cmd,help='Displays the version of the bridge.'"`
 
-	Guilds guildsCmd `kong:"cmd,help='Guild bridging management.'"`
+	Guilds guildsCmd `kong:"cmd,help='Guild bridging management.',hidden='1'"`
 
 	LoginMatrix  loginMatrixCmd  `kong:"cmd,help='Replace the puppet for your Discord account with your real Matrix account.'"`
 	LogoutMatrix logoutMatrixCmd `kong:"cmd,help='Switch the puppet for your Discord account back to the default one.'"`

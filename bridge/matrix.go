@@ -223,6 +223,7 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 				return
 			}
 		}
+
 		if isSelf {
 			portal.handleMatrixLeave(user)
 		} else if puppet != nil {

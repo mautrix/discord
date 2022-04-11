@@ -540,12 +540,7 @@ func (u *User) channelUpdateHandler(s *discordgo.Session, c *discordgo.ChannelUp
 	key := database.NewPortalKey(c.ID, u.User.ID)
 	portal := u.bridge.GetPortalByID(key)
 
-	portal.Name = c.Name
-	portal.Topic = c.Topic
-	u.log.Debugln("channel icon", c.Icon)
-	portal.Update()
-
-	u.log.Debugln("channel update")
+	portal.update(u, c.Channel)
 }
 
 func (u *User) messageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {

@@ -171,20 +171,17 @@ func (p *Portal) MainIntent() *appservice.IntentAPI {
 }
 
 func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error {
-	p.roomCreateLock.Lock()
-	defer p.roomCreateLock.Unlock()
+	// If we have a matrix id the room should exist so we have nothing to do.
 	if p.MXID != "" {
 		return nil
 	}
+
+	p.roomCreateLock.Lock()
+	defer p.roomCreateLock.Unlock()
 
 	p.Type = channel.Type
 	if p.Type == discordgo.ChannelTypeDM {
 		p.DMUser = channel.Recipients[0].ID
-	}
-
-	// If we have a matrix id the room should exist so we have nothing to do.
-	if p.MXID != "" {
-		return nil
 	}
 
 	intent := p.MainIntent()
@@ -192,23 +189,26 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 		return err
 	}
 
-	// if p.IsPrivateChat() {
-	p.Name = channel.Name
+	name, err := p.bridge.Config.Bridge.FormatChannelname(channel, user.Session)
+	if err != nil {
+		p.log.Warnfln("failed to format name, proceeding with generic name: %v", err)
+		p.Name = channel.Name
+	} else {
+		p.Name = name
+	}
+
 	p.Topic = channel.Topic
 
 	// TODO: get avatars figured out
 	// p.Avatar = puppet.Avatar
 	// p.AvatarURL = puppet.AvatarURL
-	// }
 
 	p.log.Infoln("Creating Matrix room for channel:", p.Portal.Key.ChannelID)
 
 	initialState := []*event.Event{}
 
 	creationContent := make(map[string]interface{})
-	// if !portal.bridge.Config.Bridge.FederateRooms {
 	creationContent["m.federate"] = false
-	// }
 
 	var invite []id.UserID
 
@@ -650,13 +650,9 @@ func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 }
 
 func (p *Portal) handleMatrixLeave(sender *User) {
-	if p.IsPrivateChat() {
-		p.log.Debugln("User left private chat portal, cleaning up and deleting...")
-		p.delete()
-		p.cleanup(false)
-
-		return
-	}
+	p.log.Debugln("User left private chat portal, cleaning up and deleting...")
+	p.delete()
+	p.cleanup(false)
 
 	// TODO: figure out how to close a dm from the API.
 
@@ -976,4 +972,62 @@ func (p *Portal) handleMatrixRedaction(evt *event.Event) {
 	}
 
 	p.log.Warnfln("Failed to redact %s@%s: no event found", p.Key, evt.Redacts)
+}
+
+func (p *Portal) update(user *User, channel *discordgo.Channel) {
+	name, err := p.bridge.Config.Bridge.FormatChannelname(channel, user.Session)
+	if err != nil {
+		p.log.Warnln("Failed to format channel name, using existing:", err)
+	} else {
+		p.Name = name
+	}
+
+	intent := p.MainIntent()
+
+	if p.Name != name {
+		_, err = intent.SetRoomName(p.MXID, p.Name)
+		if err != nil {
+			p.log.Warnln("Failed to update room name:", err)
+		}
+	}
+
+	if p.Topic != channel.Topic {
+		p.Topic = channel.Topic
+		_, err = intent.SetRoomTopic(p.MXID, p.Topic)
+		if err != nil {
+			p.log.Warnln("Failed to update room topic:", err)
+		}
+	}
+
+	if p.Avatar != channel.Icon {
+		p.Avatar = channel.Icon
+
+		var url string
+
+		if p.Type == discordgo.ChannelTypeDM {
+			dmUser, err := user.Session.User(p.DMUser)
+			if err != nil {
+				p.log.Warnln("failed to lookup the dmuser", err)
+			} else {
+				url = dmUser.AvatarURL("")
+			}
+		} else {
+			url = discordgo.EndpointGroupIcon(channel.ID, channel.Icon)
+		}
+
+		p.AvatarURL = id.ContentURI{}
+		if url != "" {
+			uri, err := uploadAvatar(intent, url)
+			if err != nil {
+				p.log.Warnf("failed to upload avatar", err)
+			} else {
+				p.AvatarURL = uri
+			}
+		}
+
+		intent.SetRoomAvatar(p.MXID, p.AvatarURL)
+	}
+
+	p.Update()
+	p.log.Debugln("portal updated")
 }

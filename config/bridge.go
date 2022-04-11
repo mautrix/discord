@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"text/template"
 
@@ -12,6 +13,7 @@ import (
 type bridge struct {
 	UsernameTemplate    string `yaml:"username_template"`
 	DisplaynameTemplate string `yaml:"displayname_template"`
+	ChannelnameTemplate string `yaml:"channelname_template"`
 
 	CommandPrefix string `yaml:"command_prefix"`
 
@@ -30,6 +32,7 @@ type bridge struct {
 
 	usernameTemplate    *template.Template `yaml:"-"`
 	displaynameTemplate *template.Template `yaml:"-"`
+	channelnameTemplate *template.Template `yaml:"-"`
 }
 
 func (config *Config) CanAutoDoublePuppet(userID id.UserID) bool {
@@ -56,6 +59,15 @@ func (b *bridge) validate() error {
 	}
 
 	b.displaynameTemplate, err = template.New("displayname").Parse(b.DisplaynameTemplate)
+	if err != nil {
+		return err
+	}
+
+	if b.ChannelnameTemplate == "" {
+		b.ChannelnameTemplate = "{{if .Guild}}{{.Guild}} - {{end}}{{if .Folder}}{{.Folder}} - {{end}}{{.Name}} (D)"
+	}
+
+	b.channelnameTemplate, err = template.New("channelname").Parse(b.ChannelnameTemplate)
 	if err != nil {
 		return err
 	}
@@ -127,4 +139,49 @@ func (b bridge) FormatDisplayname(user *discordgo.User) string {
 	})
 
 	return buffer.String()
+}
+
+type simplfiedChannel struct {
+	Guild  string
+	Folder string
+	Name   string
+	NSFW   bool
+}
+
+func (b bridge) FormatChannelname(channel *discordgo.Channel, session *discordgo.Session) (string, error) {
+	var buffer strings.Builder
+	var guildName, folderName string
+
+	if channel.Type != discordgo.ChannelTypeDM && channel.Type != discordgo.ChannelTypeGroupDM {
+		guild, err := session.Guild(channel.GuildID)
+		if err != nil {
+			return "", fmt.Errorf("find guild: %w", err)
+		}
+		guildName = guild.Name
+
+		folder, err := session.Channel(channel.ParentID)
+		if err == nil {
+			folderName = folder.Name
+		}
+	} else {
+		// Group DM's can have a name, but DM's can't, so if we didn't get a
+		// name return a comma separated list of the formatted user names.
+		if channel.Name == "" {
+			recipients := make([]string, len(channel.Recipients))
+			for idx, user := range channel.Recipients {
+				recipients[idx] = b.FormatDisplayname(user)
+			}
+
+			return strings.Join(recipients, ", "), nil
+		}
+	}
+
+	b.channelnameTemplate.Execute(&buffer, simplfiedChannel{
+		Guild:  guildName,
+		Folder: folderName,
+		Name:   channel.Name,
+		NSFW:   channel.NSFW,
+	})
+
+	return buffer.String(), nil
 }

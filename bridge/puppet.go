@@ -2,8 +2,6 @@ package bridge
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"sync"
 
@@ -209,27 +207,6 @@ func (p *Puppet) updatePortalName() {
 	})
 }
 
-func (p *Puppet) uploadAvatar(intent *appservice.IntentAPI, url string) (id.ContentURI, error) {
-	getResp, err := http.DefaultClient.Get(url)
-	if err != nil {
-		return id.ContentURI{}, fmt.Errorf("failed to download avatar: %w", err)
-	}
-
-	data, err := io.ReadAll(getResp.Body)
-	getResp.Body.Close()
-	if err != nil {
-		return id.ContentURI{}, fmt.Errorf("failed to read avatar data: %w", err)
-	}
-
-	mime := http.DetectContentType(data)
-	resp, err := intent.UploadBytes(data, mime)
-	if err != nil {
-		return id.ContentURI{}, fmt.Errorf("failed to upload avatar to Matrix: %w", err)
-	}
-
-	return resp.ContentURI, nil
-}
-
 func (p *Puppet) updateAvatar(source *User) bool {
 	user, err := source.Session.User(p.ID)
 	if err != nil {
@@ -248,7 +225,7 @@ func (p *Puppet) updateAvatar(source *User) bool {
 		return false
 	}
 
-	url, err := p.uploadAvatar(p.DefaultIntent(), user.AvatarURL(""))
+	url, err := uploadAvatar(p.DefaultIntent(), user.AvatarURL(""))
 	if err != nil {
 		p.log.Warnln("Failed to upload user avatar:", err)
 

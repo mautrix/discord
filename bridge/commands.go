@@ -53,7 +53,7 @@ type commands struct {
 	Reconnect  reconnectCmd  `kong:"cmd,help='Reconnect to Discord'"`
 	Version    versionCmd    `kong:"cmd,help='Displays the version of the bridge.'"`
 
-	Guilds guildsCmd `kong:"cmd,help='Guild bridging management.',hidden='1'"`
+	Guilds guildsCmd `kong:"cmd,help='Guild bridging management.'"`
 
 	LoginMatrix  loginMatrixCmd  `kong:"cmd,help='Replace the puppet for your Discord account with your real Matrix account.'"`
 	LogoutMatrix logoutMatrixCmd `kong:"cmd,help='Switch the puppet for your Discord account back to the default one.'"`
@@ -304,7 +304,9 @@ func (m *pingMatrixCmd) Run(g *globals) error {
 // Guilds Commands
 ///////////////////////////////////////////////////////////////////////////////
 type guildsCmd struct {
-	Status guildStatusCmd `kong:"cmd,help='Show the bridge status for the guilds you are in'"`
+	Status   guildStatusCmd   `kong:"cmd,help='Show the bridge status for the guilds you are in'"`
+	Bridge   guildBridgeCmd   `kong:"cmd,help='Bridge a guild'"`
+	Unbridge guildUnbridgeCmd `kong:"cmd,help="Unbridge a guild'"`
 }
 
 type guildStatusCmd struct{}
@@ -313,9 +315,46 @@ func (c *guildStatusCmd) Run(g *globals) error {
 	g.user.guildsLock.Lock()
 	defer g.user.guildsLock.Unlock()
 
-	for _, guild := range g.user.guilds {
-		fmt.Fprintf(g.context.Stdout, "%s %s %t\n", guild.GuildName, guild.GuildID, guild.Bridge)
+	if len(g.user.guilds) == 0 {
+		fmt.Fprintf(g.context.Stdout, "you haven't joined any guilds.")
+	} else {
+		for _, guild := range g.user.guilds {
+			status := "not bridged"
+			if guild.Bridge {
+				status = "bridged"
+			}
+			fmt.Fprintf(g.context.Stdout, "%s %s %s\n", guild.GuildName, guild.GuildID, status)
+		}
 	}
+
+	return nil
+}
+
+type guildBridgeCmd struct {
+	GuildID string `kong:"arg,help='the id of the guild to unbridge'"`
+	Entire  bool   `kong:"flag,help='whether or not to bridge all channels'"`
+}
+
+func (c *guildBridgeCmd) Run(g *globals) error {
+	if err := g.user.bridgeGuild(c.GuildID, c.Entire); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(g.context.Stdout, "Successfully bridged guild %s", c.GuildID)
+
+	return nil
+}
+
+type guildUnbridgeCmd struct {
+	GuildID string `kong:"arg,help='the id of the guild to unbridge'"`
+}
+
+func (c *guildUnbridgeCmd) Run(g *globals) error {
+	if err := g.user.unbridgeGuild(c.GuildID); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(g.context.Stdout, "Successfully unbridged guild %s", c.GuildID)
 
 	return nil
 }

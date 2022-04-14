@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	log "maunium.net/go/maulogger/v2"
 
@@ -47,6 +48,12 @@ func newProvisioningAPI(bridge *Bridge) *ProvisioningAPI {
 	r.HandleFunc("/login", p.login).Methods(http.MethodGet)
 	r.HandleFunc("/logout", p.logout).Methods(http.MethodPost)
 	r.HandleFunc("/reconnect", p.reconnect).Methods(http.MethodPost)
+
+	// Setup the guild endpoints
+	r.HandleFunc("/guilds", p.guildsList).Methods(http.MethodGet)
+	r.HandleFunc("/guilds/{guildID}/bridge", p.guildsBridge).Methods(http.MethodPost)
+	r.HandleFunc("/guilds/{guildID}/unbridge", p.guildsUnbridge).Methods(http.MethodPost)
+	r.HandleFunc("/guilds/{guildID}/joinentire", p.guildsJoinEntire).Methods(http.MethodPost)
 
 	return p
 }
@@ -379,5 +386,73 @@ func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {
 			Success: true,
 			Status:  "Connected to Discord",
 		})
+	}
+}
+
+func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+
+	user.guildsLock.Lock()
+	defer user.guildsLock.Unlock()
+
+	data := make([]map[string]interface{}, len(user.guilds))
+	idx := 0
+	for _, guild := range user.guilds {
+		data[idx] = map[string]interface{}{
+			"name":    guild.GuildName,
+			"id":      guild.GuildID,
+			"bridged": guild.Bridge,
+		}
+
+		idx++
+	}
+
+	jsonResponse(w, http.StatusOK, data)
+}
+
+func (p *ProvisioningAPI) guildsBridge(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+
+	guildID, _ := mux.Vars(r)["guildID"]
+
+	if err := user.bridgeGuild(guildID, false); err != nil {
+		jsonResponse(w, http.StatusNotFound, Error{
+			Error:   err.Error(),
+			ErrCode: "M_NOT_FOUND",
+		})
+	} else {
+		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+func (p *ProvisioningAPI) guildsUnbridge(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+
+	guildID, _ := mux.Vars(r)["guildID"]
+
+	if err := user.unbridgeGuild(guildID); err != nil {
+		jsonResponse(w, http.StatusNotFound, Error{
+			Error:   err.Error(),
+			ErrCode: "M_NOT_FOUND",
+		})
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (p *ProvisioningAPI) guildsJoinEntire(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+
+	guildID, _ := mux.Vars(r)["guildID"]
+
+	if err := user.bridgeGuild(guildID, true); err != nil {
+		jsonResponse(w, http.StatusNotFound, Error{
+			Error:   err.Error(),
+			ErrCode: "M_NOT_FOUND",
+		})
+	} else {
+		w.WriteHeader(http.StatusCreated)
 	}
 }

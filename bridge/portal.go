@@ -659,6 +659,15 @@ func (p *Portal) handleMatrixLeave(sender *User) {
 	p.cleanupIfEmpty()
 }
 
+func (p *Portal) leave(sender *User) {
+	if p.MXID == "" {
+		return
+	}
+
+	intent := p.bridge.GetPuppetByID(sender.ID).IntentFor(p)
+	intent.LeaveRoom(p.MXID)
+}
+
 func (p *Portal) delete() {
 	p.Portal.Delete()
 	p.bridge.portalsLock.Lock()

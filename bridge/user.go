@@ -503,7 +503,7 @@ func (u *User) guildUpdateHandler(s *discordgo.Session, g *discordgo.GuildUpdate
 	}
 }
 
-func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCreate) {
+func (u *User) createChannel(c *discordgo.Channel) {
 	key := database.NewPortalKey(c.ID, u.User.ID)
 	portal := u.bridge.GetPortalByID(key)
 
@@ -525,7 +525,11 @@ func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCr
 
 	portal.Update()
 
-	portal.createMatrixRoom(u, c.Channel)
+	portal.createMatrixRoom(u, c)
+}
+
+func (u *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCreate) {
+	u.createChannel(c.Channel)
 }
 
 func (u *User) channelDeleteHandler(s *discordgo.Session, c *discordgo.ChannelDelete) {
@@ -737,4 +741,74 @@ func (u *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
 	if err != nil {
 		u.log.Warnln("Failed to update m.direct list:", err)
 	}
+}
+
+func (u *User) bridgeGuild(guildID string, everything bool) error {
+	u.guildsLock.Lock()
+	defer u.guildsLock.Unlock()
+
+	guild, found := u.guilds[guildID]
+	if !found {
+		return fmt.Errorf("guildID not found")
+	}
+
+	// Update the guild
+	guild.Bridge = true
+	guild.Upsert()
+
+	// If this is a full bridge, create portals for all the channels
+	if everything {
+		channels, err := u.Session.GuildChannels(guildID)
+		if err != nil {
+			return err
+		}
+
+		for _, channel := range channels {
+			if channelIsBridgeable(channel) {
+				u.createChannel(channel)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (u *User) unbridgeGuild(guildID string) error {
+	u.guildsLock.Lock()
+	defer u.guildsLock.Unlock()
+
+	guild, exists := u.guilds[guildID]
+	if !exists {
+		return fmt.Errorf("guildID not found")
+	}
+
+	if !guild.Bridge {
+		return fmt.Errorf("guild not bridged")
+	}
+
+	// First update the guild so we don't have any other go routines recreating
+	// channels we're about to destroy.
+	guild.Bridge = false
+	guild.Upsert()
+
+	// Now run through the channels in the guild and remove any portals we
+	// have for them.
+	channels, err := u.Session.GuildChannels(guildID)
+	if err != nil {
+		return err
+	}
+
+	for _, channel := range channels {
+		if channelIsBridgeable(channel) {
+			key := database.PortalKey{
+				ChannelID: channel.ID,
+				Receiver:  u.ID,
+			}
+
+			portal := u.bridge.GetPortalByID(key)
+			portal.leave(u)
+		}
+	}
+
+	return nil
 }

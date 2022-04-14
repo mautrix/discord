@@ -412,6 +412,9 @@ func (u *User) readyHandler(s *discordgo.Session, r *discordgo.Ready) {
 	// build a list of the current guilds we're in so we can prune the old ones
 	current := []string{}
 
+	u.log.Debugln("database guild count", len(u.guilds))
+	u.log.Debugln("discord guild count", len(r.Guilds))
+
 	for _, guild := range r.Guilds {
 		current = append(current, guild.ID)
 
@@ -425,6 +428,8 @@ func (u *User) readyHandler(s *discordgo.Session, r *discordgo.Ready) {
 			if !guild.Unavailable {
 				u.guilds[guild.ID].GuildName = guild.Name
 			}
+
+			val.Upsert()
 		} else {
 			g := u.bridge.db.Guild.New()
 			g.DiscordID = u.ID
@@ -434,6 +439,8 @@ func (u *User) readyHandler(s *discordgo.Session, r *discordgo.Ready) {
 			if !guild.Unavailable {
 				g.GuildName = guild.Name
 			}
+
+			g.Upsert()
 		}
 	}
 
@@ -443,6 +450,8 @@ func (u *User) readyHandler(s *discordgo.Session, r *discordgo.Ready) {
 	// Finally reload from the database since it purged servers we're not in
 	// anymore.
 	u.loadGuilds()
+
+	u.log.Debugln("updated database guild count", len(u.guilds))
 
 	u.Update()
 }

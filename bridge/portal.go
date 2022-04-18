@@ -514,7 +514,7 @@ func (p *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) 
 	if p.Type == discordgo.ChannelTypeDM {
 		intent = p.bridge.GetPuppetByID(p.DMUser).IntentFor(p)
 	} else {
-		p.log.Errorfln("no guilds yet...")
+		intent = p.MainIntent()
 	}
 
 	if existing != nil {

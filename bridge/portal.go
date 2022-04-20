@@ -427,10 +427,6 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 }
 
 func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message) {
-	if msg.Author != nil && user.ID == msg.Author.ID {
-		return
-	}
-
 	if p.MXID == "" {
 		p.log.Warnln("handle message called without a valid portal")
 
@@ -485,17 +481,15 @@ func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message)
 
 	content.SetEdit(existing.MatrixID)
 
-	_, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
 	if err != nil {
 		p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 
 		return
 	}
 
-	// It appears that matrix updates only work against the original event id
-	// so updating it to the new one from an edit makes it so you can't update
-	// it anyways. So we just don't update anything and we can keep updating
-	// the message.
+	ts, _ := msg.Timestamp.Parse()
+	p.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
 }
 
 func (p *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) {

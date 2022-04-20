@@ -19,6 +19,8 @@ type Portal struct {
 	Name  string
 	Topic string
 
+	Encrypted bool
+
 	Avatar    string
 	AvatarURL id.ContentURI
 
@@ -33,7 +35,8 @@ func (p *Portal) Scan(row Scannable) *Portal {
 	var typ sql.NullInt32
 
 	err := row.Scan(&p.Key.ChannelID, &p.Key.Receiver, &mxid, &p.Name,
-		&p.Topic, &p.Avatar, &avatarURL, &typ, &p.DMUser, &firstEventID)
+		&p.Topic, &p.Avatar, &avatarURL, &typ, &p.DMUser, &firstEventID,
+		&p.Encrypted)
 
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -62,12 +65,12 @@ func (p *Portal) mxidPtr() *id.RoomID {
 func (p *Portal) Insert() {
 	query := "INSERT INTO portal" +
 		" (channel_id, receiver, mxid, name, topic, avatar, avatar_url," +
-		" type, dmuser, first_event_id)" +
-		" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+		" type, dmuser, first_event_id, encrypted)" +
+		" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
 
 	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver, p.mxidPtr(),
 		p.Name, p.Topic, p.Avatar, p.AvatarURL.String(), p.Type, p.DMUser,
-		p.FirstEventID.String())
+		p.FirstEventID.String(), p.Encrypted)
 
 	if err != nil {
 		p.log.Warnfln("Failed to insert %s: %v", p.Key, err)
@@ -77,11 +80,12 @@ func (p *Portal) Insert() {
 func (p *Portal) Update() {
 	query := "UPDATE portal SET" +
 		" mxid=$1, name=$2, topic=$3, avatar=$4, avatar_url=$5, type=$6," +
-		" dmuser=$7, first_event_id=$8" +
-		" WHERE channel_id=$9 AND receiver=$10"
+		" dmuser=$7, first_event_id=$8, encrypted=$9" +
+		" WHERE channel_id=$10 AND receiver=$11"
 
 	_, err := p.db.Exec(query, p.mxidPtr(), p.Name, p.Topic, p.Avatar,
 		p.AvatarURL.String(), p.Type, p.DMUser, p.FirstEventID.String(),
+		p.Encrypted,
 		p.Key.ChannelID, p.Key.Receiver)
 
 	if err != nil {

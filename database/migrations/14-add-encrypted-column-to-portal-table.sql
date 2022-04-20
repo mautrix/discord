@@ -1,0 +1,1 @@
+ALTER TABLE portal ADD COLUMN encrypted BOOLEAN NOT NULL DEFAULT false;

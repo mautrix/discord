@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/alecthomas/kong"
 
@@ -33,11 +34,17 @@ func (g *globals) reply(msg string) {
 	content.MsgType = event.MsgNotice
 	intent := g.bot
 
-	if g.portal != nil && g.portal.IsPrivateChat() {
+	if g.portal == nil {
+		g.handler.log.Errorfln("we don't have a portal for this command")
+
+		return
+	}
+
+	if g.portal.IsPrivateChat() {
 		intent = g.portal.MainIntent()
 	}
 
-	_, err := intent.SendMessageEvent(g.roomID, event.EventMessage, content)
+	_, err := g.portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, time.Now().UTC().UnixMilli())
 	if err != nil {
 		g.handler.log.Warnfln("Failed to reply to command from %q: %v", g.user.MXID, err)
 	}

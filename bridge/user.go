@@ -32,6 +32,9 @@ type User struct {
 	bridge *Bridge
 	log    log.Logger
 
+	// TODO finish implementing
+	Admin bool
+
 	guilds     map[string]*database.Guild
 	guildsLock sync.Mutex
 

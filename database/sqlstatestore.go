@@ -272,3 +272,31 @@ func (s *SQLStateStore) HasPowerLevel(roomID id.RoomID, userID id.UserID, eventT
 
 	return s.GetPowerLevel(roomID, userID) >= s.GetPowerLevelRequirement(roomID, eventType)
 }
+
+func (store *SQLStateStore) FindSharedRooms(userID id.UserID) []id.RoomID {
+	query := "SELECT room_id FROM mx_user_profile" +
+		"LEFT JOIN portal ON portal.mxid=mx_user_profile.room_id" +
+		"WHERE user_id=$1 AND portal.encrypted=true"
+
+	rooms := []id.RoomID{}
+
+	rows, err := store.db.Query(query, userID)
+	if err != nil {
+		store.log.Warnfln("Failed to query shared rooms with %s: %v", userID, err)
+
+		return rooms
+	}
+
+	for rows.Next() {
+		var roomID id.RoomID
+
+		err = rows.Scan(&roomID)
+		if err != nil {
+			store.log.Warnfln("Failed to scan room ID: %v", err)
+		} else {
+			rooms = append(rooms, roomID)
+		}
+	}
+
+	return rooms
+}

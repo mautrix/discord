@@ -48,6 +48,8 @@ type Bridge struct {
 	puppetsLock         sync.Mutex
 
 	StateStore *database.SQLStateStore
+
+	crypto Crypto
 }
 
 func New(cfg *config.Config) (*Bridge, error) {
@@ -104,6 +106,8 @@ func New(cfg *config.Config) (*Bridge, error) {
 		StateStore: stateStore,
 	}
 
+	bridge.crypto = NewCryptoHelper(bridge)
+
 	if cfg.Appservice.Provisioning.Enabled() {
 		bridge.provisioning = newProvisioningAPI(bridge)
 	}
@@ -151,6 +155,13 @@ func (b *Bridge) Start() error {
 		return err
 	}
 
+	if b.crypto != nil {
+		if err := b.crypto.Init(); err != nil {
+			b.log.Fatalln("Error initializing end-to-bridge encryption:", err)
+			return err
+		}
+	}
+
 	b.log.Debugln("Starting application service HTTP server")
 	go b.as.Start()
 
@@ -158,6 +169,10 @@ func (b *Bridge) Start() error {
 	go b.eventProcessor.Start()
 
 	go b.updateBotProfile()
+
+	if b.crypto != nil {
+		go b.crypto.Start()
+	}
 
 	go b.startUsers()
 
@@ -168,5 +183,21 @@ func (b *Bridge) Start() error {
 }
 
 func (b *Bridge) Stop() {
+	if b.crypto != nil {
+		b.crypto.Stop()
+	}
+
+	b.as.Stop()
+	b.eventProcessor.Stop()
+
+	for _, user := range b.usersByMXID {
+		if user.Session == nil {
+			continue
+		}
+
+		b.log.Debugln("Disconnecting", user.MXID)
+		user.Session.Close()
+	}
+
 	b.log.Infoln("Bridge stopped")
 }

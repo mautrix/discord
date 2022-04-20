@@ -1,7 +1,10 @@
 package bridge
 
 import (
+	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix"
@@ -29,9 +32,11 @@ func (b *Bridge) setupEvents() {
 	}
 
 	b.eventProcessor.On(event.EventMessage, b.matrixHandler.handleMessage)
+	b.eventProcessor.On(event.EventEncrypted, b.matrixHandler.handleEncrypted)
 	b.eventProcessor.On(event.EventReaction, b.matrixHandler.handleReaction)
 	b.eventProcessor.On(event.EventRedaction, b.matrixHandler.handleRedaction)
 	b.eventProcessor.On(event.StateMember, b.matrixHandler.handleMembership)
+	b.eventProcessor.On(event.StateEncryption, b.matrixHandler.handleEncryption)
 }
 
 func (mh *matrixHandler) join(evt *event.Event, intent *appservice.IntentAPI) *mautrix.RespJoinedMembers {
@@ -185,6 +190,10 @@ func (mh *matrixHandler) handleMembership(evt *event.Event) {
 		return
 	}
 
+	if mh.bridge.crypto != nil {
+		mh.bridge.crypto.HandleMemberEvent(evt)
+	}
+
 	// Grab the content of the event.
 	content := evt.Content.AsMember()
 
@@ -253,5 +262,115 @@ func (mh *matrixHandler) handleRedaction(evt *event.Event) {
 	portal := mh.bridge.GetPortalByMXID(evt.RoomID)
 	if portal != nil {
 		portal.handleMatrixRedaction(evt)
+	}
+}
+
+func (mh *matrixHandler) handleEncryption(evt *event.Event) {
+	if evt.Content.AsEncryption().Algorithm != id.AlgorithmMegolmV1 {
+		return
+	}
+
+	portal := mh.bridge.GetPortalByMXID(evt.RoomID)
+	if portal != nil && !portal.Encrypted {
+		mh.log.Debugfln("%s enabled encryption in %s", evt.Sender, evt.RoomID)
+		portal.Encrypted = true
+		portal.Update()
+	}
+}
+
+const sessionWaitTimeout = 5 * time.Second
+
+func (mh *matrixHandler) handleEncrypted(evt *event.Event) {
+	if mh.ignoreEvent(evt) || mh.bridge.crypto == nil {
+		return
+	}
+
+	decrypted, err := mh.bridge.crypto.Decrypt(evt)
+	decryptionRetryCount := 0
+	if errors.Is(err, NoSessionFound) {
+		content := evt.Content.AsEncrypted()
+		mh.log.Debugfln("Couldn't find session %s trying to decrypt %s, waiting %d seconds...", content.SessionID, evt.ID, int(sessionWaitTimeout.Seconds()))
+		mh.as.SendErrorMessageSendCheckpoint(evt, appservice.StepDecrypted, err, false, decryptionRetryCount)
+		decryptionRetryCount++
+
+		if mh.bridge.crypto.WaitForSession(evt.RoomID, content.SenderKey, content.SessionID, sessionWaitTimeout) {
+			mh.log.Debugfln("Got session %s after waiting, trying to decrypt %s again", content.SessionID, evt.ID)
+			decrypted, err = mh.bridge.crypto.Decrypt(evt)
+		} else {
+			mh.as.SendErrorMessageSendCheckpoint(evt, appservice.StepDecrypted, fmt.Errorf("didn't receive encryption keys"), false, decryptionRetryCount)
+
+			go mh.waitLongerForSession(evt)
+
+			return
+		}
+	}
+
+	if err != nil {
+		mh.as.SendErrorMessageSendCheckpoint(evt, appservice.StepDecrypted, err, true, decryptionRetryCount)
+
+		mh.log.Warnfln("Failed to decrypt %s: %v", evt.ID, err)
+		_, _ = mh.bridge.bot.SendNotice(evt.RoomID, fmt.Sprintf(
+			"\u26a0 Your message was not bridged: %v", err))
+
+		return
+	}
+
+	mh.as.SendMessageSendCheckpoint(decrypted, appservice.StepDecrypted, decryptionRetryCount)
+	mh.bridge.eventProcessor.Dispatch(decrypted)
+}
+
+func (mh *matrixHandler) waitLongerForSession(evt *event.Event) {
+	const extendedTimeout = sessionWaitTimeout * 3
+
+	content := evt.Content.AsEncrypted()
+	mh.log.Debugfln("Couldn't find session %s trying to decrypt %s, waiting %d more seconds...",
+		content.SessionID, evt.ID, int(extendedTimeout.Seconds()))
+
+	go mh.bridge.crypto.RequestSession(evt.RoomID, content.SenderKey, content.SessionID, evt.Sender, content.DeviceID)
+
+	resp, err := mh.bridge.bot.SendNotice(evt.RoomID, fmt.Sprintf(
+		"\u26a0 Your message was not bridged: the bridge hasn't received the decryption keys. "+
+			"The bridge will retry for %d seconds. If this error keeps happening, try restarting your client.",
+		int(extendedTimeout.Seconds())))
+	if err != nil {
+		mh.log.Errorfln("Failed to send decryption error to %s: %v", evt.RoomID, err)
+	}
+
+	update := event.MessageEventContent{MsgType: event.MsgNotice}
+
+	if mh.bridge.crypto.WaitForSession(evt.RoomID, content.SenderKey, content.SessionID, extendedTimeout) {
+		mh.log.Debugfln("Got session %s after waiting more, trying to decrypt %s again", content.SessionID, evt.ID)
+
+		decrypted, err := mh.bridge.crypto.Decrypt(evt)
+		if err == nil {
+			mh.as.SendMessageSendCheckpoint(decrypted, appservice.StepDecrypted, 2)
+			mh.bridge.eventProcessor.Dispatch(decrypted)
+			_, _ = mh.bridge.bot.RedactEvent(evt.RoomID, resp.EventID)
+
+			return
+		}
+
+		mh.log.Warnfln("Failed to decrypt %s: %v", evt.ID, err)
+		mh.as.SendErrorMessageSendCheckpoint(evt, appservice.StepDecrypted, err, true, 2)
+		update.Body = fmt.Sprintf("\u26a0 Your message was not bridged: %v", err)
+	} else {
+		mh.log.Debugfln("Didn't get %s, giving up on %s", content.SessionID, evt.ID)
+		mh.as.SendErrorMessageSendCheckpoint(evt, appservice.StepDecrypted, fmt.Errorf("didn't receive encryption keys"), true, 2)
+		update.Body = "\u26a0 Your message was not bridged: the bridge hasn't received the decryption keys. " +
+			"If this error keeps happening, try restarting your client."
+	}
+
+	newContent := update
+	update.NewContent = &newContent
+	if resp != nil {
+		update.RelatesTo = &event.RelatesTo{
+			Type:    event.RelReplace,
+			EventID: resp.EventID,
+		}
+	}
+
+	_, err = mh.bridge.bot.SendMessageEvent(evt.RoomID, event.EventMessage, &update)
+	if err != nil {
+		mh.log.Debugfln("Failed to update decryption error notice %s: %v", resp.EventID, err)
 	}
 }

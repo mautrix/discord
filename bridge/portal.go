@@ -845,10 +845,6 @@ func (p *Portal) handleMatrixReaction(evt *event.Event) {
 }
 
 func (p *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool) {
-	if user.ID == reaction.UserID {
-		return
-	}
-
 	intent := p.bridge.GetPuppetByID(reaction.UserID).IntentFor(p)
 
 	var discordID string

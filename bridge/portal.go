@@ -261,9 +261,14 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 
 func (p *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	if p.MXID == "" {
+		discordMsg, ok := msg.msg.(*discordgo.MessageCreate)
+		if !ok {
+			p.log.Warnln("Can't create Matrix room from non new message event")
+			return
+		}
+
 		p.log.Debugln("Creating Matrix room from incoming message")
 
-		discordMsg := msg.msg.(*discordgo.MessageCreate)
 		channel, err := msg.user.Session.Channel(discordMsg.ChannelID)
 		if err != nil {
 			p.log.Errorln("Failed to find channel for message:", err)

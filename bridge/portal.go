@@ -414,6 +414,18 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 			MsgType: event.MsgText,
 		}
 
+		if msg.MessageReference != nil {
+			key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
+			existing := p.bridge.db.Message.GetByDiscordID(key, msg.MessageReference.MessageID)
+
+			if existing.MatrixID != "" {
+				content.RelatesTo = &event.RelatesTo{
+					Type:    event.RelReply,
+					EventID: existing.MatrixID,
+				}
+			}
+		}
+
 		resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
 		if err != nil {
 			p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
@@ -606,7 +618,31 @@ func (p *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 
 	switch content.MsgType {
 	case event.MsgText, event.MsgEmote, event.MsgNotice:
-		msg, err = sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
+		sent := false
+
+		if content.RelatesTo != nil && content.RelatesTo.Type == event.RelReply {
+			existing := p.bridge.db.Message.GetByMatrixID(
+				p.Key,
+				content.RelatesTo.EventID,
+			)
+
+			if existing != nil && existing.DiscordID != "" {
+				msg, err = sender.Session.ChannelMessageSendReply(
+					p.Key.ChannelID,
+					content.Body,
+					&discordgo.MessageReference{
+						ChannelID: p.Key.ChannelID,
+						MessageID: existing.DiscordID,
+					},
+				)
+				if err == nil {
+					sent = true
+				}
+			}
+		}
+		if !sent {
+			msg, err = sender.Session.ChannelMessageSend(p.Key.ChannelID, content.Body)
+		}
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := p.downloadMatrixAttachment(evt.ID, content)
 		if err != nil {

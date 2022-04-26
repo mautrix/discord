@@ -14,6 +14,7 @@ type homeserver struct {
 	Domain         string `yaml:"domain"`
 	Asmux          bool   `yaml:"asmux"`
 	StatusEndpoint string `yaml:"status_endpoint"`
+	AsyncMedia     bool   `yaml:"async_media"`
 }
 
 func (h *homeserver) validate() error {

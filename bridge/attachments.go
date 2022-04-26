@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -76,13 +77,26 @@ func (p *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.Mes
 }
 
 func (p *Portal) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, content *event.MessageEventContent) error {
-	uploaded, err := intent.UploadBytes(data, content.Info.MimeType)
-	if err != nil {
-		return err
+	req := mautrix.ReqUploadMedia{
+		ContentBytes: data,
+		ContentType:  content.Info.MimeType,
+	}
+	var mxc id.ContentURI
+	if p.bridge.Config.Homeserver.AsyncMedia {
+		uploaded, err := intent.UnstableUploadAsync(req)
+		if err != nil {
+			return err
+		}
+		mxc = uploaded.ContentURI
+	} else {
+		uploaded, err := intent.UploadMedia(req)
+		if err != nil {
+			return err
+		}
+		mxc = uploaded.ContentURI
 	}
 
-	content.URL = uploaded.ContentURI.CUString()
-
+	content.URL = mxc.CUString()
 	content.Info.Size = len(data)
 
 	if content.Info.Width == 0 && content.Info.Height == 0 && strings.HasPrefix(content.Info.MimeType, "image/") {

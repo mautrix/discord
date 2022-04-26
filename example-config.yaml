@@ -11,6 +11,8 @@ homeserver:
     # If set, the bridge will make POST requests to this URL whenever a user's whatsapp connection state changes.
     # The bridge will use the appservice as_token to authorize requests.
     status_endpoint: null
+    # Does the homeserver support https://github.com/matrix-org/matrix-spec-proposals/pull/2246?
+    async_media: false
 
 # Application service host/registration related details.
 # Changing these values requires regeneration of the registration.

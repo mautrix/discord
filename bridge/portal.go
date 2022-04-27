@@ -418,7 +418,9 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 		return
 	}
 
-	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
+	puppet := p.bridge.GetPuppetByID(msg.Author.ID)
+	puppet.SyncContact(user)
+	intent := puppet.IntentFor(p)
 
 	if msg.Content != "" {
 		content := &event.MessageEventContent{

@@ -720,7 +720,7 @@ func (u *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
 
 	var err error
 	if u.bridge.Config.Homeserver.Asmux {
-		urlPath := intent.BuildBaseURL("_matrix", "client", "unstable", "com.beeper.asmux", "dms")
+		urlPath := intent.BuildURL(mautrix.ClientURLPath{"unstable", "com.beeper.asmux", "dms"})
 		_, err = intent.MakeFullRequest(mautrix.FullRequest{
 			Method:      method,
 			URL:         urlPath,

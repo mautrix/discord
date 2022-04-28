@@ -274,9 +274,11 @@ func (s *SQLStateStore) HasPowerLevel(roomID id.RoomID, userID id.UserID, eventT
 }
 
 func (store *SQLStateStore) FindSharedRooms(userID id.UserID) []id.RoomID {
-	query := "SELECT room_id FROM mx_user_profile" +
-		"LEFT JOIN portal ON portal.mxid=mx_user_profile.room_id" +
-		"WHERE user_id=$1 AND portal.encrypted=true"
+	query := `
+		SELECT room_id FROM mx_user_profile
+		LEFT JOIN portal ON portal.mxid=mx_user_profile.room_id
+		WHERE user_id=$1 AND portal.encrypted=true
+	`
 
 	rooms := []id.RoomID{}
 

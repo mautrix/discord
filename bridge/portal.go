@@ -411,6 +411,17 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 		return
 	}
 
+	// Handle room name changes
+	if msg.Type == discordgo.MessageTypeChannelNameChange {
+		p.Name = msg.Content
+		p.Update()
+
+		p.MainIntent().SetRoomName(p.MXID, msg.Content)
+
+		return
+	}
+
+	// Handle normal message
 	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)
 	if existing != nil {
 		p.log.Debugln("not handling duplicate message", msg.ID)

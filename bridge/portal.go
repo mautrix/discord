@@ -487,6 +487,23 @@ func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message)
 		return
 	}
 
+	// There's a few scenarios where the author is nil but I haven't figured
+	// them all out yet.
+	if msg.Author == nil {
+		// If the server has to lookup opengraph previews it'll send the
+		// message through without the preview and then add the preview later
+		// via a message update. However, when it does this there is no author
+		// as it's just the server, so for the moment we'll ignore this to
+		// avoid a crash.
+		if len(msg.Embeds) > 0 {
+			p.log.Debugln("ignoring update for opengraph attachment")
+
+			return
+		}
+
+		p.log.Errorfln("author is nil: %#v", msg)
+	}
+
 	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
 
 	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)

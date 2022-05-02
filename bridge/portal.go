@@ -413,10 +413,22 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 
 	// Handle room name changes
 	if msg.Type == discordgo.MessageTypeChannelNameChange {
-		p.Name = msg.Content
+		channel, err := user.Session.Channel(msg.ChannelID)
+		if err != nil {
+			p.log.Errorf("Failed to find the channel for portal %s", p.Key)
+			return
+		}
+
+		name, err := p.bridge.Config.Bridge.FormatChannelname(channel, user.Session)
+		if err != nil {
+			p.log.Errorf("Failed to format name for portal %s", p.Key)
+			return
+		}
+
+		p.Name = name
 		p.Update()
 
-		p.MainIntent().SetRoomName(p.MXID, msg.Content)
+		p.MainIntent().SetRoomName(p.MXID, name)
 
 		return
 	}

@@ -306,7 +306,7 @@ func (m *pingMatrixCmd) Run(g *globals) error {
 type guildsCmd struct {
 	Status   guildStatusCmd   `kong:"cmd,help='Show the bridge status for the guilds you are in'"`
 	Bridge   guildBridgeCmd   `kong:"cmd,help='Bridge a guild'"`
-	Unbridge guildUnbridgeCmd `kong:"cmd,help="Unbridge a guild'"`
+	Unbridge guildUnbridgeCmd `kong:"cmd,help='Unbridge a guild'"`
 }
 
 type guildStatusCmd struct{}

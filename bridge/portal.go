@@ -455,7 +455,7 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 			key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
 			existing := p.bridge.db.Message.GetByDiscordID(key, msg.MessageReference.MessageID)
 
-			if existing.MatrixID != "" {
+			if existing != nil && existing.MatrixID != "" {
 				content.RelatesTo = &event.RelatesTo{
 					Type:    event.RelReply,
 					EventID: existing.MatrixID,

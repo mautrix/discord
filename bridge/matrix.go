@@ -106,30 +106,30 @@ func (mh *matrixHandler) handleMessage(evt *event.Event) {
 
 }
 
-func (mh *matrixHandler) joinAndCheckMembers(evt *event.Event, intent *appservice.IntentAPI) *mautrix.RespJoinedMembers {
+func (mh *matrixHandler) joinAndCheckMembers(evt *event.Event, intent *appservice.IntentAPI) int {
 	resp, err := intent.JoinRoomByID(evt.RoomID)
 	if err != nil {
 		mh.log.Debugfln("Failed to join room %q as %q with invite from %q: %v", evt.RoomID, intent.UserID, evt.Sender, err)
 
-		return nil
+		return 0
 	}
 
-	members, err := intent.JoinedMembers(resp.RoomID)
+	members, err := intent.Members(resp.RoomID)
 	if err != nil {
 		mh.log.Debugfln("Failed to get members in room %q with invite from %q as %q: %v", resp.RoomID, evt.Sender, intent.UserID, err)
 
-		return nil
+		return 0
 	}
 
-	if len(members.Joined) < 2 {
+	if len(members.Chunk) < 2 {
 		mh.log.Debugfln("Leaving empty room %q with invite from %q as %q", resp.RoomID, evt.Sender, intent.UserID)
 
 		intent.LeaveRoom(resp.RoomID)
 
-		return nil
+		return 0
 	}
 
-	return members
+	return len(members.Chunk)
 }
 
 func (mh *matrixHandler) sendNoticeWithmarkdown(roomID id.RoomID, message string) (*mautrix.RespSendEvent, error) {
@@ -149,24 +149,24 @@ func (mh *matrixHandler) handleBotInvite(evt *event.Event) {
 	}
 
 	members := mh.joinAndCheckMembers(evt, intent)
-	if members == nil {
+	if members == 0 {
 		return
 	}
 
 	// If this is a DM and the user doesn't have a management room, make this
 	// the management room.
-	if len(members.Joined) == 2 && (user.ManagementRoom == "" || evt.Content.AsMember().IsDirect) {
+	if members == 2 && (user.ManagementRoom == "" || evt.Content.AsMember().IsDirect) {
 		user.SetManagementRoom(evt.RoomID)
 
 		intent.SendNotice(user.ManagementRoom, "This room has been registered as your bridge management/status room")
 		mh.log.Debugfln("%q registered as management room with %q", evt.RoomID, evt.Sender)
 	}
 
-	// Wait to send the welcome message until we're sure we're not in an empty
-	// room.
-	mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.Welcome)
-
 	if evt.RoomID == user.ManagementRoom {
+		// Wait to send the welcome message until we're sure we're not in an empty
+		// room.
+		mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.Welcome)
+
 		if user.Connected() {
 			mh.sendNoticeWithmarkdown(evt.RoomID, mh.bridge.Config.Bridge.ManagementRoomText.Connected)
 		} else {

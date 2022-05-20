@@ -6,12 +6,12 @@ import (
 
 	"github.com/alecthomas/kong"
 
-	"gitlab.com/beeper/discord/config"
-	"gitlab.com/beeper/discord/consts"
-	"gitlab.com/beeper/discord/globals"
-	"gitlab.com/beeper/discord/registration"
-	"gitlab.com/beeper/discord/run"
-	"gitlab.com/beeper/discord/version"
+	"go.mau.fi/mautrix-discord/config"
+	"go.mau.fi/mautrix-discord/consts"
+	"go.mau.fi/mautrix-discord/globals"
+	"go.mau.fi/mautrix-discord/registration"
+	"go.mau.fi/mautrix-discord/run"
+	"go.mau.fi/mautrix-discord/version"
 )
 
 var cli struct {

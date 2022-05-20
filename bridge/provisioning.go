@@ -17,7 +17,7 @@ import (
 
 	"maunium.net/go/mautrix/id"
 
-	"gitlab.com/beeper/discord/remoteauth"
+	"go.mau.fi/mautrix-discord/remoteauth"
 )
 
 const (

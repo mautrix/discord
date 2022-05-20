@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"gitlab.com/beeper/discord/bridge"
-	"gitlab.com/beeper/discord/config"
-	"gitlab.com/beeper/discord/globals"
+	"go.mau.fi/mautrix-discord/bridge"
+	"go.mau.fi/mautrix-discord/config"
+	"go.mau.fi/mautrix-discord/globals"
 )
 
 type Cmd struct{}

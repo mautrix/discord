@@ -1,4 +1,4 @@
-module gitlab.com/beeper/discord
+module go.mau.fi/mautrix-discord
 
 go 1.17
 

@@ -15,7 +15,7 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
-	"gitlab.com/beeper/discord/database"
+	"go.mau.fi/mautrix-discord/database"
 )
 
 type portalDiscordMessage struct {

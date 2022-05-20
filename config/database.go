@@ -3,7 +3,7 @@ package config
 import (
 	log "maunium.net/go/maulogger/v2"
 
-	db "gitlab.com/beeper/discord/database"
+	db "go.mau.fi/mautrix-discord/database"
 )
 
 type database struct {

@@ -3,8 +3,8 @@ package version
 import (
 	"fmt"
 
-	"gitlab.com/beeper/discord/consts"
-	"gitlab.com/beeper/discord/globals"
+	"go.mau.fi/mautrix-discord/consts"
+	"go.mau.fi/mautrix-discord/globals"
 )
 
 type Cmd struct{}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"gitlab.com/beeper/discord/globals"
+	"go.mau.fi/mautrix-discord/globals"
 )
 
 type Cmd struct {

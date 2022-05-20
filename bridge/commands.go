@@ -11,9 +11,9 @@ import (
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
 
-	"gitlab.com/beeper/discord/consts"
-	"gitlab.com/beeper/discord/remoteauth"
-	"gitlab.com/beeper/discord/version"
+	"go.mau.fi/mautrix-discord/consts"
+	"go.mau.fi/mautrix-discord/remoteauth"
+	"go.mau.fi/mautrix-discord/version"
 )
 
 type globals struct {

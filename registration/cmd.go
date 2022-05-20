@@ -7,8 +7,8 @@ import (
 
 	"maunium.net/go/mautrix/appservice"
 
-	"gitlab.com/beeper/discord/config"
-	"gitlab.com/beeper/discord/globals"
+	"go.mau.fi/mautrix-discord/config"
+	"go.mau.fi/mautrix-discord/globals"
 )
 
 type Cmd struct {

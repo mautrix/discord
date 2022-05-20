@@ -9,7 +9,7 @@ import (
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/id"
 
-	"gitlab.com/beeper/discord/database"
+	"go.mau.fi/mautrix-discord/database"
 )
 
 type Puppet struct {

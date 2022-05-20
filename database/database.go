@@ -8,7 +8,7 @@ import (
 
 	log "maunium.net/go/maulogger/v2"
 
-	"gitlab.com/beeper/discord/database/migrations"
+	"go.mau.fi/mautrix-discord/database/migrations"
 )
 
 type Database struct {

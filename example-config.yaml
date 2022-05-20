@@ -1,14 +1,14 @@
 # Homeserver details.
 homeserver:
     # The address that this appservice can use to connect to the homeserver.
-    address: http://localhost:29326
+    address: http://localhost:8008
     # The domain of the homeserver (for MXIDs, etc).
     domain: example.com
 
     # Is the homeserver actually mautrix-asmux?
     asmux: false
     # The URL to push real-time bridge status to.
-    # If set, the bridge will make POST requests to this URL whenever a user's whatsapp connection state changes.
+    # If set, the bridge will make POST requests to this URL whenever a user's discord connection state changes.
     # The bridge will use the appservice as_token to authorize requests.
     status_endpoint: null
 
@@ -16,11 +16,11 @@ homeserver:
 # Changing these values requires regeneration of the registration.
 appservice:
     # The address that the homeserver can use to connect to this appservice.
-    address: http://localhost:29350
+    address: http://localhost:29334
 
     # The hostname and port where this appservice should listen.
     hostname: 0.0.0.0
-    port: 29350
+    port: 29334
     # Database config.
     database:
         # The database type. "sqlite3" and "postgres" are supported.
@@ -29,7 +29,7 @@ appservice:
         #   SQLite: File name is enough. https://github.com/mattn/go-sqlite3#connection-string
         #   Postgres: Connection string. For example, postgres://user:password@host/database?sslmode=disable
         #             To connect via Unix socket, use something like postgres:///dbname?host=/var/run/postgresql
-        uri: mautrix-whatsapp.db
+        uri: mautrix-discord.db
         # Maximum number of connections. Mostly relevant for Postgres.
         max_open_conns: 20
         max_idle_conns: 2
@@ -50,7 +50,7 @@ appservice:
     bot:
       username: discordbot
       displayname: Discord bridge bot
-      avatar: mxc://beeper.com/222332ba2b197e57b73ef2db236232db79af62d0
+      avatar: mxc://maunium.net/nIdEykemnwdisvHbpxflpDlC
 
     # Whether or not to receive ephemeral events via appservice transactions.
     # Requires MSC2409 support (i.e. Synapse 1.22+).
@@ -64,9 +64,10 @@ appservice:
 # Bridge config
 bridge:
     # Localpart template of MXIDs for Discord users.
-    # {{.}} is replaced with the phone number of the WhatsApp user.
+    # {{.}} is replaced with the internal ID of the Discord user.
     username_template: discord_{{.}}
-    # Displayname template for Discord userss.
+    # Displayname template for Discord users.
+    # TODO: document variables
     displayname_template: '{{.Username}}#{{.Discriminator}} (D){{if .Bot}} (bot){{end}}'
 
     portal_message_buffer: 128

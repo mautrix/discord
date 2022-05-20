@@ -1,6 +1,7 @@
 stages:
 - build
 - build docker
+- manifest
 
 .build: &build
   stage: build
@@ -30,15 +31,24 @@ stages:
   - docker pull $CI_REGISTRY_IMAGE:latest || true
   - docker build --pull --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH . --file Dockerfile.ci
   - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH
-  - if [ "$CI_COMMIT_BRANCH" = "main" ]; then docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH $CI_REGISTRY_IMAGE:latest && docker push $CI_REGISTRY_IMAGE:latest; fi
   - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$DOCKER_ARCH
 
 build amd64:
   <<: *build
   image: dock.mau.dev/tulir/gomuks-build-docker:linux-amd64
 
+build arm64:
+  <<: *build
+  image: dock.mau.dev/tulir/gomuks-build-docker:linux-arm64
+
+build arm:
+  <<: *build
+  image: dock.mau.dev/tulir/gomuks-build-docker:linux-arm
+
 build docker amd64:
   <<: *build-docker
+  tags:
+  - amd64
   dependencies:
   - build amd64
   needs:
@@ -79,3 +89,31 @@ build docker amd64:
          }
          ' | curl "$BEEPER_PROD_ADMIN_API_URL" -H "Content-Type: application/json" -d @-
     fi
+
+build docker arm64:
+  <<: *build-docker
+  tags:
+  - arm64
+  dependencies:
+  - build arm64
+  needs:
+  - build arm64
+  variables:
+    DOCKER_ARCH: arm64
+
+manifest:
+  stage: manifest
+  variables:
+    GIT_STRATEGY: none
+  before_script:
+  - "mkdir -p $HOME/.docker && echo '{\"experimental\": \"enabled\"}' > $HOME/.docker/config.json"
+  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  needs:
+  - build docker amd64
+  - build docker arm64
+  script:
+  - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64
+  - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64
+  - if [ "$CI_COMMIT_BRANCH" = "main" ]; then docker manifest create $CI_REGISTRY_IMAGE:latest $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64 $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64 && docker manifest push $CI_REGISTRY_IMAGE:latest; fi
+  - if [ "$CI_COMMIT_BRANCH" != "main" ]; then docker manifest create $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64 $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64 && docker manifest push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME; fi
+  - docker rmi $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-amd64 $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-arm64

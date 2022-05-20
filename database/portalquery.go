@@ -6,6 +6,12 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
+const (
+	portalSelect = "SELECT channel_id, receiver, mxid, name, topic, avatar," +
+		" avatar_url, type, dmuser, first_event_id, encrypted" +
+		" FROM portal"
+)
+
 type PortalQuery struct {
 	db  *Database
 	log log.Logger
@@ -19,23 +25,23 @@ func (pq *PortalQuery) New() *Portal {
 }
 
 func (pq *PortalQuery) GetAll() []*Portal {
-	return pq.getAll("SELECT * FROM portal")
+	return pq.getAll(portalSelect)
 }
 
 func (pq *PortalQuery) GetByID(key PortalKey) *Portal {
-	return pq.get("SELECT * FROM portal WHERE channel_id=$1 AND receiver=$2", key.ChannelID, key.Receiver)
+	return pq.get(portalSelect+" WHERE channel_id=$1 AND receiver=$2", key.ChannelID, key.Receiver)
 }
 
 func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
-	return pq.get("SELECT * FROM portal WHERE mxid=$1", mxid)
+	return pq.get(portalSelect+" WHERE mxid=$1", mxid)
 }
 
 func (pq *PortalQuery) GetAllByID(id string) []*Portal {
-	return pq.getAll("SELECT * FROM portal WHERE receiver=$1", id)
+	return pq.getAll(portalSelect+" WHERE receiver=$1", id)
 }
 
 func (pq *PortalQuery) FindPrivateChats(receiver string) []*Portal {
-	query := "SELECT * FROM portal WHERE receiver=$1 AND type=$2;"
+	query := portalSelect + " portal WHERE receiver=$1 AND type=$2;"
 
 	return pq.getAll(query, receiver, discordgo.ChannelTypeDM)
 }

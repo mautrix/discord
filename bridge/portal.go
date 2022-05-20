@@ -35,6 +35,7 @@ type Portal struct {
 	log    log.Logger
 
 	roomCreateLock sync.Mutex
+	encryptLock    sync.Mutex
 
 	discordMessages chan portalDiscordMessage
 	matrixMessages  chan portalMatrixMessage
@@ -144,7 +145,7 @@ func (p *Portal) handleMatrixInvite(sender *User, evt *event.Event) {
 		p.log.Infoln("no puppet for %v", sender)
 		// Open a conversation on the discord side?
 	}
-	p.log.Infoln("puppet:", puppet)
+	p.log.Infoln("matrixInvite: puppet:", puppet)
 }
 
 func (p *Portal) messageLoop() {
@@ -171,13 +172,13 @@ func (p *Portal) MainIntent() *appservice.IntentAPI {
 }
 
 func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error {
+	p.roomCreateLock.Lock()
+	defer p.roomCreateLock.Unlock()
+
 	// If we have a matrix id the room should exist so we have nothing to do.
 	if p.MXID != "" {
 		return nil
 	}
-
-	p.roomCreateLock.Lock()
-	defer p.roomCreateLock.Unlock()
 
 	p.Type = channel.Type
 	if p.Type == discordgo.ChannelTypeDM {
@@ -212,14 +213,25 @@ func (p *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error 
 
 	var invite []id.UserID
 
-	if p.IsPrivateChat() {
-		invite = append(invite, p.bridge.bot.UserID)
+	if p.bridge.Config.Bridge.Encryption.Default {
+		initialState = append(initialState, &event.Event{
+			Type: event.StateEncryption,
+			Content: event.Content{
+				Parsed: event.EncryptionEventContent{Algorithm: id.AlgorithmMegolmV1},
+			},
+		})
+		p.Encrypted = true
+
+		if p.IsPrivateChat() {
+			invite = append(invite, p.bridge.bot.UserID)
+		}
 	}
 
 	resp, err := intent.CreateRoom(&mautrix.ReqCreateRoom{
 		Visibility:      "private",
 		Name:            p.Name,
 		Topic:           p.Topic,
+		Invite:          invite,
 		Preset:          "private_chat",
 		IsDirect:        p.IsPrivateChat(),
 		InitialState:    initialState,
@@ -325,7 +337,7 @@ func (p *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridgeErr 
 		MsgType: event.MsgNotice,
 	}
 
-	_, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	_, err := p.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
 	if err != nil {
 		p.log.Warnfln("failed to send error message to matrix: %v", err)
 	}
@@ -379,7 +391,7 @@ func (p *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgID str
 		return
 	}
 
-	resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	resp, err := p.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
 	if err != nil {
 		p.log.Warnfln("failed to send media message to matrix: %v", err)
 	}
@@ -399,6 +411,29 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 		return
 	}
 
+	// Handle room name changes
+	if msg.Type == discordgo.MessageTypeChannelNameChange {
+		channel, err := user.Session.Channel(msg.ChannelID)
+		if err != nil {
+			p.log.Errorf("Failed to find the channel for portal %s", p.Key)
+			return
+		}
+
+		name, err := p.bridge.Config.Bridge.FormatChannelname(channel, user.Session)
+		if err != nil {
+			p.log.Errorf("Failed to format name for portal %s", p.Key)
+			return
+		}
+
+		p.Name = name
+		p.Update()
+
+		p.MainIntent().SetRoomName(p.MXID, name)
+
+		return
+	}
+
+	// Handle normal message
 	existing := p.bridge.db.Message.GetByDiscordID(p.Key, msg.ID)
 	if existing != nil {
 		p.log.Debugln("not handling duplicate message", msg.ID)
@@ -406,7 +441,9 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 		return
 	}
 
-	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
+	puppet := p.bridge.GetPuppetByID(msg.Author.ID)
+	puppet.SyncContact(user)
+	intent := puppet.IntentFor(p)
 
 	if msg.Content != "" {
 		content := &event.MessageEventContent{
@@ -418,7 +455,7 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 			key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
 			existing := p.bridge.db.Message.GetByDiscordID(key, msg.MessageReference.MessageID)
 
-			if existing.MatrixID != "" {
+			if existing != nil && existing.MatrixID != "" {
 				content.RelatesTo = &event.RelatesTo{
 					Type:    event.RelReply,
 					EventID: existing.MatrixID,
@@ -426,7 +463,7 @@ func (p *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message) 
 			}
 		}
 
-		resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+		resp, err := p.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
 		if err != nil {
 			p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 
@@ -448,6 +485,23 @@ func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message)
 		p.log.Warnln("handle message called without a valid portal")
 
 		return
+	}
+
+	// There's a few scenarios where the author is nil but I haven't figured
+	// them all out yet.
+	if msg.Author == nil {
+		// If the server has to lookup opengraph previews it'll send the
+		// message through without the preview and then add the preview later
+		// via a message update. However, when it does this there is no author
+		// as it's just the server, so for the moment we'll ignore this to
+		// avoid a crash.
+		if len(msg.Embeds) > 0 {
+			p.log.Debugln("ignoring update for opengraph attachment")
+
+			return
+		}
+
+		p.log.Errorfln("author is nil: %#v", msg)
 	}
 
 	intent := p.bridge.GetPuppetByID(msg.Author.ID).IntentFor(p)
@@ -498,7 +552,7 @@ func (p *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Message)
 
 	content.SetEdit(existing.MatrixID)
 
-	resp, err := intent.SendMessageEvent(p.MXID, event.EventMessage, content)
+	resp, err := p.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
 	if err != nil {
 		p.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 
@@ -564,6 +618,57 @@ func (p *Portal) syncParticipants(source *User, participants []*discordgo.User) 
 				p.log.Warnfln("Failed to make puppet of %s join %s: %v", participant.ID, p.MXID, err)
 			}
 		}
+	}
+}
+
+func (portal *Portal) encrypt(content *event.Content, eventType event.Type) (event.Type, error) {
+	if portal.Encrypted && portal.bridge.crypto != nil {
+		// TODO maybe the locking should be inside mautrix-go?
+		portal.encryptLock.Lock()
+		encrypted, err := portal.bridge.crypto.Encrypt(portal.MXID, eventType, *content)
+		portal.encryptLock.Unlock()
+		if err != nil {
+			return eventType, fmt.Errorf("failed to encrypt event: %w", err)
+		}
+		eventType = event.EventEncrypted
+		content.Parsed = encrypted
+	}
+	return eventType, nil
+}
+
+const doublePuppetKey = "fi.mau.double_puppet_source"
+const doublePuppetValue = "mautrix-discord"
+
+func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType event.Type, content *event.MessageEventContent, extraContent map[string]interface{}, timestamp int64) (*mautrix.RespSendEvent, error) {
+	wrappedContent := event.Content{Parsed: content, Raw: extraContent}
+	if timestamp != 0 && intent.IsCustomPuppet {
+		if wrappedContent.Raw == nil {
+			wrappedContent.Raw = map[string]interface{}{}
+		}
+		if intent.IsCustomPuppet {
+			wrappedContent.Raw[doublePuppetKey] = doublePuppetValue
+		}
+	}
+	var err error
+	eventType, err = portal.encrypt(&wrappedContent, eventType)
+	if err != nil {
+		return nil, err
+	}
+
+	if eventType == event.EventEncrypted {
+		// Clear other custom keys if the event was encrypted, but keep the double puppet identifier
+		if intent.IsCustomPuppet {
+			wrappedContent.Raw = map[string]interface{}{doublePuppetKey: doublePuppetValue}
+		} else {
+			wrappedContent.Raw = nil
+		}
+	}
+
+	_, _ = intent.UserTyping(portal.MXID, false, 0)
+	if timestamp == 0 {
+		return intent.SendMessageEvent(portal.MXID, eventType, &wrappedContent)
+	} else {
+		return intent.SendMassagedMessageEvent(portal.MXID, eventType, &wrappedContent, timestamp)
 	}
 }
 

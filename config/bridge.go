@@ -30,6 +30,8 @@ type bridge struct {
 	DoublePuppetAllowDiscovery bool              `yaml:"double_puppet_allow_discovery"`
 	LoginSharedSecretMap       map[string]string `yaml:"login_shared_secret_map"`
 
+	Encryption encryption `yaml:"encryption"`
+
 	usernameTemplate    *template.Template `yaml:"-"`
 	displaynameTemplate *template.Template `yaml:"-"`
 	channelnameTemplate *template.Template `yaml:"-"`

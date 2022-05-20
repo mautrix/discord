@@ -1,0 +1,4 @@
+-- This migration is implemented in migrations.go as it comes from
+-- maunium.net/go/mautrix/crypto/sql_store_upgrade. It runs upgrade at index 5
+-- which is described as "Split last_used into last_encrypted and
+-- last_decrypted in crypto store".

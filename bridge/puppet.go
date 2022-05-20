@@ -164,7 +164,10 @@ func (p *Puppet) CustomIntent() *appservice.IntentAPI {
 
 func (p *Puppet) updatePortalMeta(meta func(portal *Portal)) {
 	for _, portal := range p.bridge.GetAllPortalsByID(p.ID) {
+		// Get room create lock to prevent races between receiving contact info and room creation.
+		portal.roomCreateLock.Lock()
 		meta(portal)
+		portal.roomCreateLock.Unlock()
 	}
 }
 

@@ -5,7 +5,9 @@ import (
 	"errors"
 
 	log "maunium.net/go/maulogger/v2"
+
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type Attachment struct {
@@ -19,7 +21,7 @@ type Attachment struct {
 	MatrixEventID       id.EventID
 }
 
-func (a *Attachment) Scan(row Scannable) *Attachment {
+func (a *Attachment) Scan(row dbutil.Scannable) *Attachment {
 	err := row.Scan(
 		&a.Channel.ChannelID, &a.Channel.Receiver,
 		&a.DiscordMessageID, &a.DiscordAttachmentID,

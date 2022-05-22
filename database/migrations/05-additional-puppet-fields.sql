@@ -1,2 +1,0 @@
-ALTER TABLE puppet ADD COLUMN next_batch TEXT;
-ALTER TABLE puppet ADD COLUMN enable_receipts BOOLEAN NOT NULL DEFAULT true;

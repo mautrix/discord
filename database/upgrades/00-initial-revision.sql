@@ -1,3 +1,5 @@
+-- v1: Initial revision
+
 CREATE TABLE portal (
 	channel_id TEXT,
 	receiver   TEXT,
@@ -8,6 +10,8 @@ CREATE TABLE portal (
 
 	avatar     TEXT NOT NULL,
 	avatar_url TEXT,
+
+	encrypted BOOLEAN NOT NULL DEFAULT false,
 
 	type INT,
 	dmuser TEXT,
@@ -24,7 +28,12 @@ CREATE TABLE puppet (
 	avatar     TEXT,
 	avatar_url TEXT,
 
-	enable_presence BOOLEAN NOT NULL DEFAULT true
+	enable_presence BOOLEAN NOT NULL DEFAULT true,
+	enable_receipts BOOLEAN NOT NULL DEFAULT true,
+
+	custom_mxid  TEXT,
+	access_token TEXT,
+	next_batch   TEXT
 );
 
 CREATE TABLE "user" (
@@ -38,12 +47,12 @@ CREATE TABLE "user" (
 
 CREATE TABLE message (
 	channel_id TEXT NOT NULL,
-	receiver TEXT NOT NULL,
+	receiver   TEXT NOT NULL,
 
 	discord_message_id TEXT NOT NULL,
-	matrix_message_id TEXT NOT NULL UNIQUE,
+	matrix_message_id  TEXT NOT NULL UNIQUE,
 
-	author_id TEXT NOT NULL,
+	author_id TEXT   NOT NULL,
 	timestamp BIGINT NOT NULL,
 
 	PRIMARY KEY(discord_message_id, channel_id, receiver),
@@ -52,10 +61,10 @@ CREATE TABLE message (
 
 CREATE TABLE reaction (
 	channel_id TEXT NOT NULL,
-	receiver TEXT NOT NULL,
+	receiver   TEXT NOT NULL,
 
 	discord_message_id TEXT NOT NULL,
-	matrix_event_id TEXT NOT NULL UNIQUE,
+	matrix_event_id    TEXT NOT NULL UNIQUE,
 
 	author_id TEXT NOT NULL,
 
@@ -68,20 +77,29 @@ CREATE TABLE reaction (
 	FOREIGN KEY(channel_id, receiver) REFERENCES portal(channel_id, receiver) ON DELETE CASCADE
 );
 
-CREATE TABLE mx_user_profile (
-	room_id     TEXT,
-	user_id     TEXT,
-	membership  TEXT NOT NULL,
-	displayname TEXT,
-	avatar_url  TEXT,
-	PRIMARY KEY (room_id, user_id)
+CREATE TABLE attachment (
+	channel_id TEXT NOT NULL,
+	receiver   TEXT NOT NULL,
+
+	discord_message_id    TEXT NOT NULL,
+	discord_attachment_id TEXT NOT NULL,
+
+	matrix_event_id TEXT NOT NULL UNIQUE,
+
+	PRIMARY KEY(discord_attachment_id, matrix_event_id),
+	FOREIGN KEY(channel_id, receiver) REFERENCES portal(channel_id, receiver) ON DELETE CASCADE
 );
 
-CREATE TABLE mx_registrations (
-	user_id TEXT PRIMARY KEY
+CREATE TABLE emoji (
+	discord_id   TEXT PRIMARY KEY,
+	discord_name TEXT,
+	matrix_url   TEXT
 );
 
-CREATE TABLE mx_room_state (
-	room_id      TEXT PRIMARY KEY,
-	power_levels TEXT
+CREATE TABLE guild (
+	discord_id TEXT NOT NULL,
+	guild_id   TEXT NOT NULL,
+	guild_name TEXT NOT NULL,
+	bridge     BOOLEAN DEFAULT FALSE,
+	PRIMARY KEY(discord_id, guild_id)
 );

@@ -6,7 +6,9 @@ import (
 	"time"
 
 	log "maunium.net/go/maulogger/v2"
+
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type Message struct {
@@ -22,7 +24,7 @@ type Message struct {
 	Timestamp time.Time
 }
 
-func (m *Message) Scan(row Scannable) *Message {
+func (m *Message) Scan(row dbutil.Scannable) *Message {
 	var ts int64
 
 	err := row.Scan(&m.Channel.ChannelID, &m.Channel.Receiver, &m.DiscordID, &m.MatrixID, &m.AuthorID, &ts)

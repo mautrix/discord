@@ -1,4 +1,4 @@
-package bridge
+package main
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-func (p *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
+func (portal *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
 	// We might want to make this save to disk in the future. Discord defaults
 	// to 8mb for all attachments to a messages for non-nitro users and
 	// non-boosted servers.
@@ -42,7 +42,7 @@ func (p *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func (p *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.MessageEventContent) ([]byte, error) {
+func (portal *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.MessageEventContent) ([]byte, error) {
 	var file *event.EncryptedFileInfo
 	rawMXC := content.URL
 
@@ -53,22 +53,22 @@ func (p *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.Mes
 
 	mxc, err := rawMXC.Parse()
 	if err != nil {
-		p.log.Errorln("Malformed content URL in %s: %v", eventID, err)
+		portal.log.Errorln("Malformed content URL in %s: %v", eventID, err)
 
 		return nil, err
 	}
 
-	data, err := p.MainIntent().DownloadBytes(mxc)
+	data, err := portal.MainIntent().DownloadBytes(mxc)
 	if err != nil {
-		p.log.Errorfln("Failed to download media in %s: %v", eventID, err)
+		portal.log.Errorfln("Failed to download media in %s: %v", eventID, err)
 
 		return nil, err
 	}
 
 	if file != nil {
-		data, err = file.Decrypt(data)
+		err = file.DecryptInPlace(data)
 		if err != nil {
-			p.log.Errorfln("Failed to decrypt media in %s: %v", eventID, err)
+			portal.log.Errorfln("Failed to decrypt media in %s: %v", eventID, err)
 			return nil, err
 		}
 	}
@@ -76,13 +76,13 @@ func (p *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.Mes
 	return data, nil
 }
 
-func (p *Portal) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, content *event.MessageEventContent) error {
+func (portal *Portal) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, content *event.MessageEventContent) error {
 	req := mautrix.ReqUploadMedia{
 		ContentBytes: data,
 		ContentType:  content.Info.MimeType,
 	}
 	var mxc id.ContentURI
-	if p.bridge.Config.Homeserver.AsyncMedia {
+	if portal.bridge.Config.Homeserver.AsyncMedia {
 		uploaded, err := intent.UnstableUploadAsync(req)
 		if err != nil {
 			return err

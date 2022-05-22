@@ -5,7 +5,9 @@ import (
 	"errors"
 
 	log "maunium.net/go/maulogger/v2"
+
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type Reaction struct {
@@ -26,7 +28,7 @@ type Reaction struct {
 	DiscordID string // The id or unicode of the emoji for discord
 }
 
-func (r *Reaction) Scan(row Scannable) *Reaction {
+func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
 	var discordID sql.NullString
 
 	err := row.Scan(

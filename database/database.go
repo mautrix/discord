@@ -1,20 +1,18 @@
 package database
 
 import (
-	"database/sql"
+	_ "embed"
+	"fmt"
 
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
-	log "maunium.net/go/maulogger/v2"
-
-	"go.mau.fi/mautrix-discord/database/migrations"
+	"go.mau.fi/mautrix-discord/database/upgrades"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type Database struct {
-	*sql.DB
-	log     log.Logger
-	dialect string
+	*dbutil.Database
 
 	User       *UserQuery
 	Portal     *PortalQuery
@@ -26,70 +24,51 @@ type Database struct {
 	Guild      *GuildQuery
 }
 
-func New(dbType, uri string, maxOpenConns, maxIdleConns int, baseLog log.Logger) (*Database, error) {
-	conn, err := sql.Open(dbType, uri)
-	if err != nil {
-		return nil, err
+//go:embed legacymigrate.sql
+var legacyMigrate string
+
+func New(baseDB *dbutil.Database) *Database {
+	db := &Database{Database: baseDB}
+	_, err := db.Exec("SELECT id FROM version")
+	if err == nil {
+		baseDB.Log.Infoln("Migrating from legacy database versioning")
+		_, err = db.Exec(legacyMigrate)
+		if err != nil {
+			panic(fmt.Errorf("failed to migrate from legacy database versioning: %v", err))
+		}
 	}
-
-	if dbType == "sqlite3" {
-		conn.Exec("PRAGMA foreign_keys = ON")
-	}
-
-	conn.SetMaxOpenConns(maxOpenConns)
-	conn.SetMaxIdleConns(maxIdleConns)
-
-	dbLog := baseLog.Sub("Database")
-
-	if err := migrations.Run(conn, dbLog, dbType); err != nil {
-		return nil, err
-	}
-
-	db := &Database{
-		DB:      conn,
-		log:     dbLog,
-		dialect: dbType,
-	}
-
+	db.UpgradeTable = upgrades.Table
 	db.User = &UserQuery{
 		db:  db,
-		log: db.log.Sub("User"),
+		log: db.Log.Sub("User"),
 	}
-
 	db.Portal = &PortalQuery{
 		db:  db,
-		log: db.log.Sub("Portal"),
+		log: db.Log.Sub("Portal"),
 	}
-
 	db.Puppet = &PuppetQuery{
 		db:  db,
-		log: db.log.Sub("Puppet"),
+		log: db.Log.Sub("Puppet"),
 	}
-
 	db.Message = &MessageQuery{
 		db:  db,
-		log: db.log.Sub("Message"),
+		log: db.Log.Sub("Message"),
 	}
-
 	db.Reaction = &ReactionQuery{
 		db:  db,
-		log: db.log.Sub("Reaction"),
+		log: db.Log.Sub("Reaction"),
 	}
-
 	db.Attachment = &AttachmentQuery{
 		db:  db,
-		log: db.log.Sub("Attachment"),
+		log: db.Log.Sub("Attachment"),
 	}
-
 	db.Emoji = &EmojiQuery{
 		db:  db,
-		log: db.log.Sub("Emoji"),
+		log: db.Log.Sub("Emoji"),
 	}
-
 	db.Guild = &GuildQuery{
 		db:  db,
-		log: db.log.Sub("Guild"),
+		log: db.Log.Sub("Guild"),
 	}
-
-	return db, nil
+	return db
 }

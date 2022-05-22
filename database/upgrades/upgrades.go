@@ -14,22 +14,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package config
+package upgrades
 
 import (
-	"maunium.net/go/mautrix/bridge/bridgeconfig"
-	"maunium.net/go/mautrix/id"
+	"embed"
+
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
-type Config struct {
-	*bridgeconfig.BaseConfig `yaml:",inline"`
+var Table dbutil.UpgradeTable
 
-	Bridge BridgeConfig `yaml:"bridge"`
-}
+//go:embed *.sql
+var rawUpgrades embed.FS
 
-func (config *Config) CanAutoDoublePuppet(userID id.UserID) bool {
-	_, homeserver, _ := userID.Parse()
-	_, hasSecret := config.Bridge.LoginSharedSecretMap[homeserver]
-
-	return hasSecret
+func init() {
+	Table.RegisterFS(rawUpgrades)
 }

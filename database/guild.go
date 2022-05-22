@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	log "maunium.net/go/maulogger/v2"
+
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type Guild struct {
@@ -17,7 +19,7 @@ type Guild struct {
 	Bridge    bool
 }
 
-func (g *Guild) Scan(row Scannable) *Guild {
+func (g *Guild) Scan(row dbutil.Scannable) *Guild {
 	err := row.Scan(&g.DiscordID, &g.GuildID, &g.GuildName, &g.Bridge)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {

@@ -7,6 +7,7 @@ import (
 	log "maunium.net/go/maulogger/v2"
 
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type Emoji struct {
@@ -19,7 +20,7 @@ type Emoji struct {
 	MatrixURL id.ContentURI
 }
 
-func (e *Emoji) Scan(row Scannable) *Emoji {
+func (e *Emoji) Scan(row dbutil.Scannable) *Emoji {
 	var matrixURL sql.NullString
 	err := row.Scan(&e.DiscordID, &e.DiscordName, &matrixURL)
 

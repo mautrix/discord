@@ -6,7 +6,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	log "maunium.net/go/maulogger/v2"
+
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type Portal struct {
@@ -30,7 +32,7 @@ type Portal struct {
 	FirstEventID id.EventID
 }
 
-func (p *Portal) Scan(row Scannable) *Portal {
+func (p *Portal) Scan(row dbutil.Scannable) *Portal {
 	var mxid, avatarURL, firstEventID sql.NullString
 	var typ sql.NullInt32
 

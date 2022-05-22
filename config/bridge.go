@@ -1,3 +1,19 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2022 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package config
 
 import (
@@ -5,19 +21,19 @@ import (
 	"strings"
 	"text/template"
 
-	"maunium.net/go/mautrix/id"
-
 	"github.com/bwmarrin/discordgo"
+
+	"maunium.net/go/mautrix/bridge/bridgeconfig"
 )
 
-type bridge struct {
+type BridgeConfig struct {
 	UsernameTemplate    string `yaml:"username_template"`
 	DisplaynameTemplate string `yaml:"displayname_template"`
 	ChannelnameTemplate string `yaml:"channelname_template"`
 
 	CommandPrefix string `yaml:"command_prefix"`
 
-	ManagementRoomText managementRoomText `yaml:"management_root_text"`
+	ManagementRoomText bridgeconfig.ManagementRoomTexts `yaml:"management_room_text"`
 
 	PortalMessageBuffer int `yaml:"portal_message_buffer"`
 
@@ -30,127 +46,81 @@ type bridge struct {
 	DoublePuppetAllowDiscovery bool              `yaml:"double_puppet_allow_discovery"`
 	LoginSharedSecretMap       map[string]string `yaml:"login_shared_secret_map"`
 
-	Encryption encryption `yaml:"encryption"`
+	Encryption bridgeconfig.EncryptionConfig `yaml:"encryption"`
+
+	Provisioning struct {
+		Prefix       string `yaml:"prefix"`
+		SharedSecret string `yaml:"shared_secret"`
+	} `yaml:"provisioning"`
+
+	Permissions bridgeconfig.PermissionConfig `yaml:"permissions"`
 
 	usernameTemplate    *template.Template `yaml:"-"`
 	displaynameTemplate *template.Template `yaml:"-"`
 	channelnameTemplate *template.Template `yaml:"-"`
 }
 
-func (config *Config) CanAutoDoublePuppet(userID id.UserID) bool {
-	_, homeserver, _ := userID.Parse()
-	_, hasSecret := config.Bridge.LoginSharedSecretMap[homeserver]
+type umBridgeConfig BridgeConfig
 
-	return hasSecret
-}
-
-func (b *bridge) validate() error {
-	var err error
-
-	if b.UsernameTemplate == "" {
-		b.UsernameTemplate = "discord_{{.}}"
-	}
-
-	b.usernameTemplate, err = template.New("username").Parse(b.UsernameTemplate)
+func (bc *BridgeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	err := unmarshal((*umBridgeConfig)(bc))
 	if err != nil {
 		return err
 	}
 
-	if b.DisplaynameTemplate == "" {
-		b.DisplaynameTemplate = "{{.Username}}#{{.Discriminator}} (D){{if .Bot}} (bot){{end}}"
+	bc.usernameTemplate, err = template.New("username").Parse(bc.UsernameTemplate)
+	if err != nil {
+		return err
+	} else if !strings.Contains(bc.FormatUsername("1234567890"), "1234567890") {
+		return fmt.Errorf("username template is missing user ID placeholder")
 	}
 
-	b.displaynameTemplate, err = template.New("displayname").Parse(b.DisplaynameTemplate)
+	bc.displaynameTemplate, err = template.New("displayname").Parse(bc.DisplaynameTemplate)
 	if err != nil {
 		return err
 	}
 
-	if b.ChannelnameTemplate == "" {
-		b.ChannelnameTemplate = "{{if .Guild}}{{.Guild}} - {{end}}{{if .Folder}}{{.Folder}} - {{end}}{{.Name}} (D)"
-	}
-
-	b.channelnameTemplate, err = template.New("channelname").Parse(b.ChannelnameTemplate)
+	bc.channelnameTemplate, err = template.New("channelname").Parse(bc.ChannelnameTemplate)
 	if err != nil {
-		return err
-	}
-
-	if b.PortalMessageBuffer <= 0 {
-		b.PortalMessageBuffer = 128
-	}
-
-	if b.CommandPrefix == "" {
-		b.CommandPrefix = "!dis"
-	}
-
-	if err := b.ManagementRoomText.validate(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (b *bridge) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type rawBridge bridge
+var _ bridgeconfig.BridgeConfig = (*BridgeConfig)(nil)
 
-	// Set our defaults that aren't zero values.
-	raw := rawBridge{
-		SyncWithCustomPuppets: true,
-		DefaultBridgeReceipts: true,
-		DefaultBridgePresence: true,
-	}
-
-	err := unmarshal(&raw)
-	if err != nil {
-		return err
-	}
-
-	*b = bridge(raw)
-
-	return b.validate()
+func (bc BridgeConfig) GetEncryptionConfig() bridgeconfig.EncryptionConfig {
+	return bc.Encryption
 }
 
-func (b bridge) FormatUsername(userid string) string {
+func (bc BridgeConfig) GetCommandPrefix() string {
+	return bc.CommandPrefix
+}
+
+func (bc BridgeConfig) GetManagementRoomTexts() bridgeconfig.ManagementRoomTexts {
+	return bc.ManagementRoomText
+}
+
+func (bc BridgeConfig) FormatUsername(userid string) string {
 	var buffer strings.Builder
-
-	b.usernameTemplate.Execute(&buffer, userid)
-
+	_ = bc.usernameTemplate.Execute(&buffer, userid)
 	return buffer.String()
 }
 
-type simplfiedUser struct {
-	Username      string
-	Discriminator string
-	Locale        string
-	Verified      bool
-	MFAEnabled    bool
-	Bot           bool
-	System        bool
-}
-
-func (b bridge) FormatDisplayname(user *discordgo.User) string {
+func (bc BridgeConfig) FormatDisplayname(user *discordgo.User) string {
 	var buffer strings.Builder
-
-	b.displaynameTemplate.Execute(&buffer, simplfiedUser{
-		Username:      user.Username,
-		Discriminator: user.Discriminator,
-		Locale:        user.Locale,
-		Verified:      user.Verified,
-		MFAEnabled:    user.MFAEnabled,
-		Bot:           user.Bot,
-		System:        user.System,
-	})
-
+	_ = bc.displaynameTemplate.Execute(&buffer, user)
 	return buffer.String()
 }
 
-type simplfiedChannel struct {
+type wrappedChannel struct {
+	*discordgo.Channel
 	Guild  string
 	Folder string
-	Name   string
-	NSFW   bool
 }
 
-func (b bridge) FormatChannelname(channel *discordgo.Channel, session *discordgo.Session) (string, error) {
+func (bc BridgeConfig) FormatChannelname(channel *discordgo.Channel, session *discordgo.Session) (string, error) {
 	var buffer strings.Builder
 	var guildName, folderName string
 
@@ -171,18 +141,17 @@ func (b bridge) FormatChannelname(channel *discordgo.Channel, session *discordgo
 		if channel.Name == "" {
 			recipients := make([]string, len(channel.Recipients))
 			for idx, user := range channel.Recipients {
-				recipients[idx] = b.FormatDisplayname(user)
+				recipients[idx] = bc.FormatDisplayname(user)
 			}
 
 			return strings.Join(recipients, ", "), nil
 		}
 	}
 
-	b.channelnameTemplate.Execute(&buffer, simplfiedChannel{
-		Guild:  guildName,
-		Folder: folderName,
-		Name:   channel.Name,
-		NSFW:   channel.NSFW,
+	_ = bc.channelnameTemplate.Execute(&buffer, wrappedChannel{
+		Channel: channel,
+		Guild:   guildName,
+		Folder:  folderName,
 	})
 
 	return buffer.String(), nil

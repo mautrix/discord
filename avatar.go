@@ -1,4 +1,4 @@
-package bridge
+package main
 
 import (
 	"fmt"

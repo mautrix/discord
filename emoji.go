@@ -1,4 +1,4 @@
-package bridge
+package main
 
 import (
 	"io/ioutil"
@@ -10,7 +10,7 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-func (p *Portal) downloadDiscordEmoji(id string, animated bool) ([]byte, string, error) {
+func (portal *Portal) downloadDiscordEmoji(id string, animated bool) ([]byte, string, error) {
 	var url string
 	var mimeType string
 
@@ -43,7 +43,7 @@ func (p *Portal) downloadDiscordEmoji(id string, animated bool) ([]byte, string,
 	return data, mimeType, err
 }
 
-func (p *Portal) uploadMatrixEmoji(intent *appservice.IntentAPI, data []byte, mimeType string) (id.ContentURI, error) {
+func (portal *Portal) uploadMatrixEmoji(intent *appservice.IntentAPI, data []byte, mimeType string) (id.ContentURI, error) {
 	uploaded, err := intent.UploadBytes(data, mimeType)
 	if err != nil {
 		return id.ContentURI{}, err

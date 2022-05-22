@@ -4,7 +4,9 @@ import (
 	"database/sql"
 
 	log "maunium.net/go/maulogger/v2"
+
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 const (
@@ -34,7 +36,7 @@ type Puppet struct {
 	EnableReceipts bool
 }
 
-func (p *Puppet) Scan(row Scannable) *Puppet {
+func (p *Puppet) Scan(row dbutil.Scannable) *Puppet {
 	var did, displayName, avatar, avatarURL sql.NullString
 	var enablePresence sql.NullBool
 	var customMXID, accessToken, nextBatch sql.NullString

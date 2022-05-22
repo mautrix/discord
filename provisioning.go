@@ -1,4 +1,4 @@
-package bridge
+package main
 
 import (
 	"bufio"
@@ -25,21 +25,21 @@ const (
 )
 
 type ProvisioningAPI struct {
-	bridge *Bridge
+	bridge *DiscordBridge
 	log    log.Logger
 }
 
-func newProvisioningAPI(bridge *Bridge) *ProvisioningAPI {
+func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 	p := &ProvisioningAPI{
-		bridge: bridge,
-		log:    bridge.log.Sub("Provisioning"),
+		bridge: br,
+		log:    br.Log.Sub("Provisioning"),
 	}
 
-	prefix := bridge.Config.Appservice.Provisioning.Prefix
+	prefix := br.Config.Bridge.Provisioning.Prefix
 
 	p.log.Debugln("Enabling provisioning API at", prefix)
 
-	r := bridge.as.Router.PathPrefix(prefix).Subrouter()
+	r := br.AS.Router.PathPrefix(prefix).Subrouter()
 
 	r.Use(p.authMiddleware)
 
@@ -117,7 +117,7 @@ func (p *ProvisioningAPI) authMiddleware(h http.Handler) http.Handler {
 			auth = auth[len("Bearer "):]
 		}
 
-		if auth != p.bridge.Config.Appservice.Provisioning.SharedSecret {
+		if auth != p.bridge.Config.Bridge.Provisioning.SharedSecret {
 			jsonResponse(w, http.StatusForbidden, map[string]interface{}{
 				"error":   "Invalid auth token",
 				"errcode": "M_FORBIDDEN",
@@ -176,7 +176,7 @@ func (p *ProvisioningAPI) ping(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 
 	discord := map[string]interface{}{
-		"logged_in": user.LoggedIn(),
+		"logged_in": user.IsLoggedIn(),
 		"connected": user.Connected(),
 		"conn":      nil,
 	}
@@ -210,7 +210,7 @@ func (p *ProvisioningAPI) logout(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 	force := strings.ToLower(r.URL.Query().Get("force")) != "false"
 
-	if !user.LoggedIn() {
+	if !user.IsLoggedIn() {
 		jsonResponse(w, http.StatusNotFound, Error{
 			Error:   "You're not logged in",
 			ErrCode: "not logged in",
@@ -285,7 +285,7 @@ func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	if user.LoggedIn() {
+	if user.IsLoggedIn() {
 		c.WriteJSON(Error{
 			Error:   "You're already logged into Discord",
 			ErrCode: "already logged in",

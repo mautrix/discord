@@ -182,8 +182,13 @@ func (br *DiscordBridge) getAllUsers() []*User {
 func (br *DiscordBridge) startUsers() {
 	br.Log.Debugln("Starting users")
 
-	for _, user := range br.getAllUsers() {
-		go user.Connect()
+	for _, u := range br.getAllUsers() {
+		go func(user *User) {
+			err := user.Connect()
+			if err != nil {
+				user.log.Errorfln("Error connecting: %v", err)
+			}
+		}(u)
 	}
 
 	br.Log.Debugln("Starting custom puppets")

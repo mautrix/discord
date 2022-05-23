@@ -38,7 +38,7 @@ func (uq *UserQuery) GetByID(id string) *User {
 }
 
 func (uq *UserQuery) GetAll() []*User {
-	rows, err := uq.db.Query(`SELECT mxid, id, management_room, token FROM "user"`)
+	rows, err := uq.db.Query(`SELECT mxid, id, management_room, token FROM "user" WHERE token IS NOT NULL`)
 	if err != nil || rows == nil {
 		return nil
 	}

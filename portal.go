@@ -118,8 +118,8 @@ func (br *DiscordBridge) GetAllPortals() []*Portal {
 	return br.dbPortalsToPortals(br.DB.Portal.GetAll())
 }
 
-func (br *DiscordBridge) GetAllPortalsByID(id string) []*Portal {
-	return br.dbPortalsToPortals(br.DB.Portal.GetAllByID(id))
+func (br *DiscordBridge) GetDMPortalsWith(otherUserID string) []*Portal {
+	return br.dbPortalsToPortals(br.DB.Portal.FindPrivateChatsWith(otherUserID))
 }
 
 func (br *DiscordBridge) dbPortalsToPortals(dbPortals []*database.Portal) []*Portal {

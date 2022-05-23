@@ -36,11 +36,11 @@ func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
 	return pq.get(portalSelect+" WHERE mxid=$1", mxid)
 }
 
-func (pq *PortalQuery) GetAllByID(id string) []*Portal {
-	return pq.getAll(portalSelect+" WHERE receiver=$1", id)
+func (pq *PortalQuery) FindPrivateChatsWith(id string) []*Portal {
+	return pq.getAll(portalSelect+" WHERE dmuser=$1 AND type=$2", id, discordgo.ChannelTypeDM)
 }
 
-func (pq *PortalQuery) FindPrivateChats(receiver string) []*Portal {
+func (pq *PortalQuery) FindPrivateChatsOf(receiver string) []*Portal {
 	query := portalSelect + " portal WHERE receiver=$1 AND type=$2;"
 
 	return pq.getAll(query, receiver, discordgo.ChannelTypeDM)

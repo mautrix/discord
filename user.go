@@ -682,7 +682,7 @@ func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, 
 func (user *User) getDirectChats() map[id.UserID][]id.RoomID {
 	chats := map[id.UserID][]id.RoomID{}
 
-	privateChats := user.bridge.DB.Portal.FindPrivateChats(user.ID)
+	privateChats := user.bridge.DB.Portal.FindPrivateChatsOf(user.ID)
 	for _, portal := range privateChats {
 		if portal.MXID != "" {
 			puppetMXID := user.bridge.FormatPuppetMXID(portal.Key.Receiver)

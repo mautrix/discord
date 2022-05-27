@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"maunium.net/go/mautrix/util/variationselector"
 
 	log "maunium.net/go/maulogger/v2"
 
@@ -945,6 +946,8 @@ func (portal *Portal) handleMatrixReaction(user *User, evt *event.Event) {
 		}
 
 		emojiID = emoji.APIName()
+	} else {
+		emojiID = variationselector.Remove(emojiID)
 	}
 
 	err := user.Session.MessageReactionAdd(portal.Key.ChannelID, discordID, emojiID)
@@ -998,7 +1001,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		matrixReaction = dbEmoji.MatrixURL.String()
 	} else {
 		discordID = reaction.Emoji.Name
-		matrixReaction = reaction.Emoji.Name
+		matrixReaction = variationselector.Add(reaction.Emoji.Name)
 	}
 
 	// Find the message that we're working with.

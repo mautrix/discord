@@ -10,7 +10,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.13
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.11.1-0.20220522190042-ec20c3fc994a
+	maunium.net/go/mautrix v0.11.1-0.20220527114846-a9044b80e365
 )
 
 require (
@@ -27,4 +27,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo v0.23.2 => gitlab.com/beeper/discordgo v0.23.3-0.20220219094025-13ff4cc63da7
+replace github.com/bwmarrin/discordgo v0.23.2 => gitlab.com/beeper/discordgo v0.23.3-0.20211228023845-29269347e820

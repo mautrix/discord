@@ -182,6 +182,45 @@ func (portal *Portal) MainIntent() *appservice.IntentAPI {
 	return portal.bridge.Bot
 }
 
+func (portal *Portal) getBridgeInfo() (string, event.BridgeEventContent) {
+	bridgeInfo := event.BridgeEventContent{
+		BridgeBot: portal.bridge.Bot.UserID,
+		Creator:   portal.MainIntent().UserID,
+		Protocol: event.BridgeInfoSection{
+			ID:          "discord",
+			DisplayName: "Discord",
+			AvatarURL:   portal.bridge.Config.AppService.Bot.ParsedAvatar.CUString(),
+			ExternalURL: "https://discord.com/",
+		},
+		// TODO use guild as network
+		Channel: event.BridgeInfoSection{
+			ID:          portal.Key.ChannelID,
+			DisplayName: portal.Name,
+			AvatarURL:   portal.AvatarURL.CUString(),
+		},
+	}
+	bridgeInfoStateKey := fmt.Sprintf("fi.mau.discord://discord/%s", portal.Key.ChannelID)
+	return bridgeInfoStateKey, bridgeInfo
+}
+
+func (portal *Portal) UpdateBridgeInfo() {
+	if len(portal.MXID) == 0 {
+		portal.log.Debugln("Not updating bridge info: no Matrix room created")
+		return
+	}
+	portal.log.Debugln("Updating bridge info...")
+	stateKey, content := portal.getBridgeInfo()
+	_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateBridge, stateKey, content)
+	if err != nil {
+		portal.log.Warnln("Failed to update m.bridge:", err)
+	}
+	// TODO remove this once https://github.com/matrix-org/matrix-doc/pull/2346 is in spec
+	_, err = portal.MainIntent().SendStateEvent(portal.MXID, event.StateHalfShotBridge, stateKey, content)
+	if err != nil {
+		portal.log.Warnln("Failed to update uk.half-shot.bridge:", err)
+	}
+}
+
 func (portal *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error {
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()
@@ -214,8 +253,18 @@ func (portal *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) e
 	// portal.AvatarURL = puppet.AvatarURL
 
 	portal.log.Infoln("Creating Matrix room for channel:", portal.Portal.Key.ChannelID)
+	bridgeInfoStateKey, bridgeInfo := portal.getBridgeInfo()
 
-	initialState := []*event.Event{}
+	initialState := []*event.Event{{
+		Type:     event.StateBridge,
+		Content:  event.Content{Parsed: bridgeInfo},
+		StateKey: &bridgeInfoStateKey,
+	}, {
+		// TODO remove this once https://github.com/matrix-org/matrix-doc/pull/2346 is in spec
+		Type:     event.StateHalfShotBridge,
+		Content:  event.Content{Parsed: bridgeInfo},
+		StateKey: &bridgeInfoStateKey,
+	}}
 
 	creationContent := make(map[string]interface{})
 	if !portal.bridge.Config.Bridge.FederateRooms {
@@ -258,6 +307,7 @@ func (portal *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) e
 	portal.bridge.portalsLock.Lock()
 	portal.bridge.portalsByMXID[portal.MXID] = portal
 	portal.bridge.portalsLock.Unlock()
+	portal.log.Infoln("Matrix room created:", portal.MXID)
 
 	portal.ensureUserInvited(user)
 	user.syncChatDoublePuppetDetails(portal, true)

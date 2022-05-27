@@ -10,97 +10,102 @@ import (
 	"maunium.net/go/mautrix/util/dbutil"
 )
 
+type ReactionQuery struct {
+	db  *Database
+	log log.Logger
+}
+
+const (
+	reactionSelect = "SELECT dc_chan_id, dc_chan_receiver, dc_msg_id, dc_sender, dc_emoji_name, mxid FROM reaction"
+)
+
+func (rq *ReactionQuery) New() *Reaction {
+	return &Reaction{
+		db:  rq.db,
+		log: rq.log,
+	}
+}
+
+func (rq *ReactionQuery) GetAllForMessage(key PortalKey, discordMessageID string) []*Reaction {
+	query := reactionSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_msg_id=$3"
+
+	return rq.getAll(query, key.ChannelID, key.Receiver, discordMessageID)
+}
+
+func (rq *ReactionQuery) getAll(query string, args ...interface{}) []*Reaction {
+	rows, err := rq.db.Query(query, args...)
+	if err != nil || rows == nil {
+		return nil
+	}
+
+	var reactions []*Reaction
+	for rows.Next() {
+		reactions = append(reactions, rq.New().Scan(rows))
+	}
+
+	return reactions
+}
+
+func (rq *ReactionQuery) GetByDiscordID(key PortalKey, msgID, sender, emojiName string) *Reaction {
+	query := reactionSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_msg_id=$3 AND dc_sender=$4 AND dc_emoji_name=$5"
+
+	return rq.get(query, key.ChannelID, key.Receiver, msgID, sender, emojiName)
+}
+
+func (rq *ReactionQuery) GetByMXID(mxid id.EventID) *Reaction {
+	query := reactionSelect + " WHERE mxid=$1"
+
+	return rq.get(query, mxid)
+}
+
+func (rq *ReactionQuery) get(query string, args ...interface{}) *Reaction {
+	row := rq.db.QueryRow(query, args...)
+	if row == nil {
+		return nil
+	}
+
+	return rq.New().Scan(row)
+}
+
 type Reaction struct {
 	db  *Database
 	log log.Logger
 
-	Channel PortalKey
+	Channel   PortalKey
+	MessageID string
+	Sender    string
+	EmojiName string
 
-	DiscordMessageID string
-	MatrixEventID    id.EventID
-
-	// The discord ID of who create this reaction
-	AuthorID string
-
-	MatrixName string
-	MatrixURL  string // Used for custom emoji
-
-	DiscordID string // The id or unicode of the emoji for discord
+	MXID id.EventID
 }
 
 func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
-	var discordID sql.NullString
-
-	err := row.Scan(
-		&r.Channel.ChannelID, &r.Channel.Receiver,
-		&r.DiscordMessageID, &r.MatrixEventID,
-		&r.AuthorID,
-		&r.MatrixName, &r.MatrixURL,
-		&discordID)
-
+	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &r.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			r.log.Errorln("Database scan failed:", err)
 		}
-
 		return nil
 	}
-
-	r.DiscordID = discordID.String
 
 	return r
 }
 
 func (r *Reaction) Insert() {
-	query := "INSERT INTO reaction" +
-		" (channel_id, receiver, discord_message_id, matrix_event_id," +
-		"  author_id, matrix_name, matrix_url, discord_id)" +
-		" VALUES($1, $2, $3, $4, $5, $6, $7, $8);"
-
-	var discordID sql.NullString
-
-	if r.DiscordID != "" {
-		discordID = sql.NullString{r.DiscordID, true}
-	}
-
-	_, err := r.db.Exec(
-		query,
-		r.Channel.ChannelID, r.Channel.Receiver,
-		r.DiscordMessageID, r.MatrixEventID,
-		r.AuthorID,
-		r.MatrixName, r.MatrixURL,
-		discordID,
-	)
-
+	query := `
+		INSERT INTO reaction (dc_msg_id, dc_sender, dc_emoji_name, dc_chan_id, dc_chan_receiver, mxid)
+		VALUES($1, $2, $3, $4, $5, $6)
+	`
+	_, err := r.db.Exec(query, r.MessageID, r.Sender, r.EmojiName, r.Channel.ChannelID, r.Channel.Receiver, r.MXID)
 	if err != nil {
-		r.log.Warnfln("Failed to insert reaction for %s@%s: %v", r.Channel, r.DiscordMessageID, err)
+		r.log.Warnfln("Failed to insert reaction for %s@%s: %v", r.MessageID, r.Channel, err)
 	}
-}
-
-func (r *Reaction) Update() {
-	// TODO: determine if we need this. The only scenario I can think of that
-	// would require this is if we insert a custom emoji before uploading to
-	// the homeserver?
 }
 
 func (r *Reaction) Delete() {
-	query := "DELETE FROM reaction WHERE" +
-		" channel_id=$1 AND receiver=$2 AND discord_message_id=$3 AND" +
-		" author_id=$4 AND discord_id=$5"
-
-	var discordID sql.NullString
-	if r.DiscordID != "" {
-		discordID = sql.NullString{r.DiscordID, true}
-	}
-
-	_, err := r.db.Exec(
-		query,
-		r.Channel.ChannelID, r.Channel.Receiver,
-		r.DiscordMessageID, r.AuthorID,
-		discordID,
-	)
-
+	query := "DELETE FROM reaction WHERE dc_msg_id=$1 AND dc_sender=$2 AND dc_emoji_name=$3"
+	_, err := r.db.Exec(query, r.MessageID, r.Sender, r.EmojiName)
 	if err != nil {
-		r.log.Warnfln("Failed to delete reaction for %s@%s: %v", r.Channel, r.DiscordMessageID, err)
+		r.log.Warnfln("Failed to delete reaction for %s@%s: %v", r.MessageID, r.Channel, err)
 	}
 }

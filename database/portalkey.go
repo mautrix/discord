@@ -13,8 +13,8 @@ func NewPortalKey(channelID, receiver string) PortalKey {
 }
 
 func (key PortalKey) String() string {
-	if key.ChannelID == key.Receiver {
-		return key.Receiver
+	if key.Receiver == "" {
+		return key.ChannelID
 	}
 	return key.ChannelID + "-" + key.Receiver
 }

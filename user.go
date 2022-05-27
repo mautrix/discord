@@ -527,7 +527,7 @@ func (user *User) createChannel(c *discordgo.Channel) {
 	portal.Type = c.Type
 
 	if portal.Type == discordgo.ChannelTypeDM {
-		portal.DMUser = c.Recipients[0].ID
+		portal.OtherUserID = c.Recipients[0].ID
 	}
 
 	if c.Icon != "" {

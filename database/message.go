@@ -11,23 +11,77 @@ import (
 	"maunium.net/go/mautrix/util/dbutil"
 )
 
+type MessageQuery struct {
+	db  *Database
+	log log.Logger
+}
+
+const (
+	messageSelect = "SELECT dcid, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, mxid FROM message"
+)
+
+func (mq *MessageQuery) New() *Message {
+	return &Message{
+		db:  mq.db,
+		log: mq.log,
+	}
+}
+
+func (mq *MessageQuery) GetAll(key PortalKey) []*Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2"
+
+	rows, err := mq.db.Query(query, key.ChannelID, key.Receiver)
+	if err != nil || rows == nil {
+		return nil
+	}
+
+	var messages []*Message
+	for rows.Next() {
+		messages = append(messages, mq.New().Scan(rows))
+	}
+
+	return messages
+}
+
+func (mq *MessageQuery) GetByDiscordID(key PortalKey, discordID string) *Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3"
+
+	row := mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID)
+	if row == nil {
+		mq.log.Debugfln("failed to find existing message for discord_id %s", discordID)
+		return nil
+	}
+
+	return mq.New().Scan(row)
+}
+
+func (mq *MessageQuery) GetByMXID(key PortalKey, mxid id.EventID) *Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND mxid=$3"
+
+	row := mq.db.QueryRow(query, key.ChannelID, key.Receiver, mxid)
+	if row == nil {
+		return nil
+	}
+
+	return mq.New().Scan(row)
+}
+
 type Message struct {
 	db  *Database
 	log log.Logger
 
-	Channel PortalKey
-
 	DiscordID string
-	MatrixID  id.EventID
-
-	AuthorID  string
+	Channel   PortalKey
+	SenderID  string
 	Timestamp time.Time
+
+	MXID id.EventID
 }
 
 func (m *Message) Scan(row dbutil.Scannable) *Message {
 	var ts int64
 
-	err := row.Scan(&m.Channel.ChannelID, &m.Channel.Receiver, &m.DiscordID, &m.MatrixID, &m.AuthorID, &ts)
+	err := row.Scan(&m.DiscordID, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &m.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			m.log.Errorln("Database scan failed:", err)
@@ -44,38 +98,21 @@ func (m *Message) Scan(row dbutil.Scannable) *Message {
 }
 
 func (m *Message) Insert() {
-	query := "INSERT INTO message" +
-		" (channel_id, receiver, discord_message_id, matrix_message_id," +
-		" author_id, timestamp) VALUES ($1, $2, $3, $4, $5, $6)"
+	query := "INSERT INTO message (dcid, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, mxid) VALUES ($1, $2, $3, $4, $5, $6)"
 
-	_, err := m.db.Exec(query, m.Channel.ChannelID, m.Channel.Receiver,
-		m.DiscordID, m.MatrixID, m.AuthorID, m.Timestamp.Unix())
+	_, err := m.db.Exec(query, m.DiscordID, m.Channel.ChannelID, m.Channel.Receiver, m.SenderID, m.Timestamp.Unix(), m.MXID)
 
 	if err != nil {
-		m.log.Warnfln("Failed to insert %s@%s: %v", m.Channel, m.DiscordID, err)
+		m.log.Warnfln("Failed to insert %s@%s: %v", m.DiscordID, m.Channel, err)
 	}
 }
 
 func (m *Message) Delete() {
-	query := "DELETE FROM message" +
-		" WHERE channel_id=$1 AND receiver=$2 AND discord_message_id=$3 AND" +
-		" matrix_message_id=$4"
+	query := "DELETE FROM message WHERE dcid=$1 AND dc_chan_id=$2 AND dc_chan_receiver=$3"
 
-	_, err := m.db.Exec(query, m.Channel.ChannelID, m.Channel.Receiver,
-		m.DiscordID, m.MatrixID)
+	_, err := m.db.Exec(query, m.DiscordID, m.Channel.ChannelID, m.Channel.Receiver)
 
 	if err != nil {
-		m.log.Warnfln("Failed to delete %s@%s: %v", m.Channel, m.DiscordID, err)
-	}
-}
-
-func (m *Message) UpdateMatrixID(mxid id.EventID) {
-	query := "UPDATE message SET matrix_message_id=$1 WHERE channel_id=$2" +
-		" AND receiver=$3 AND discord_message_id=$4"
-	m.MatrixID = mxid
-
-	_, err := m.db.Exec(query, m.MatrixID, m.Channel.ChannelID, m.Channel.Receiver, m.DiscordID)
-	if err != nil {
-		m.log.Warnfln("Failed to update %s@%s: %v", m.Channel, m.DiscordID, err)
+		m.log.Warnfln("Failed to delete %s@%s: %v", m.DiscordID, m.Channel, err)
 	}
 }

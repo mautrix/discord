@@ -9,6 +9,54 @@ import (
 	"maunium.net/go/mautrix/util/dbutil"
 )
 
+type UserQuery struct {
+	db  *Database
+	log log.Logger
+}
+
+func (uq *UserQuery) New() *User {
+	return &User{
+		db:  uq.db,
+		log: uq.log,
+	}
+}
+
+func (uq *UserQuery) GetByMXID(userID id.UserID) *User {
+	query := `SELECT mxid, dcid, management_room, token FROM "user" WHERE mxid=$1`
+	row := uq.db.QueryRow(query, userID)
+	if row == nil {
+		return nil
+	}
+
+	return uq.New().Scan(row)
+}
+
+func (uq *UserQuery) GetByID(id string) *User {
+	query := `SELECT mxid, dcid, management_room, token FROM "user" WHERE dcid=$1`
+	row := uq.db.QueryRow(query, id)
+	if row == nil {
+		return nil
+	}
+
+	return uq.New().Scan(row)
+}
+
+func (uq *UserQuery) GetAll() []*User {
+	rows, err := uq.db.Query(`SELECT mxid, dcid, management_room, token FROM "user" WHERE token IS NOT NULL`)
+	if err != nil || rows == nil {
+		return nil
+	}
+
+	defer rows.Close()
+
+	users := []*User{}
+	for rows.Next() {
+		users = append(users, uq.New().Scan(rows))
+	}
+
+	return users
+}
+
 type User struct {
 	db  *Database
 	log log.Logger
@@ -46,9 +94,7 @@ func (u *User) Scan(row dbutil.Scannable) *User {
 }
 
 func (u *User) Insert() {
-	query := "INSERT INTO \"user\"" +
-		" (mxid, id, management_room, token)" +
-		" VALUES ($1, $2, $3, $4);"
+	query := "INSERT INTO \"user\" (mxid, dcid, management_room, token) VALUES ($1, $2, $3, $4)"
 
 	var token sql.NullString
 	var discordID sql.NullString
@@ -71,9 +117,7 @@ func (u *User) Insert() {
 }
 
 func (u *User) Update() {
-	query := "UPDATE \"user\" SET" +
-		" id=$1, management_room=$2, token=$3" +
-		" WHERE mxid=$4;"
+	query := "UPDATE \"user\" SET dcid=$1, management_room=$2, token=$3 WHERE mxid=$4"
 
 	var token sql.NullString
 	var discordID sql.NullString

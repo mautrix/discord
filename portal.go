@@ -174,8 +174,8 @@ func (portal *Portal) IsPrivateChat() bool {
 }
 
 func (portal *Portal) MainIntent() *appservice.IntentAPI {
-	if portal.IsPrivateChat() && portal.DMUser != "" {
-		return portal.bridge.GetPuppetByID(portal.DMUser).DefaultIntent()
+	if portal.IsPrivateChat() && portal.OtherUserID != "" {
+		return portal.bridge.GetPuppetByID(portal.OtherUserID).DefaultIntent()
 	}
 
 	return portal.bridge.Bot
@@ -184,15 +184,13 @@ func (portal *Portal) MainIntent() *appservice.IntentAPI {
 func (portal *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) error {
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()
-
-	// If we have a matrix id the room should exist so we have nothing to do.
 	if portal.MXID != "" {
 		return nil
 	}
 
 	portal.Type = channel.Type
 	if portal.Type == discordgo.ChannelTypeDM {
-		portal.DMUser = channel.Recipients[0].ID
+		portal.OtherUserID = channel.Recipients[0].ID
 	}
 
 	intent := portal.MainIntent()
@@ -219,7 +217,9 @@ func (portal *Portal) createMatrixRoom(user *User, channel *discordgo.Channel) e
 	initialState := []*event.Event{}
 
 	creationContent := make(map[string]interface{})
-	creationContent["m.federate"] = false
+	if !portal.bridge.Config.Bridge.FederateRooms {
+		creationContent["m.federate"] = false
+	}
 
 	var invite []id.UserID
 
@@ -325,19 +325,14 @@ func (portal *Portal) ensureUserInvited(user *User) bool {
 	return user.ensureInvited(portal.MainIntent(), portal.MXID, portal.IsPrivateChat())
 }
 
-func (portal *Portal) markMessageHandled(msg *database.Message, discordID string, mxid id.EventID, authorID string, timestamp time.Time) *database.Message {
-	if msg == nil {
-		msg := portal.bridge.DB.Message.New()
-		msg.Channel = portal.Key
-		msg.DiscordID = discordID
-		msg.MatrixID = mxid
-		msg.AuthorID = authorID
-		msg.Timestamp = timestamp
-		msg.Insert()
-	} else {
-		msg.UpdateMatrixID(mxid)
-	}
-
+func (portal *Portal) markMessageHandled(discordID string, mxid id.EventID, authorID string, timestamp time.Time) *database.Message {
+	msg := portal.bridge.DB.Message.New()
+	msg.Channel = portal.Key
+	msg.DiscordID = discordID
+	msg.MXID = mxid
+	msg.SenderID = authorID
+	msg.Timestamp = timestamp
+	msg.Insert()
 	return msg
 }
 
@@ -410,7 +405,7 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgI
 	dbAttachment.Channel = portal.Key
 	dbAttachment.DiscordMessageID = msgID
 	dbAttachment.DiscordAttachmentID = attachment.ID
-	dbAttachment.MatrixEventID = resp.EventID
+	dbAttachment.MXID = resp.EventID
 	dbAttachment.Insert()
 }
 
@@ -461,14 +456,14 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			MsgType: event.MsgText,
 		}
 
-		if msg.MessageReference != nil {
-			key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
-			existing := portal.bridge.DB.Message.GetByDiscordID(key, msg.MessageReference.MessageID)
+		if msg.MessageReference != nil && msg.MessageReference.ChannelID == portal.Key.ChannelID {
+			//key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
+			replyTo := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.MessageReference.MessageID)
 
-			if existing != nil && existing.MatrixID != "" {
+			if replyTo != nil {
 				content.RelatesTo = &event.RelatesTo{
 					Type:    event.RelReply,
-					EventID: existing.MatrixID,
+					EventID: existing.MXID,
 				}
 			}
 		}
@@ -481,7 +476,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 
 		ts, _ := msg.Timestamp.Parse()
-		portal.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
+		portal.markMessageHandled(msg.ID, resp.EventID, msg.Author.ID, ts)
 	}
 
 	// now run through any attachments the message has
@@ -544,9 +539,9 @@ func (portal *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Mes
 		// Finally run through any attachments still in the map and delete them
 		// on the matrix side and our database.
 		for _, attachment := range attachmentMap {
-			_, err := intent.RedactEvent(portal.MXID, attachment.MatrixEventID)
+			_, err := intent.RedactEvent(portal.MXID, attachment.MXID)
 			if err != nil {
-				portal.log.Warnfln("Failed to remove attachment %s: %v", attachment.MatrixEventID, err)
+				portal.log.Warnfln("Failed to remove attachment %s: %v", attachment.MXID, err)
 			}
 
 			attachment.Delete()
@@ -560,17 +555,17 @@ func (portal *Portal) handleDiscordMessagesUpdate(user *User, msg *discordgo.Mes
 		MsgType: event.MsgText,
 	}
 
-	content.SetEdit(existing.MatrixID)
+	content.SetEdit(existing.MXID)
 
-	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
+	_, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
 	if err != nil {
 		portal.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 
 		return
 	}
 
-	ts, _ := msg.Timestamp.Parse()
-	portal.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
+	//ts, _ := msg.Timestamp.Parse()
+	//portal.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
 }
 
 func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) {
@@ -583,19 +578,12 @@ func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Mess
 	// Find the message that we're working with. This could correctly return
 	// nil if the message was just one or more attachments.
 	existing := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.ID)
-
-	var intent *appservice.IntentAPI
-
-	if portal.Type == discordgo.ChannelTypeDM {
-		intent = portal.bridge.GetPuppetByID(portal.DMUser).IntentFor(portal)
-	} else {
-		intent = portal.MainIntent()
-	}
+	intent := portal.MainIntent()
 
 	if existing != nil {
-		_, err := intent.RedactEvent(portal.MXID, existing.MatrixID)
+		_, err := intent.RedactEvent(portal.MXID, existing.MXID)
 		if err != nil {
-			portal.log.Warnfln("Failed to remove message %s: %v", existing.MatrixID, err)
+			portal.log.Warnfln("Failed to remove message %s: %v", existing.MXID, err)
 		}
 
 		existing.Delete()
@@ -604,9 +592,9 @@ func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Mess
 	// Now delete all of the existing attachments.
 	attachments := portal.bridge.DB.Attachment.GetAllByDiscordMessageID(portal.Key, msg.ID)
 	for _, attachment := range attachments {
-		_, err := intent.RedactEvent(portal.MXID, attachment.MatrixEventID)
+		_, err := intent.RedactEvent(portal.MXID, attachment.MXID)
 		if err != nil {
-			portal.log.Warnfln("Failed to remove attachment %s: %v", attachment.MatrixEventID, err)
+			portal.log.Warnfln("Failed to remove attachment %s: %v", attachment.MXID, err)
 		}
 
 		attachment.Delete()
@@ -646,7 +634,6 @@ func (portal *Portal) encrypt(content *event.Content, eventType event.Type) (eve
 	return eventType, nil
 }
 
-const doublePuppetKey = "fi.mau.double_puppet_source"
 const doublePuppetValue = "mautrix-discord"
 
 func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType event.Type, content *event.MessageEventContent, extraContent map[string]interface{}, timestamp int64) (*mautrix.RespSendEvent, error) {
@@ -656,7 +643,7 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 			wrappedContent.Raw = map[string]interface{}{}
 		}
 		if intent.IsCustomPuppet {
-			wrappedContent.Raw[doublePuppetKey] = doublePuppetValue
+			wrappedContent.Raw[bridge.DoublePuppetKey] = doublePuppetValue
 		}
 	}
 	var err error
@@ -668,7 +655,7 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 	if eventType == event.EventEncrypted {
 		// Clear other custom keys if the event was encrypted, but keep the double puppet identifier
 		if intent.IsCustomPuppet {
-			wrappedContent.Raw = map[string]interface{}{doublePuppetKey: doublePuppetValue}
+			wrappedContent.Raw = map[string]interface{}{bridge.DoublePuppetKey: doublePuppetValue}
 		} else {
 			wrappedContent.Raw = nil
 		}
@@ -700,13 +687,6 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		return
 	}
 
-	existing := portal.bridge.DB.Message.GetByMatrixID(portal.Key, evt.ID)
-	if existing != nil {
-		portal.log.Debugln("not handling duplicate message", evt.ID)
-
-		return
-	}
-
 	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
 	if !ok {
 		portal.log.Debugfln("Failed to handle event %s: unexpected parsed content type %T", evt.ID, evt.Content.Parsed)
@@ -715,15 +695,15 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	}
 
 	if content.RelatesTo != nil && content.RelatesTo.Type == event.RelReplace {
-		existing := portal.bridge.DB.Message.GetByMatrixID(portal.Key, content.RelatesTo.EventID)
+		edits := portal.bridge.DB.Message.GetByMXID(portal.Key, content.RelatesTo.EventID)
 
-		if existing != nil && existing.DiscordID != "" {
+		if edits != nil {
 			// we don't have anything to save for the update message right now
 			// as we're not tracking edited timestamps.
 			_, err := sender.Session.ChannelMessageEdit(portal.Key.ChannelID,
-				existing.DiscordID, content.NewContent.Body)
+				edits.DiscordID, content.NewContent.Body)
 			if err != nil {
-				portal.log.Errorln("Failed to update message %s: %v", existing.DiscordID, err)
+				portal.log.Errorln("Failed to update message %s: %v", edits.DiscordID, err)
 
 				return
 			}
@@ -740,18 +720,18 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		sent := false
 
 		if content.RelatesTo != nil && content.RelatesTo.Type == event.RelReply {
-			existing := portal.bridge.DB.Message.GetByMatrixID(
+			replyTo := portal.bridge.DB.Message.GetByMXID(
 				portal.Key,
 				content.RelatesTo.EventID,
 			)
 
-			if existing != nil && existing.DiscordID != "" {
+			if replyTo != nil {
 				msg, err = sender.Session.ChannelMessageSendReply(
 					portal.Key.ChannelID,
 					content.Body,
 					&discordgo.MessageReference{
 						ChannelID: portal.Key.ChannelID,
-						MessageID: existing.DiscordID,
+						MessageID: replyTo.DiscordID,
 					},
 				)
 				if err == nil {
@@ -771,13 +751,11 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}
 
 		msgSend := &discordgo.MessageSend{
-			Files: []*discordgo.File{
-				&discordgo.File{
-					Name:        content.Body,
-					ContentType: content.Info.MimeType,
-					Reader:      bytes.NewReader(data),
-				},
-			},
+			Files: []*discordgo.File{{
+				Name:        content.Body,
+				ContentType: content.Info.MimeType,
+				Reader:      bytes.NewReader(data),
+			}},
 		}
 
 		msg, err = sender.Session.ChannelMessageSendComplex(portal.Key.ChannelID, msgSend)
@@ -796,8 +774,9 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		dbMsg := portal.bridge.DB.Message.New()
 		dbMsg.Channel = portal.Key
 		dbMsg.DiscordID = msg.ID
-		dbMsg.MatrixID = evt.ID
-		dbMsg.AuthorID = sender.ID
+		dbMsg.MXID = evt.ID
+		dbMsg.SenderID = sender.ID
+		// TODO use actual timestamp
 		dbMsg.Timestamp = time.Now()
 		dbMsg.Insert()
 	}
@@ -927,7 +906,7 @@ func (portal *Portal) handleMatrixReaction(user *User, evt *event.Event) {
 
 	var discordID string
 
-	msg := portal.bridge.DB.Message.GetByMatrixID(portal.Key, reaction.RelatesTo.EventID)
+	msg := portal.bridge.DB.Message.GetByMXID(portal.Key, reaction.RelatesTo.EventID)
 
 	// Due to the differences in attachments between Discord and Matrix, if a
 	// user reacts to a media message on discord our lookup above will fail
@@ -976,13 +955,11 @@ func (portal *Portal) handleMatrixReaction(user *User, evt *event.Event) {
 	}
 
 	dbReaction := portal.bridge.DB.Reaction.New()
-	dbReaction.Channel.ChannelID = portal.Key.ChannelID
-	dbReaction.Channel.Receiver = portal.Key.Receiver
-	dbReaction.MatrixEventID = evt.ID
-	dbReaction.DiscordMessageID = discordID
-	dbReaction.AuthorID = user.ID
-	dbReaction.MatrixName = reaction.RelatesTo.Key
-	dbReaction.DiscordID = emojiID
+	dbReaction.Channel = portal.Key
+	dbReaction.MessageID = discordID
+	dbReaction.Sender = user.ID
+	dbReaction.EmojiName = emojiID
+	dbReaction.MXID = evt.ID
 	dbReaction.Insert()
 }
 
@@ -990,7 +967,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	intent := portal.bridge.GetPuppetByID(reaction.UserID).IntentFor(portal)
 
 	var discordID string
-	var matrixID string
+	var matrixReaction string
 
 	if reaction.Emoji.ID != "" {
 		dbEmoji := portal.bridge.DB.Emoji.GetByDiscordID(reaction.Emoji.ID)
@@ -1018,10 +995,10 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		}
 
 		discordID = dbEmoji.DiscordID
-		matrixID = dbEmoji.MatrixURL.String()
+		matrixReaction = dbEmoji.MatrixURL.String()
 	} else {
 		discordID = reaction.Emoji.Name
-		matrixID = reaction.Emoji.Name
+		matrixReaction = reaction.Emoji.Name
 	}
 
 	// Find the message that we're working with.
@@ -1033,8 +1010,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	}
 
 	// Lookup an existing reaction
-	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, message.DiscordID, discordID)
-
+	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, message.DiscordID, reaction.UserID, discordID)
 	if !add {
 		if existing == nil {
 			portal.log.Debugln("Failed to remove reaction for unknown message", reaction.MessageID)
@@ -1042,7 +1018,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 			return
 		}
 
-		_, err := intent.RedactEvent(portal.MXID, existing.MatrixEventID)
+		_, err := intent.RedactEvent(portal.MXID, existing.MXID)
 		if err != nil {
 			portal.log.Warnfln("Failed to remove reaction from %s: %v", portal.MXID, err)
 		}
@@ -1050,13 +1026,16 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		existing.Delete()
 
 		return
+	} else if existing != nil {
+		portal.log.Debugfln("Ignoring duplicate reaction %s from %s to %s", discordID, reaction.UserID, message.DiscordID)
+		return
 	}
 
 	content := event.Content{Parsed: &event.ReactionEventContent{
 		RelatesTo: event.RelatesTo{
-			EventID: message.MatrixID,
+			EventID: message.MXID,
 			Type:    event.RelAnnotation,
-			Key:     matrixID,
+			Key:     matrixReaction,
 		},
 	}}
 
@@ -1070,13 +1049,10 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	if existing == nil {
 		dbReaction := portal.bridge.DB.Reaction.New()
 		dbReaction.Channel = portal.Key
-		dbReaction.DiscordMessageID = message.DiscordID
-		dbReaction.MatrixEventID = resp.EventID
-		dbReaction.AuthorID = reaction.UserID
-
-		dbReaction.MatrixName = matrixID
-		dbReaction.DiscordID = discordID
-
+		dbReaction.MessageID = message.DiscordID
+		dbReaction.Sender = reaction.UserID
+		dbReaction.EmojiName = discordID
+		dbReaction.MXID = resp.EventID
 		dbReaction.Insert()
 	}
 }
@@ -1087,7 +1063,7 @@ func (portal *Portal) handleMatrixRedaction(user *User, evt *event.Event) {
 	}
 
 	// First look if we're redacting a message
-	message := portal.bridge.DB.Message.GetByMatrixID(portal.Key, evt.Redacts)
+	message := portal.bridge.DB.Message.GetByMXID(portal.Key, evt.Redacts)
 	if message != nil {
 		if message.DiscordID != "" {
 			err := user.Session.ChannelMessageDelete(portal.Key.ChannelID, message.DiscordID)
@@ -1102,21 +1078,19 @@ func (portal *Portal) handleMatrixRedaction(user *User, evt *event.Event) {
 	}
 
 	// Now check if it's a reaction.
-	reaction := portal.bridge.DB.Reaction.GetByMatrixID(portal.Key, evt.Redacts)
-	if reaction != nil {
-		if reaction.DiscordID != "" {
-			err := user.Session.MessageReactionRemove(portal.Key.ChannelID, reaction.DiscordMessageID, reaction.DiscordID, reaction.AuthorID)
-			if err != nil {
-				portal.log.Debugfln("Failed to delete reaction %s for message %s: %v", reaction.DiscordID, reaction.DiscordMessageID, err)
-			} else {
-				reaction.Delete()
-			}
+	reaction := portal.bridge.DB.Reaction.GetByMXID(evt.Redacts)
+	if reaction != nil && reaction.Channel == portal.Key {
+		err := user.Session.MessageReactionRemove(portal.Key.ChannelID, reaction.MessageID, reaction.EmojiName, reaction.Sender)
+		if err != nil {
+			portal.log.Debugfln("Failed to delete reaction %s from %s: %v", reaction.EmojiName, reaction.MessageID, err)
+		} else {
+			reaction.Delete()
 		}
 
 		return
 	}
 
-	portal.log.Warnfln("Failed to redact %s@%s: no event found", portal.Key, evt.Redacts)
+	portal.log.Warnfln("Failed to redact %s: no event found", evt.Redacts)
 }
 
 func (portal *Portal) update(user *User, channel *discordgo.Channel) {
@@ -1150,9 +1124,9 @@ func (portal *Portal) update(user *User, channel *discordgo.Channel) {
 		var url string
 
 		if portal.Type == discordgo.ChannelTypeDM {
-			dmUser, err := user.Session.User(portal.DMUser)
+			dmUser, err := user.Session.User(portal.OtherUserID)
 			if err != nil {
-				portal.log.Warnln("failed to lookup the dmuser", err)
+				portal.log.Warnln("failed to lookup the other user in DM", err)
 			} else {
 				url = dmUser.AvatarURL("")
 			}

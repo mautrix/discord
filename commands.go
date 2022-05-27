@@ -23,6 +23,7 @@ import (
 
 	"github.com/skip2/go-qrcode"
 
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridge/commands"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -45,6 +46,7 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdReconnect,
 		cmdDisconnect,
 		cmdGuilds,
+		cmdDeleteAllPortals,
 	)
 }
 
@@ -234,6 +236,7 @@ var cmdGuilds = &commands.FullHandler{
 func fnGuilds(ce *WrappedCommandEvent) {
 	if len(ce.Args) == 0 {
 		ce.Reply("**Usage**: `$cmdprefix guilds <status/bridge/unbridge> [guild ID] [--entire]`")
+		return
 	}
 	subcommand := strings.ToLower(ce.Args[0])
 	ce.Args = ce.Args[1:]
@@ -282,4 +285,54 @@ func fnUnbridgeGuild(ce *WrappedCommandEvent) {
 	} else {
 		ce.Reply("Successfully unbridged guild")
 	}
+}
+
+var cmdDeleteAllPortals = &commands.FullHandler{
+	Func: wrapCommand(fnDeleteAllPortals),
+	Name: "delete-all-portals",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionUnclassified,
+		Description: "Delete all portals.",
+	},
+	RequiresAdmin: true,
+}
+
+func fnDeleteAllPortals(ce *WrappedCommandEvent) {
+	portals := ce.Bridge.GetAllPortals()
+	if len(portals) == 0 {
+		ce.Reply("Didn't find any portals")
+		return
+	}
+
+	leave := func(portal *Portal) {
+		if len(portal.MXID) > 0 {
+			_, _ = portal.MainIntent().KickUser(portal.MXID, &mautrix.ReqKickUser{
+				Reason: "Deleting portal",
+				UserID: ce.User.MXID,
+			})
+		}
+	}
+	customPuppet := ce.Bridge.GetPuppetByCustomMXID(ce.User.MXID)
+	if customPuppet != nil && customPuppet.CustomIntent() != nil {
+		intent := customPuppet.CustomIntent()
+		leave = func(portal *Portal) {
+			if len(portal.MXID) > 0 {
+				_, _ = intent.LeaveRoom(portal.MXID)
+				_, _ = intent.ForgetRoom(portal.MXID)
+			}
+		}
+	}
+	ce.Reply("Found %d portals, deleting...", len(portals))
+	for _, portal := range portals {
+		portal.Delete()
+		leave(portal)
+	}
+	ce.Reply("Finished deleting portal info. Now cleaning up rooms in background.")
+
+	go func() {
+		for _, portal := range portals {
+			portal.cleanup(false)
+		}
+		ce.Reply("Finished background cleanup of deleted portal rooms.")
+	}()
 }

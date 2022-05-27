@@ -39,8 +39,7 @@ type BridgeConfig struct {
 
 	SyncWithCustomPuppets bool `yaml:"sync_with_custom_puppets"`
 	SyncDirectChatList    bool `yaml:"sync_direct_chat_list"`
-	DefaultBridgeReceipts bool `yaml:"default_bridge_receipts"`
-	DefaultBridgePresence bool `yaml:"default_bridge_presence"`
+	FederateRooms         bool `yaml:"federate_rooms"`
 
 	DoublePuppetServerMap      map[string]string `yaml:"double_puppet_server_map"`
 	DoublePuppetAllowDiscovery bool              `yaml:"double_puppet_allow_discovery"`

@@ -324,9 +324,6 @@ func (puppet *Puppet) SwitchCustomMXID(accessToken string, mxid id.UserID) error
 		puppet.bridge.puppetsByCustomMXID[puppet.CustomMXID] = puppet
 	}
 
-	puppet.EnablePresence = puppet.bridge.Config.Bridge.DefaultBridgePresence
-	puppet.EnableReceipts = puppet.bridge.Config.Bridge.DefaultBridgeReceipts
-
 	puppet.bridge.AS.StateStore.MarkRegistered(puppet.CustomMXID)
 
 	puppet.Update()

@@ -7,8 +7,9 @@ import (
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
-	"go.mau.fi/mautrix-discord/database/upgrades"
 	"maunium.net/go/mautrix/util/dbutil"
+
+	"go.mau.fi/mautrix-discord/database/upgrades"
 )
 
 type Database struct {
@@ -18,6 +19,7 @@ type Database struct {
 	Portal     *PortalQuery
 	Puppet     *PuppetQuery
 	Message    *MessageQuery
+	Thread     *ThreadQuery
 	Reaction   *ReactionQuery
 	Attachment *AttachmentQuery
 	Emoji      *EmojiQuery
@@ -54,6 +56,10 @@ func New(baseDB *dbutil.Database) *Database {
 		db:  db,
 		log: db.Log.Sub("Message"),
 	}
+	db.Thread = &ThreadQuery{
+		db:  db,
+		log: db.Log.Sub("Thread"),
+	}
 	db.Reaction = &ReactionQuery{
 		db:  db,
 		log: db.Log.Sub("Reaction"),
@@ -71,4 +77,11 @@ func New(baseDB *dbutil.Database) *Database {
 		log: db.Log.Sub("Guild"),
 	}
 	return db
+}
+
+func strPtr(val string) *string {
+	if val == "" {
+		return nil
+	}
+	return &val
 }

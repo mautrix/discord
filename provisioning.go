@@ -49,7 +49,6 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 	r.HandleFunc("/logout", p.logout).Methods(http.MethodPost)
 	r.HandleFunc("/reconnect", p.reconnect).Methods(http.MethodPost)
 
-	// Setup the guild endpoints
 	r.HandleFunc("/guilds", p.guildsList).Methods(http.MethodGet)
 	r.HandleFunc("/guilds/{guildID}/bridge", p.guildsBridge).Methods(http.MethodPost)
 	r.HandleFunc("/guilds/{guildID}/unbridge", p.guildsUnbridge).Methods(http.MethodPost)
@@ -182,8 +181,8 @@ func (p *ProvisioningAPI) ping(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.Lock()
-	if user.ID != "" {
-		discord["id"] = user.ID
+	if user.DiscordID != "" {
+		discord["id"] = user.DiscordID
 	}
 
 	if user.Session != nil {
@@ -338,7 +337,7 @@ func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			user.ID = discordUser.UserID
+			user.DiscordID = discordUser.UserID
 			user.Update()
 
 			if err := user.Login(discordUser.Token); err != nil {
@@ -354,7 +353,7 @@ func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
 
 			c.WriteJSON(map[string]interface{}{
 				"success": true,
-				"id":      user.ID,
+				"id":      user.DiscordID,
 			})
 
 			return
@@ -392,19 +391,17 @@ func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {
 func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
-
-	data := make([]map[string]interface{}, len(user.guilds))
-	idx := 0
-	for _, guild := range user.guilds {
-		data[idx] = map[string]interface{}{
-			"name":    guild.GuildName,
-			"id":      guild.GuildID,
-			"bridged": guild.Bridge,
+	var data []map[string]interface{}
+	for _, userGuild := range user.GetGuilds() {
+		guild := p.bridge.GetGuildByID(userGuild.GuildID, false)
+		if guild == nil {
+			continue
 		}
-
-		idx++
+		data = append(data, map[string]interface{}{
+			"name": guild.Name,
+			"id":   guild.ID,
+			"mxid": guild.MXID,
+		})
 	}
 
 	jsonResponse(w, http.StatusOK, data)

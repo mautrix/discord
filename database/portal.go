@@ -12,10 +12,29 @@ import (
 )
 
 const (
-	portalSelect = "SELECT dcid, receiver, mxid, name, topic, avatar," +
-		" avatar_url, type, other_user_id, first_event_id, encrypted" +
+	portalSelect = "SELECT dcid, receiver, type, other_user_id, dc_guild_id, dc_parent_id, " +
+		" mxid, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set, encrypted, in_space, first_event_id" +
 		" FROM portal"
 )
+
+type PortalKey struct {
+	ChannelID string
+	Receiver  string
+}
+
+func NewPortalKey(channelID, receiver string) PortalKey {
+	return PortalKey{
+		ChannelID: channelID,
+		Receiver:  receiver,
+	}
+}
+
+func (key PortalKey) String() string {
+	if key.Receiver == "" {
+		return key.ChannelID
+	}
+	return key.ChannelID + "-" + key.Receiver
+}
 
 type PortalQuery struct {
 	db  *Database
@@ -34,7 +53,7 @@ func (pq *PortalQuery) GetAll() []*Portal {
 }
 
 func (pq *PortalQuery) GetByID(key PortalKey) *Portal {
-	return pq.get(portalSelect+" WHERE dcid=$1 AND receiver=$2", key.ChannelID, key.Receiver)
+	return pq.get(portalSelect+" WHERE dcid=$1 AND (receiver=$2 OR receiver='')", key.ChannelID, key.Receiver)
 }
 
 func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
@@ -67,12 +86,7 @@ func (pq *PortalQuery) getAll(query string, args ...interface{}) []*Portal {
 }
 
 func (pq *PortalQuery) get(query string, args ...interface{}) *Portal {
-	row := pq.db.QueryRow(query, args...)
-	if row == nil {
-		return nil
-	}
-
-	return pq.New().Scan(row)
+	return pq.New().Scan(pq.db.QueryRow(query, args...))
 }
 
 type Portal struct {
@@ -82,78 +96,87 @@ type Portal struct {
 	Key         PortalKey
 	Type        discordgo.ChannelType
 	OtherUserID string
+	ParentID    string
+	GuildID     string
 
 	MXID id.RoomID
 
 	Name      string
+	NameSet   bool
 	Topic     string
+	TopicSet  bool
 	Avatar    string
 	AvatarURL id.ContentURI
+	AvatarSet bool
 	Encrypted bool
+	InSpace   id.RoomID
 
 	FirstEventID id.EventID
 }
 
 func (p *Portal) Scan(row dbutil.Scannable) *Portal {
-	var mxid, avatarURL, firstEventID sql.NullString
-	var typ sql.NullInt32
+	var otherUserID, guildID, parentID, mxid, firstEventID sql.NullString
+	var chanType int32
+	var avatarURL string
 
-	err := row.Scan(&p.Key.ChannelID, &p.Key.Receiver, &mxid, &p.Name,
-		&p.Topic, &p.Avatar, &avatarURL, &typ, &p.OtherUserID, &firstEventID,
-		&p.Encrypted)
+	err := row.Scan(&p.Key.ChannelID, &p.Key.Receiver, &chanType, &otherUserID, &guildID, &parentID,
+		&mxid, &p.Name, &p.NameSet, &p.Topic, &p.TopicSet, &p.Avatar, &avatarURL, &p.AvatarSet,
+		&p.Encrypted, &p.InSpace, &firstEventID)
 
 	if err != nil {
 		if err != sql.ErrNoRows {
 			p.log.Errorln("Database scan failed:", err)
+			panic(err)
 		}
 
 		return nil
 	}
 
 	p.MXID = id.RoomID(mxid.String)
-	p.AvatarURL, _ = id.ParseContentURI(avatarURL.String)
-	p.Type = discordgo.ChannelType(typ.Int32)
+	p.OtherUserID = otherUserID.String
+	p.GuildID = guildID.String
+	p.ParentID = parentID.String
+	p.Type = discordgo.ChannelType(chanType)
 	p.FirstEventID = id.EventID(firstEventID.String)
+	p.AvatarURL, _ = id.ParseContentURI(avatarURL)
 
 	return p
 }
 
-func (p *Portal) mxidPtr() *id.RoomID {
-	if p.MXID != "" {
-		return &p.MXID
-	}
-
-	return nil
-}
-
 func (p *Portal) Insert() {
-	query := "INSERT INTO portal" +
-		" (dcid, receiver, mxid, name, topic, avatar, avatar_url," +
-		" type, other_user_id, first_event_id, encrypted)" +
-		" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
-
-	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver, p.mxidPtr(),
-		p.Name, p.Topic, p.Avatar, p.AvatarURL.String(), p.Type, p.OtherUserID,
-		p.FirstEventID.String(), p.Encrypted)
+	query := `
+		INSERT INTO portal (dcid, receiver, type, other_user_id, dc_guild_id, dc_parent_id, mxid,
+		                    name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
+		                    encrypted, in_space, first_event_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+	`
+	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver, p.Type,
+		strPtr(p.OtherUserID), strPtr(p.GuildID), strPtr(p.ParentID), strPtr(string(p.MXID)),
+		p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+		p.Encrypted, p.InSpace, p.FirstEventID.String())
 
 	if err != nil {
 		p.log.Warnfln("Failed to insert %s: %v", p.Key, err)
+		panic(err)
 	}
 }
 
 func (p *Portal) Update() {
-	query := "UPDATE portal SET" +
-		" mxid=$1, name=$2, topic=$3, avatar=$4, avatar_url=$5, type=$6," +
-		" other_user_id=$7, first_event_id=$8, encrypted=$9" +
-		" WHERE dcid=$10 AND receiver=$11"
-
-	_, err := p.db.Exec(query, p.mxidPtr(), p.Name, p.Topic, p.Avatar,
-		p.AvatarURL.String(), p.Type, p.OtherUserID, p.FirstEventID.String(),
-		p.Encrypted,
+	query := `
+		UPDATE portal SET type=$1, other_user_id=$2, dc_guild_id=$3, dc_parent_id=$4, mxid=$5,
+		                  name=$6, name_set=$7, topic=$8, topic_set=$9, avatar=$10, avatar_url=$11, avatar_set=$12,
+		                  encrypted=$13, in_space=$14, first_event_id=$15
+		WHERE dcid=$16 AND receiver=$17
+	`
+	_, err := p.db.Exec(query,
+		p.Type, strPtr(p.OtherUserID), strPtr(p.GuildID), strPtr(p.ParentID), strPtr(string(p.MXID)),
+		p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+		p.Encrypted, p.InSpace, p.FirstEventID.String(),
 		p.Key.ChannelID, p.Key.Receiver)
 
 	if err != nil {
 		p.log.Warnfln("Failed to update %s: %v", p.Key, err)
+		panic(err)
 	}
 }
 
@@ -162,5 +185,6 @@ func (p *Portal) Delete() {
 	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver)
 	if err != nil {
 		p.log.Warnfln("Failed to delete %s: %v", p.Key, err)
+		panic(err)
 	}
 }

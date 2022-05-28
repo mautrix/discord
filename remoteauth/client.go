@@ -11,13 +11,14 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 type Client struct {
 	sync.Mutex
 
-	URL    string
-	Origin string
+	URL string
 
 	conn *websocket.Conn
 
@@ -43,7 +44,6 @@ func New() (*Client, error) {
 
 	return &Client{
 		URL:        "wss://remote-auth-gateway.discord.gg/?v=1",
-		Origin:     "https://discord.com",
 		privateKey: privateKey,
 	}, nil
 }
@@ -54,8 +54,9 @@ func (c *Client) Dial(ctx context.Context, qrChan chan string, doneChan chan str
 	c.Lock()
 	defer c.Unlock()
 
-	header := http.Header{
-		"Origin": []string{c.Origin},
+	header := http.Header{}
+	for key, value := range discordgo.DroidWSHeaders {
+		header.Set(key, value)
 	}
 
 	c.qrChan = qrChan

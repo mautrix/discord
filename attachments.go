@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"image"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
@@ -29,17 +29,16 @@ func (portal *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Set("User-Agent", discordgo.DroidBrowserUserAgent)
+	for key, value := range discordgo.DroidDownloadHeaders {
+		req.Header.Set(key, value)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-
 	defer resp.Body.Close()
-
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func (portal *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.MessageEventContent) ([]byte, error) {

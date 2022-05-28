@@ -3,9 +3,9 @@ package database
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 
 	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/mautrix/id"
 
 	"maunium.net/go/mautrix/util/dbutil"
 )
@@ -16,7 +16,7 @@ type GuildQuery struct {
 }
 
 const (
-	guildSelect = "SELECT discord_id, guild_id, guild_name, bridge FROM guild"
+	guildSelect = "SELECT dcid, mxid, name, name_set, avatar, avatar_url, avatar_set, auto_bridge_channels FROM guild"
 )
 
 func (gq *GuildQuery) New() *Guild {
@@ -26,109 +26,100 @@ func (gq *GuildQuery) New() *Guild {
 	}
 }
 
-func (gq *GuildQuery) Get(discordID, guildID string) *Guild {
-	query := guildSelect + " WHERE discord_id=$1 AND guild_id=$2"
-
-	row := gq.db.QueryRow(query, discordID, guildID)
-	if row == nil {
-		return nil
-	}
-
-	return gq.New().Scan(row)
+func (gq *GuildQuery) GetByID(dcid string) *Guild {
+	query := guildSelect + " WHERE dcid=$1"
+	return gq.New().Scan(gq.db.QueryRow(query, dcid))
 }
 
-func (gq *GuildQuery) GetAll(discordID string) []*Guild {
-	query := guildSelect + " WHERE discord_id=$1"
+func (gq *GuildQuery) GetByMXID(mxid id.RoomID) *Guild {
+	query := guildSelect + " WHERE mxid=$1"
+	return gq.New().Scan(gq.db.QueryRow(query, mxid))
+}
 
-	rows, err := gq.db.Query(query, discordID)
-	if err != nil || rows == nil {
+func (gq *GuildQuery) GetAll() []*Guild {
+	rows, err := gq.db.Query(guildSelect)
+	if err != nil {
+		gq.log.Errorln("Failed to query guilds:", err)
 		return nil
 	}
 
-	guilds := []*Guild{}
+	var guilds []*Guild
 	for rows.Next() {
-		guilds = append(guilds, gq.New().Scan(rows))
+		guild := gq.New().Scan(rows)
+		if guild != nil {
+			guilds = append(guilds, guild)
+		}
 	}
 
 	return guilds
-}
-
-func (gq *GuildQuery) Prune(discordID string, guilds []string) {
-	// We need this interface slice because a variadic function can't mix
-	// arguements with a `...` expanded slice.
-	args := []interface{}{discordID}
-
-	nGuilds := len(guilds)
-	if nGuilds <= 0 {
-		return
-	}
-
-	gq.log.Debugfln("prunning guilds for %s", discordID)
-
-	// Build the in query
-	inQuery := "$2"
-	for i := 1; i < nGuilds; i++ {
-		inQuery += fmt.Sprintf(", $%d", i+2)
-	}
-
-	// Add the arguements for the build query
-	for _, guildID := range guilds {
-		args = append(args, guildID)
-	}
-
-	// Now remove any guilds that the user has left.
-	query := "DELETE FROM guild WHERE discord_id=$1 AND guild_id NOT IN (" +
-		inQuery + ")"
-
-	_, err := gq.db.Exec(query, args...)
-	if err != nil {
-		gq.log.Warnfln("Failed to remove old guilds for user %s: %v", discordID, err)
-	}
 }
 
 type Guild struct {
 	db  *Database
 	log log.Logger
 
-	DiscordID string
-	GuildID   string
-	GuildName string
-	Bridge    bool
+	ID        string
+	MXID      id.RoomID
+	Name      string
+	NameSet   bool
+	Avatar    string
+	AvatarURL id.ContentURI
+	AvatarSet bool
+
+	AutoBridgeChannels bool
 }
 
 func (g *Guild) Scan(row dbutil.Scannable) *Guild {
-	err := row.Scan(&g.DiscordID, &g.GuildID, &g.GuildName, &g.Bridge)
+	var mxid sql.NullString
+	var avatarURL string
+	err := row.Scan(&g.ID, &mxid, &g.Name, &g.NameSet, &g.Avatar, &avatarURL, &g.AvatarSet, &g.AutoBridgeChannels)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			g.log.Errorln("Database scan failed:", err)
+			panic(err)
 		}
 
 		return nil
 	}
-
+	g.MXID = id.RoomID(mxid.String)
+	g.AvatarURL, _ = id.ParseContentURI(avatarURL)
 	return g
 }
 
-func (g *Guild) Upsert() {
-	query := "INSERT INTO guild" +
-		" (discord_id, guild_id, guild_name, bridge)" +
-		" VALUES ($1, $2, $3, $4)" +
-		" ON CONFLICT(discord_id, guild_id)" +
-		" DO UPDATE SET guild_name=excluded.guild_name, bridge=excluded.bridge"
-
-	_, err := g.db.Exec(query, g.DiscordID, g.GuildID, g.GuildName, g.Bridge)
-
+func (g *Guild) mxidPtr() *id.RoomID {
+	if g.MXID != "" {
+		return &g.MXID
+	}
+	return nil
+}
+func (g *Guild) Insert() {
+	query := `
+		INSERT INTO guild (dcid, mxid, name, name_set, avatar, avatar_url, avatar_set, auto_bridge_channels)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
+	_, err := g.db.Exec(query, g.ID, g.mxidPtr(), g.Name, g.NameSet, g.Avatar, g.AvatarURL.String(), g.AvatarSet, g.AutoBridgeChannels)
 	if err != nil {
-		g.log.Warnfln("Failed to upsert guild %s for %s: %v", g.GuildID, g.DiscordID, err)
+		g.log.Warnfln("Failed to insert %s: %v", g.ID, err)
+		panic(err)
+	}
+}
+
+func (g *Guild) Update() {
+	query := `
+		UPDATE guild SET mxid=$1, name=$2, name_set=$3, avatar=$4, avatar_url=$5, avatar_set=$6, auto_bridge_channels=$7
+		WHERE dcid=$8
+	`
+	_, err := g.db.Exec(query, g.mxidPtr(), g.Name, g.NameSet, g.Avatar, g.AvatarURL.String(), g.AvatarSet, g.AutoBridgeChannels, g.ID)
+	if err != nil {
+		g.log.Warnfln("Failed to update %s: %v", g.ID, err)
+		panic(err)
 	}
 }
 
 func (g *Guild) Delete() {
-	query := "DELETE FROM guild WHERE discord_id=$1 AND guild_id=$2"
-
-	_, err := g.db.Exec(query, g.DiscordID, g.GuildID)
-
+	_, err := g.db.Exec("DELETE FROM guild WHERE dcid=$1", g.ID)
 	if err != nil {
-		g.log.Warnfln("Failed to delete guild %s for user %s: %v", g.GuildID, g.DiscordID, err)
+		g.log.Warnfln("Failed to delete %s: %v", g.ID, err)
+		panic(err)
 	}
 }

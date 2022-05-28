@@ -1,29 +1,65 @@
--- v0 -> v2: Latest revision
+-- v0 -> v3: Latest revision
+
+CREATE TABLE guild (
+    dcid       TEXT PRIMARY KEY,
+    mxid       TEXT UNIQUE,
+    name       TEXT NOT NULL,
+    name_set   BOOLEAN NOT NULL,
+    avatar     TEXT NOT NULL,
+    avatar_url TEXT NOT NULL,
+    avatar_set BOOLEAN NOT NULL,
+
+    auto_bridge_channels BOOLEAN NOT NULL
+);
 
 CREATE TABLE portal (
     dcid          TEXT,
     receiver      TEXT,
     other_user_id TEXT,
-    type          INTEGER,
+    type          INTEGER NOT NULL,
+
+    dc_guild_id  TEXT,
+    dc_parent_id TEXT,
+    -- This is not accessed by the bridge, it's only used for the portal parent foreign key.
+    -- Only guild channels have parents, but only DMs have a receiver field.
+    dc_parent_receiver TEXT NOT NULL DEFAULT '',
 
     mxid       TEXT UNIQUE,
     name       TEXT NOT NULL,
+    name_set   BOOLEAN NOT NULL,
     topic      TEXT NOT NULL,
     avatar     TEXT NOT NULL,
     avatar_url TEXT NOT NULL,
-    encrypted  BOOLEAN NOT NULL DEFAULT false,
+    avatar_set BOOLEAN NOT NULL,
+    encrypted  BOOLEAN NOT NULL,
+    in_space   TEXT NOT NULL,
 
     first_event_id TEXT NOT NULL,
 
-    PRIMARY KEY (dcid, receiver)
+    PRIMARY KEY (dcid, receiver),
+    CONSTRAINT portal_parent_fkey FOREIGN KEY (dc_parent_id, dc_parent_receiver) REFERENCES portal (dcid, receiver) ON DELETE CASCADE,
+    CONSTRAINT portal_guild_fkey  FOREIGN KEY (dc_guild_id) REFERENCES guild(dcid) ON DELETE CASCADE
+);
+
+CREATE TABLE thread (
+    dcid           TEXT PRIMARY KEY,
+    parent_chan_id TEXT NOT NULL,
+    root_msg_dcid  TEXT NOT NULL,
+    root_msg_mxid  TEXT NOT NULL,
+    -- This is also not accessed by the bridge.
+    receiver   TEXT NOT NULL DEFAULT '',
+
+    CONSTRAINT thread_parent_fkey FOREIGN KEY (parent_chan_id, receiver) REFERENCES portal(dcid, receiver) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE TABLE puppet (
     id TEXT PRIMARY KEY,
 
-    name       TEXT,
-    avatar     TEXT,
-    avatar_url TEXT,
+    name       TEXT NOT NULL,
+    name_set   BOOLEAN NOT NULL,
+    avatar     TEXT NOT NULL,
+    avatar_url TEXT NOT NULL,
+    avatar_set BOOLEAN NOT NULL,
 
     custom_mxid  TEXT,
     access_token TEXT,
@@ -34,9 +70,20 @@ CREATE TABLE "user" (
     mxid TEXT PRIMARY KEY,
     dcid TEXT UNIQUE,
 
+    discord_token   TEXT,
     management_room TEXT,
+    space_room      TEXT
+);
 
-    token TEXT
+CREATE TABLE user_guild (
+    guild_id  TEXT,
+    user_mxid TEXT,
+    in_space  BOOLEAN NOT NULL,
+    timestamp BIGINT NOT NULL,
+
+    PRIMARY KEY (guild_id, user_mxid),
+    CONSTRAINT ug_guild_fkey FOREIGN KEY (guild_id)  REFERENCES guild (dcid)  ON DELETE CASCADE,
+    CONSTRAINT ug_user_fkey  FOREIGN KEY (user_mxid) REFERENCES "user" (mxid) ON DELETE CASCADE
 );
 
 CREATE TABLE message (
@@ -45,6 +92,7 @@ CREATE TABLE message (
     dc_chan_receiver TEXT,
     dc_sender        TEXT NOT NULL,
     timestamp        BIGINT NOT NULL,
+    dc_thread_id     TEXT,
 
     mxid TEXT NOT NULL UNIQUE,
 
@@ -58,6 +106,7 @@ CREATE TABLE reaction (
     dc_msg_id        TEXT,
     dc_sender        TEXT,
     dc_emoji_name    TEXT,
+    dc_thread_id     TEXT,
 
     mxid TEXT NOT NULL UNIQUE,
 
@@ -70,6 +119,7 @@ CREATE TABLE attachment (
     dc_msg_id        TEXT,
     dc_chan_id       TEXT,
     dc_chan_receiver TEXT,
+    dc_thread_id     TEXT,
 
     mxid TEXT NOT NULL UNIQUE,
 
@@ -81,12 +131,4 @@ CREATE TABLE emoji (
     discord_id   TEXT PRIMARY KEY,
     discord_name TEXT,
     matrix_url   TEXT
-);
-
-CREATE TABLE guild (
-    discord_id TEXT NOT NULL,
-    guild_id   TEXT NOT NULL,
-    guild_name TEXT NOT NULL,
-    bridge     BOOLEAN DEFAULT FALSE,
-    PRIMARY KEY(discord_id, guild_id)
 );

@@ -4,11 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
+
+	log "maunium.net/go/maulogger/v2"
 
 	"github.com/bwmarrin/discordgo"
-	log "maunium.net/go/maulogger/v2"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -35,10 +39,41 @@ type User struct {
 
 	PermissionLevel bridgeconfig.PermissionLevel
 
-	guilds     map[string]*database.Guild
-	guildsLock sync.Mutex
+	spaceCreateLock        sync.Mutex
+	spaceMembershipChecked bool
 
 	Session *discordgo.Session
+}
+
+var discordLog log.Logger
+
+func init() {
+	discordgo.Logger = func(msgL, caller int, format string, a ...interface{}) {
+		pc, file, line, _ := runtime.Caller(caller + 1)
+
+		files := strings.Split(file, "/")
+		file = files[len(files)-1]
+
+		name := runtime.FuncForPC(pc).Name()
+		fns := strings.Split(name, ".")
+		name = fns[len(fns)-1]
+
+		msg := fmt.Sprintf(format, a...)
+
+		var level log.Level
+		switch msgL {
+		case discordgo.LogError:
+			level = log.LevelError
+		case discordgo.LogWarning:
+			level = log.LevelWarn
+		case discordgo.LogInformational:
+			level = log.LevelInfo
+		case discordgo.LogDebug:
+			level = log.LevelDebug
+		}
+
+		discordLog.Logfln(level, "%s:%d:%s() %s", file, line, name, msg)
+	}
 }
 
 func (user *User) GetPermissionLevel() bridgeconfig.PermissionLevel {
@@ -66,10 +101,10 @@ func (user *User) GetIDoublePuppet() bridge.DoublePuppet {
 }
 
 func (user *User) GetIGhost() bridge.Ghost {
-	if user.ID == "" {
+	if user.DiscordID == "" {
 		return nil
 	}
-	p := user.bridge.GetPuppetByID(user.ID)
+	p := user.bridge.GetPuppetByID(user.DiscordID)
 	if p == nil {
 		return nil
 	}
@@ -77,14 +112,6 @@ func (user *User) GetIGhost() bridge.Ghost {
 }
 
 var _ bridge.User = (*User)(nil)
-
-// this assume you are holding the guilds lock!!!
-func (user *User) loadGuilds() {
-	user.guilds = map[string]*database.Guild{}
-	for _, guild := range user.bridge.DB.Guild.GetAll(user.ID) {
-		user.guilds[guild.GuildID] = guild
-	}
-}
 
 func (br *DiscordBridge) loadUser(dbUser *database.User, mxid *id.UserID) *User {
 	// If we weren't passed in a user we attempt to create one if we were given
@@ -103,8 +130,8 @@ func (br *DiscordBridge) loadUser(dbUser *database.User, mxid *id.UserID) *User 
 
 	// We assume the usersLock was acquired by our caller.
 	br.usersByMXID[user.MXID] = user
-	if user.ID != "" {
-		br.usersByID[user.ID] = user
+	if user.DiscordID != "" {
+		br.usersByID[user.DiscordID] = user
 	}
 
 	if user.ManagementRoom != "" {
@@ -114,17 +141,10 @@ func (br *DiscordBridge) loadUser(dbUser *database.User, mxid *id.UserID) *User 
 		br.managementRoomsLock.Unlock()
 	}
 
-	// Load our guilds state from the database and turn it into a map
-	user.guildsLock.Lock()
-	user.loadGuilds()
-	user.guildsLock.Unlock()
-
 	return user
 }
 
 func (br *DiscordBridge) GetUserByMXID(userID id.UserID) *User {
-	// TODO: check if puppet
-
 	br.usersLock.Lock()
 	defer br.usersLock.Unlock()
 
@@ -153,7 +173,6 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 		User:   dbUser,
 		bridge: br,
 		log:    br.Log.Sub("User").Sub(string(dbUser.MXID)),
-		guilds: map[string]*database.Guild{},
 	}
 
 	user.PermissionLevel = br.Config.Bridge.Permissions.Get(user.MXID)
@@ -161,11 +180,11 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 	return user
 }
 
-func (br *DiscordBridge) getAllUsers() []*User {
+func (br *DiscordBridge) getAllUsersWithToken() []*User {
 	br.usersLock.Lock()
 	defer br.usersLock.Unlock()
 
-	dbUsers := br.DB.User.GetAll()
+	dbUsers := br.DB.User.GetAllWithToken()
 	users := make([]*User, len(dbUsers))
 
 	for idx, dbUser := range dbUsers {
@@ -182,7 +201,7 @@ func (br *DiscordBridge) getAllUsers() []*User {
 func (br *DiscordBridge) startUsers() {
 	br.Log.Debugln("Starting users")
 
-	for _, u := range br.getAllUsers() {
+	for _, u := range br.getAllUsersWithToken() {
 		go func(user *User) {
 			err := user.Connect()
 			if err != nil {
@@ -209,10 +228,6 @@ func (user *User) SetManagementRoom(roomID id.RoomID) {
 
 	existing, ok := user.bridge.managementRooms[roomID]
 	if ok {
-		// If there's a user already assigned to this management room, clear it
-		// out.
-		// I think this is due a name change or something? I dunno, leaving it
-		// for now.
 		existing.ManagementRoom = ""
 		existing.Update()
 	}
@@ -220,6 +235,52 @@ func (user *User) SetManagementRoom(roomID id.RoomID) {
 	user.ManagementRoom = roomID
 	user.bridge.managementRooms[user.ManagementRoom] = user
 	user.Update()
+}
+
+func (user *User) GetSpaceRoom() id.RoomID {
+	if len(user.SpaceRoom) == 0 {
+		user.spaceCreateLock.Lock()
+		defer user.spaceCreateLock.Unlock()
+		if len(user.SpaceRoom) > 0 {
+			return user.SpaceRoom
+		}
+
+		resp, err := user.bridge.Bot.CreateRoom(&mautrix.ReqCreateRoom{
+			Visibility: "private",
+			Name:       "Discord",
+			Topic:      "Your Discord bridged chats",
+			InitialState: []*event.Event{{
+				Type: event.StateRoomAvatar,
+				Content: event.Content{
+					Parsed: &event.RoomAvatarEventContent{
+						URL: user.bridge.Config.AppService.Bot.ParsedAvatar,
+					},
+				},
+			}},
+			CreationContent: map[string]interface{}{
+				"type": event.RoomTypeSpace,
+			},
+			PowerLevelOverride: &event.PowerLevelsEventContent{
+				Users: map[id.UserID]int{
+					user.bridge.Bot.UserID: 9001,
+					user.MXID:              50,
+				},
+			},
+		})
+
+		if err != nil {
+			user.log.Errorln("Failed to auto-create space room:", err)
+		} else {
+			user.SpaceRoom = resp.RoomID
+			user.Update()
+			user.ensureInvited(user.bridge.Bot, user.SpaceRoom, false)
+		}
+	} else if !user.spaceMembershipChecked && !user.bridge.StateStore.IsInRoom(user.SpaceRoom, user.MXID) {
+		user.ensureInvited(user.bridge.Bot, user.SpaceRoom, false)
+	}
+	user.spaceMembershipChecked = true
+
+	return user.SpaceRoom
 }
 
 func (user *User) tryAutomaticDoublePuppeting() {
@@ -232,7 +293,7 @@ func (user *User) tryAutomaticDoublePuppeting() {
 
 	user.log.Debugln("Checking if double puppeting needs to be enabled")
 
-	puppet := user.bridge.GetPuppetByID(user.ID)
+	puppet := user.bridge.GetPuppetByID(user.DiscordID)
 	if puppet.CustomMXID != "" {
 		user.log.Debugln("User already has double-puppeting enabled")
 
@@ -270,7 +331,7 @@ func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) 
 }
 
 func (user *User) Login(token string) error {
-	user.Token = token
+	user.DiscordToken = token
 	user.Update()
 	return user.Connect()
 }
@@ -279,7 +340,7 @@ func (user *User) IsLoggedIn() bool {
 	user.Lock()
 	defer user.Unlock()
 
-	return user.Token != ""
+	return user.DiscordToken != ""
 }
 
 func (user *User) Logout() error {
@@ -290,7 +351,7 @@ func (user *User) Logout() error {
 		return ErrNotLoggedIn
 	}
 
-	puppet := user.bridge.GetPuppetByID(user.ID)
+	puppet := user.bridge.GetPuppetByID(user.DiscordID)
 	if puppet.CustomMXID != "" {
 		err := puppet.SwitchCustomMXID("", "")
 		if err != nil {
@@ -304,7 +365,7 @@ func (user *User) Logout() error {
 
 	user.Session = nil
 
-	user.Token = ""
+	user.DiscordToken = ""
 	user.Update()
 
 	return nil
@@ -321,15 +382,19 @@ func (user *User) Connect() error {
 	user.Lock()
 	defer user.Unlock()
 
-	if user.Token == "" {
+	if user.DiscordToken == "" {
 		return ErrNotLoggedIn
 	}
 
-	user.log.Debugln("connecting to discord")
+	user.log.Debugln("Connecting to discord")
 
-	session, err := discordgo.New(user.Token)
+	session, err := discordgo.New(user.DiscordToken)
 	if err != nil {
 		return err
+	}
+	// TODO move to config
+	if os.Getenv("DISCORD_DEBUG") == "1" {
+		session.LogLevel = discordgo.LogDebug
 	}
 
 	user.Session = session
@@ -382,263 +447,178 @@ func (user *User) bridgeMessage(guildID string) bool {
 		return true
 	}
 
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
-
-	if guild, found := user.guilds[guildID]; found {
-		if guild.Bridge {
-			return true
-		}
+	guild := user.bridge.GetGuildByID(guildID, false)
+	if guild.MXID != "" {
+		return true
 	}
 
-	user.log.Debugfln("ignoring message for non-bridged guild %s-%s", user.ID, guildID)
-
+	user.log.Debugfln("Cgnoring message for non-bridged guild %s", guildID)
 	return false
 }
 
-func (user *User) readyHandler(s *discordgo.Session, r *discordgo.Ready) {
-	user.log.Debugln("discord connection ready")
+func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
+	user.log.Debugln("Discord connection ready")
 
 	// Update our user fields
-	user.ID = r.User.ID
-
-	// Update our guild map to match watch discord thinks we're in. This is the
-	// only time we can get the full guild map as discordgo doesn't make it
-	// available to us later. Also, discord might not give us the full guild
-	// information here, so we use this to remove guilds the user left and only
-	// add guilds whose full information we have. The are told about the
-	// "unavailable" guilds later via the GuildCreate handler.
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
-
-	// build a list of the current guilds we're in so we can prune the old ones
-	current := []string{}
-
-	user.log.Debugln("database guild count", len(user.guilds))
-	user.log.Debugln("discord guild count", len(r.Guilds))
-
-	for _, guild := range r.Guilds {
-		current = append(current, guild.ID)
-
-		// If we already know about this guild, make sure we reset it's bridge
-		// status.
-		if val, found := user.guilds[guild.ID]; found {
-			bridge := val.Bridge
-			user.guilds[guild.ID].Bridge = bridge
-
-			// Update the name if the guild is available
-			if !guild.Unavailable {
-				user.guilds[guild.ID].GuildName = guild.Name
-			}
-
-			val.Upsert()
-		} else {
-			g := user.bridge.DB.Guild.New()
-			g.DiscordID = user.ID
-			g.GuildID = guild.ID
-			user.guilds[guild.ID] = g
-
-			if !guild.Unavailable {
-				g.GuildName = guild.Name
-			}
-
-			g.Upsert()
-		}
+	if user.DiscordID != r.User.ID {
+		user.DiscordID = r.User.ID
+		user.Update()
 	}
 
-	// Sync the guilds to the database.
-	user.bridge.DB.Guild.Prune(user.ID, current)
-
-	// Finally reload from the database since it purged servers we're not in
-	// anymore.
-	user.loadGuilds()
-
-	user.log.Debugln("updated database guild count", len(user.guilds))
-
-	user.Update()
+	updateTS := time.Now()
+	guildsInSpace := make(map[string]bool)
+	for _, guild := range user.GetGuilds() {
+		guildsInSpace[guild.GuildID] = guild.InSpace
+	}
+	for _, guild := range r.Guilds {
+		user.handleGuild(guild, updateTS, guildsInSpace[guild.ID])
+	}
+	user.PruneGuildList(updateTS)
+	const maxCreate = 5
+	for i, ch := range r.PrivateChannels {
+		portal := user.GetPortalByMeta(ch)
+		if i < maxCreate && portal.MXID == "" {
+			err := portal.CreateMatrixRoom(user, ch)
+			if err != nil {
+				user.log.Errorfln("Failed to create portal for private channel %s in initial sync: %v", ch.ID, err)
+			}
+		} else {
+			portal.UpdateInfo(user, ch)
+		}
+	}
 }
 
-func (user *User) connectedHandler(s *discordgo.Session, c *discordgo.Connect) {
-	user.log.Debugln("connected to discord")
+func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSpace bool) {
+	guild := user.bridge.GetGuildByID(meta.ID, true)
+	guild.UpdateInfo(user, meta)
+	if len(meta.Channels) > 0 {
+		for _, ch := range meta.Channels {
+			portal := user.GetPortalByMeta(ch)
+			if guild.AutoBridgeChannels && portal.MXID == "" {
+				err := portal.CreateMatrixRoom(user, ch)
+				if err != nil {
+					user.log.Errorfln("Failed to create portal for guild channel %s/%s in initial sync: %v", guild.ID, ch.ID, err)
+				}
+			} else {
+				portal.UpdateInfo(user, ch)
+			}
+		}
+	}
+	if len(guild.MXID) > 0 && !isInSpace {
+		_, err := user.bridge.Bot.SendStateEvent(user.GetSpaceRoom(), event.StateSpaceChild, guild.MXID.String(), &event.SpaceChildEventContent{
+			Via: []string{user.bridge.AS.HomeserverDomain},
+		})
+		if err != nil {
+			user.log.Errorfln("Failed to add guild space %s to user space: %v", guild.MXID, err)
+		} else {
+			isInSpace = true
+		}
+	}
+	user.MarkInGuild(database.UserGuild{GuildID: meta.ID, Timestamp: timestamp, InSpace: isInSpace})
+}
+
+func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
+	user.log.Debugln("Connected to discord")
 
 	user.tryAutomaticDoublePuppeting()
 }
 
-func (user *User) disconnectedHandler(s *discordgo.Session, d *discordgo.Disconnect) {
-	user.log.Debugln("disconnected from discord")
+func (user *User) disconnectedHandler(_ *discordgo.Session, d *discordgo.Disconnect) {
+	user.log.Debugln("Disconnected from discord")
 }
 
-func (user *User) guildCreateHandler(s *discordgo.Session, g *discordgo.GuildCreate) {
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
+func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {
+	user.handleGuild(g.Guild, time.Now(), false)
+}
 
-	// If we somehow already know about the guild, just update it's name
-	if guild, found := user.guilds[g.ID]; found {
-		guild.GuildName = g.Name
-		guild.Upsert()
-
+func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDelete) {
+	user.MarkNotInGuild(g.ID)
+	guild := user.bridge.GetGuildByID(g.ID, false)
+	if guild == nil || guild.MXID == "" {
 		return
 	}
-
-	// This is a brand new guild so lets get it added.
-	guild := user.bridge.DB.Guild.New()
-	guild.DiscordID = user.ID
-	guild.GuildID = g.ID
-	guild.GuildName = g.Name
-	guild.Upsert()
-
-	user.guilds[g.ID] = guild
+	// TODO clean up?
 }
 
-func (user *User) guildDeleteHandler(s *discordgo.Session, g *discordgo.GuildDelete) {
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
+func (user *User) guildUpdateHandler(_ *discordgo.Session, g *discordgo.GuildUpdate) {
+	user.handleGuild(g.Guild, time.Now(), user.IsInSpace(g.ID))
+}
 
-	if guild, found := user.guilds[g.ID]; found {
-		guild.Delete()
-		delete(user.guilds, g.ID)
-		user.log.Debugln("deleted guild", g.Guild.ID)
+func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.ChannelCreate) {
+	if !user.bridgeMessage(c.GuildID) {
+		return
 	}
-}
-
-func (user *User) guildUpdateHandler(s *discordgo.Session, g *discordgo.GuildUpdate) {
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
-
-	// If we somehow already know about the guild, just update it's name
-	if guild, found := user.guilds[g.ID]; found {
-		guild.GuildName = g.Name
-		guild.Upsert()
-
-		user.log.Debugln("updated guild", g.ID)
-	}
-}
-
-func (user *User) createChannel(c *discordgo.Channel) {
-	key := database.NewPortalKey(c.ID, user.User.ID)
-	portal := user.bridge.GetPortalByID(key)
-
+	portal := user.GetPortalByMeta(c.Channel)
 	if portal.MXID != "" {
 		return
 	}
-
-	portal.Name = c.Name
-	portal.Topic = c.Topic
-	portal.Type = c.Type
-
-	if portal.Type == discordgo.ChannelTypeDM {
-		portal.OtherUserID = c.Recipients[0].ID
+	err := portal.CreateMatrixRoom(user, c.Channel)
+	if err != nil {
+		user.log.Errorfln("Error creating Matrix room for %s on channel create event: %v", c.ID, err)
 	}
-
-	if c.Icon != "" {
-		user.log.Debugln("channel icon", c.Icon)
-	}
-
-	portal.Update()
-
-	portal.createMatrixRoom(user, c)
 }
 
-func (user *User) channelCreateHandler(s *discordgo.Session, c *discordgo.ChannelCreate) {
-	user.createChannel(c.Channel)
-}
-
-func (user *User) channelDeleteHandler(s *discordgo.Session, c *discordgo.ChannelDelete) {
+func (user *User) channelDeleteHandler(_ *discordgo.Session, c *discordgo.ChannelDelete) {
 	user.log.Debugln("channel delete handler")
 }
 
-func (user *User) channelPinsUpdateHandler(s *discordgo.Session, c *discordgo.ChannelPinsUpdate) {
+func (user *User) channelPinsUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelPinsUpdate) {
 	user.log.Debugln("channel pins update")
 }
 
-func (user *User) channelUpdateHandler(s *discordgo.Session, c *discordgo.ChannelUpdate) {
-	key := database.NewPortalKey(c.ID, user.User.ID)
-	portal := user.bridge.GetPortalByID(key)
-
-	portal.update(user, c.Channel)
+func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelUpdate) {
+	portal := user.GetPortalByMeta(c.Channel)
+	portal.UpdateInfo(user, c.Channel)
 }
 
-func (user *User) messageCreateHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if !user.bridgeMessage(m.GuildID) {
+func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildID string) {
+	fmt.Printf("%+v\n", msg)
+	if !user.bridgeMessage(guildID) {
 		return
 	}
 
-	key := database.NewPortalKey(m.ChannelID, user.ID)
-	portal := user.bridge.GetPortalByID(key)
-
-	msg := portalDiscordMessage{
-		msg:  m,
-		user: user,
+	portal := user.GetExistingPortalByID(channelID)
+	var thread *Thread
+	if portal == nil {
+		thread = user.bridge.GetThreadByID(channelID, nil)
+		if thread == nil || thread.Parent == nil {
+			user.log.Debugfln("Dropping %s in unknown channel %s/%s", typeName, guildID, channelID)
+			return
+		}
+		portal = thread.Parent
 	}
 
-	portal.discordMessages <- msg
+	portal.discordMessages <- portalDiscordMessage{
+		msg:    msg,
+		user:   user,
+		thread: thread,
+	}
 }
 
-func (user *User) messageDeleteHandler(s *discordgo.Session, m *discordgo.MessageDelete) {
-	if !user.bridgeMessage(m.GuildID) {
-		return
-	}
-
-	key := database.NewPortalKey(m.ChannelID, user.ID)
-	portal := user.bridge.GetPortalByID(key)
-
-	msg := portalDiscordMessage{
-		msg:  m,
-		user: user,
-	}
-
-	portal.discordMessages <- msg
+func (user *User) messageCreateHandler(_ *discordgo.Session, m *discordgo.MessageCreate) {
+	user.pushPortalMessage(m, "message create", m.ChannelID, m.GuildID)
 }
 
-func (user *User) messageUpdateHandler(s *discordgo.Session, m *discordgo.MessageUpdate) {
-	if !user.bridgeMessage(m.GuildID) {
-		return
-	}
-
-	key := database.NewPortalKey(m.ChannelID, user.ID)
-	portal := user.bridge.GetPortalByID(key)
-
-	msg := portalDiscordMessage{
-		msg:  m,
-		user: user,
-	}
-
-	portal.discordMessages <- msg
+func (user *User) messageDeleteHandler(_ *discordgo.Session, m *discordgo.MessageDelete) {
+	user.pushPortalMessage(m, "message delete", m.ChannelID, m.GuildID)
 }
 
-func (user *User) reactionAddHandler(s *discordgo.Session, m *discordgo.MessageReactionAdd) {
-	if !user.bridgeMessage(m.MessageReaction.GuildID) {
-		return
-	}
-
-	key := database.NewPortalKey(m.ChannelID, user.User.ID)
-	portal := user.bridge.GetPortalByID(key)
-
-	msg := portalDiscordMessage{
-		msg:  m,
-		user: user,
-	}
-
-	portal.discordMessages <- msg
+func (user *User) messageUpdateHandler(_ *discordgo.Session, m *discordgo.MessageUpdate) {
+	user.pushPortalMessage(m, "message update", m.ChannelID, m.GuildID)
 }
 
-func (user *User) reactionRemoveHandler(s *discordgo.Session, m *discordgo.MessageReactionRemove) {
-	if !user.bridgeMessage(m.MessageReaction.GuildID) {
-		return
-	}
+func (user *User) reactionAddHandler(_ *discordgo.Session, m *discordgo.MessageReactionAdd) {
+	user.pushPortalMessage(m, "reaction add", m.ChannelID, m.GuildID)
+}
 
-	key := database.NewPortalKey(m.ChannelID, user.User.ID)
-	portal := user.bridge.GetPortalByID(key)
-
-	msg := portalDiscordMessage{
-		msg:  m,
-		user: user,
-	}
-
-	portal.discordMessages <- msg
+func (user *User) reactionRemoveHandler(_ *discordgo.Session, m *discordgo.MessageReactionRemove) {
+	user.pushPortalMessage(m, "reaction remove", m.ChannelID, m.GuildID)
 }
 
 func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isDirect bool) bool {
+	if intent == nil {
+		intent = user.bridge.Bot
+	}
 	ret := false
 
 	inviteContent := event.Content{
@@ -682,7 +662,7 @@ func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, 
 func (user *User) getDirectChats() map[id.UserID][]id.RoomID {
 	chats := map[id.UserID][]id.RoomID{}
 
-	privateChats := user.bridge.DB.Portal.FindPrivateChatsOf(user.ID)
+	privateChats := user.bridge.DB.Portal.FindPrivateChatsOf(user.DiscordID)
 	for _, portal := range privateChats {
 		if portal.MXID != "" {
 			puppetMXID := user.bridge.FormatPuppetMXID(portal.Key.Receiver)
@@ -755,28 +735,21 @@ func (user *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
 }
 
 func (user *User) bridgeGuild(guildID string, everything bool) error {
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
-
-	guild, found := user.guilds[guildID]
-	if !found {
-		return fmt.Errorf("guildID not found")
+	guild := user.bridge.GetGuildByID(guildID, false)
+	if guild == nil {
+		return errors.New("guild not found")
 	}
-
-	// Update the guild
-	guild.Bridge = true
-	guild.Upsert()
-
-	// If this is a full bridge, create portals for all the channels
-	if everything {
-		channels, err := user.Session.GuildChannels(guildID)
-		if err != nil {
-			return err
-		}
-
-		for _, channel := range channels {
-			if channelIsBridgeable(channel) {
-				user.createChannel(channel)
+	meta, _ := user.Session.State.Guild(guildID)
+	err := guild.CreateMatrixRoom(user, meta)
+	if err != nil {
+		return err
+	}
+	for _, ch := range meta.Channels {
+		portal := user.GetPortalByMeta(ch)
+		if (everything && channelIsBridgeable(ch)) || ch.Type == discordgo.ChannelTypeGuildCategory {
+			err = portal.CreateMatrixRoom(user, ch)
+			if err != nil {
+				user.log.Warnfln("Error creating room for guild channel %s: %v", ch.ID, err)
 			}
 		}
 	}
@@ -785,41 +758,41 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 }
 
 func (user *User) unbridgeGuild(guildID string) error {
-	user.guildsLock.Lock()
-	defer user.guildsLock.Unlock()
-
-	guild, exists := user.guilds[guildID]
-	if !exists {
-		return fmt.Errorf("guildID not found")
-	}
-
-	if !guild.Bridge {
-		return fmt.Errorf("guild not bridged")
-	}
-
-	// First update the guild so we don't have any other go routines recreating
-	// channels we're about to destroy.
-	guild.Bridge = false
-	guild.Upsert()
-
-	// Now run through the channels in the guild and remove any portals we
-	// have for them.
-	channels, err := user.Session.GuildChannels(guildID)
-	if err != nil {
-		return err
-	}
-
-	for _, channel := range channels {
-		if channelIsBridgeable(channel) {
-			key := database.PortalKey{
-				ChannelID: channel.ID,
-				Receiver:  user.ID,
-			}
-
-			portal := user.bridge.GetPortalByID(key)
-			portal.leave(user)
-		}
-	}
+	//user.guildsLock.Lock()
+	//defer user.guildsLock.Unlock()
+	//
+	//guild, exists := user.guilds[guildID]
+	//if !exists {
+	//	return fmt.Errorf("guildID not found")
+	//}
+	//
+	//if !guild.Bridge {
+	//	return fmt.Errorf("guild not bridged")
+	//}
+	//
+	//// First update the guild so we don't have any other go routines recreating
+	//// channels we're about to destroy.
+	//guild.Bridge = false
+	//guild.Upsert()
+	//
+	//// Now run through the channels in the guild and remove any portals we
+	//// have for them.
+	//channels, err := user.Session.GuildChannels(guildID)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//for _, channel := range channels {
+	//	if channelIsBridgeable(channel) {
+	//		key := database.PortalKey{
+	//			ChannelID: channel.ID,
+	//			Receiver:  user.DiscordID,
+	//		}
+	//
+	//		portal := user.bridge.GetPortalByID(key)
+	//		portal.leave(user)
+	//	}
+	//}
 
 	return nil
 }

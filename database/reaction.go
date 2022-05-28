@@ -16,7 +16,7 @@ type ReactionQuery struct {
 }
 
 const (
-	reactionSelect = "SELECT dc_chan_id, dc_chan_receiver, dc_msg_id, dc_sender, dc_emoji_name, mxid FROM reaction"
+	reactionSelect = "SELECT dc_chan_id, dc_chan_receiver, dc_msg_id, dc_sender, dc_emoji_name, dc_thread_id, mxid FROM reaction"
 )
 
 func (rq *ReactionQuery) New() *Reaction {
@@ -75,15 +75,17 @@ type Reaction struct {
 	MessageID string
 	Sender    string
 	EmojiName string
+	ThreadID  string
 
 	MXID id.EventID
 }
 
 func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
-	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &r.MXID)
+	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &r.ThreadID, &r.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			r.log.Errorln("Database scan failed:", err)
+			panic(err)
 		}
 		return nil
 	}
@@ -91,14 +93,23 @@ func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
 	return r
 }
 
+func (r *Reaction) DiscordProtoChannelID() string {
+	if r.ThreadID != "" {
+		return r.ThreadID
+	} else {
+		return r.Channel.ChannelID
+	}
+}
+
 func (r *Reaction) Insert() {
 	query := `
-		INSERT INTO reaction (dc_msg_id, dc_sender, dc_emoji_name, dc_chan_id, dc_chan_receiver, mxid)
-		VALUES($1, $2, $3, $4, $5, $6)
+		INSERT INTO reaction (dc_msg_id, dc_sender, dc_emoji_name, dc_chan_id, dc_chan_receiver, dc_thread_id, mxid)
+		VALUES($1, $2, $3, $4, $5, $6, $7)
 	`
-	_, err := r.db.Exec(query, r.MessageID, r.Sender, r.EmojiName, r.Channel.ChannelID, r.Channel.Receiver, r.MXID)
+	_, err := r.db.Exec(query, r.MessageID, r.Sender, r.EmojiName, r.Channel.ChannelID, r.Channel.Receiver, strPtr(r.ThreadID), r.MXID)
 	if err != nil {
 		r.log.Warnfln("Failed to insert reaction for %s@%s: %v", r.MessageID, r.Channel, err)
+		panic(err)
 	}
 }
 
@@ -107,5 +118,6 @@ func (r *Reaction) Delete() {
 	_, err := r.db.Exec(query, r.MessageID, r.Sender, r.EmojiName)
 	if err != nil {
 		r.log.Warnfln("Failed to delete reaction for %s@%s: %v", r.MessageID, r.Channel, err)
+		panic(err)
 	}
 }

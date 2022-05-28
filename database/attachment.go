@@ -16,7 +16,7 @@ type AttachmentQuery struct {
 }
 
 const (
-	attachmentSelect = "SELECT dcid, dc_msg_id, dc_chan_id, dc_chan_receiver FROM attachment"
+	attachmentSelect = "SELECT dcid, dc_msg_id, dc_chan_id, dc_chan_receiver, dc_thread_id FROM attachment"
 )
 
 func (aq *AttachmentQuery) New() *Attachment {
@@ -77,58 +77,50 @@ type Attachment struct {
 	db  *Database
 	log log.Logger
 
-	Channel PortalKey
+	Channel   PortalKey
+	ThreadID  string
+	MessageID string
+	ID        string
+	MXID      id.EventID
+}
 
-	DiscordMessageID    string
-	DiscordAttachmentID string
-	MXID                id.EventID
+func (a *Attachment) DiscordProtoChannelID() string {
+	if a.ThreadID != "" {
+		return a.ThreadID
+	} else {
+		return a.Channel.ChannelID
+	}
 }
 
 func (a *Attachment) Scan(row dbutil.Scannable) *Attachment {
-	err := row.Scan(
-		&a.DiscordAttachmentID, &a.DiscordMessageID,
-		&a.Channel.ChannelID, &a.Channel.Receiver,
-		&a.MXID)
-
+	err := row.Scan(&a.ID, &a.MessageID, &a.Channel.ChannelID, &a.Channel.Receiver, &a.ThreadID, &a.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			a.log.Errorln("Database scan failed:", err)
+			panic(err)
 		}
-
 		return nil
 	}
-
 	return a
 }
 
 func (a *Attachment) Insert() {
-	query := "INSERT INTO attachment" +
-		" (dcid, dc_msg_id, dc_chan_id, dc_chan_receiver, " +
-		" mxid) VALUES ($1, $2, $3, $4, $5);"
-
-	_, err := a.db.Exec(
-		query,
-		a.Channel.ChannelID, a.Channel.Receiver,
-		a.DiscordMessageID, a.DiscordAttachmentID,
-		a.MXID,
-	)
-
+	query := `
+		INSERT INTO attachment (dcid, dc_msg_id, dc_chan_id, dc_chan_receiver, mxid)
+		VALUES ($1, $2, $3, $4, $5)
+	`
+	_, err := a.db.Exec(query, a.ID, a.MessageID, a.Channel.ChannelID, a.Channel.Receiver, strPtr(a.ThreadID), a.MXID)
 	if err != nil {
-		a.log.Warnfln("Failed to insert attachment for %s@%s: %v", a.DiscordAttachmentID, a.Channel, err)
+		a.log.Warnfln("Failed to insert attachment for %s@%s: %v", a.ID, a.Channel, err)
+		panic(err)
 	}
 }
 
 func (a *Attachment) Delete() {
-	query := "DELETE FROM attachment WHERE" +
-		" dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3"
-
-	_, err := a.db.Exec(
-		query,
-		a.Channel.ChannelID, a.Channel.Receiver,
-		a.DiscordAttachmentID,
-	)
-
+	query := `DELETE FROM attachment WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3`
+	_, err := a.db.Exec(query, a.Channel.ChannelID, a.Channel.Receiver, a.ID)
 	if err != nil {
-		a.log.Warnfln("Failed to delete attachment for %s@%s: %v", a.DiscordAttachmentID, a.Channel, err)
+		a.log.Warnfln("Failed to delete attachment for %s@%s: %v", a.ID, a.Channel, err)
+		panic(err)
 	}
 }

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	puppetSelect = "SELECT id, display_name, avatar, avatar_url," +
+	puppetSelect = "SELECT id, name, name_set, avatar, avatar_url, avatar_set," +
 		" custom_mxid, access_token, next_batch" +
 		" FROM puppet "
 )
@@ -36,12 +36,7 @@ func (pq *PuppetQuery) GetByCustomMXID(mxid id.UserID) *Puppet {
 }
 
 func (pq *PuppetQuery) get(query string, args ...interface{}) *Puppet {
-	row := pq.db.QueryRow(query, args...)
-	if row == nil {
-		return nil
-	}
-
-	return pq.New().Scan(row)
+	return pq.New().Scan(pq.db.QueryRow(query, args...))
 }
 
 func (pq *PuppetQuery) GetAll() []*Puppet {
@@ -59,7 +54,7 @@ func (pq *PuppetQuery) getAll(query string, args ...interface{}) []*Puppet {
 	}
 	defer rows.Close()
 
-	puppets := []*Puppet{}
+	var puppets []*Puppet
 	for rows.Next() {
 		puppets = append(puppets, pq.New().Scan(rows))
 	}
@@ -71,11 +66,12 @@ type Puppet struct {
 	db  *Database
 	log log.Logger
 
-	ID          string
-	DisplayName string
-
+	ID        string
+	Name      string
+	NameSet   bool
 	Avatar    string
 	AvatarURL id.ContentURI
+	AvatarSet bool
 
 	CustomMXID  id.UserID
 	AccessToken string
@@ -83,24 +79,22 @@ type Puppet struct {
 }
 
 func (p *Puppet) Scan(row dbutil.Scannable) *Puppet {
-	var did, displayName, avatar, avatarURL sql.NullString
+	var avatarURL string
 	var customMXID, accessToken, nextBatch sql.NullString
 
-	err := row.Scan(&did, &displayName, &avatar, &avatarURL,
+	err := row.Scan(&p.ID, &p.Name, &p.NameSet, &p.Avatar, &avatarURL, &p.AvatarSet,
 		&customMXID, &accessToken, &nextBatch)
 
 	if err != nil {
 		if err != sql.ErrNoRows {
 			p.log.Errorln("Database scan failed:", err)
+			panic(err)
 		}
 
 		return nil
 	}
 
-	p.ID = did.String
-	p.DisplayName = displayName.String
-	p.Avatar = avatar.String
-	p.AvatarURL, _ = id.ParseContentURI(avatarURL.String)
+	p.AvatarURL, _ = id.ParseContentURI(avatarURL)
 	p.CustomMXID = id.UserID(customMXID.String)
 	p.AccessToken = accessToken.String
 	p.NextBatch = nextBatch.String
@@ -109,31 +103,31 @@ func (p *Puppet) Scan(row dbutil.Scannable) *Puppet {
 }
 
 func (p *Puppet) Insert() {
-	query := "INSERT INTO puppet" +
-		" (id, display_name, avatar, avatar_url," +
-		"  custom_mxid, access_token, next_batch)" +
-		" VALUES ($1, $2, $3, $4, $5, $6, $7)"
-
-	_, err := p.db.Exec(query, p.ID, p.DisplayName, p.Avatar,
-		p.AvatarURL.String(), p.CustomMXID, p.AccessToken,
-		p.NextBatch)
+	query := `
+		INSERT INTO puppet (id, name, name_set, avatar, avatar_url, avatar_set, custom_mxid, access_token, next_batch)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`
+	_, err := p.db.Exec(query, p.ID, p.Name, p.NameSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+		strPtr(string(p.CustomMXID)), strPtr(p.AccessToken), strPtr(p.NextBatch))
 
 	if err != nil {
 		p.log.Warnfln("Failed to insert %s: %v", p.ID, err)
+		panic(err)
 	}
 }
 
 func (p *Puppet) Update() {
-	query := "UPDATE puppet" +
-		" SET display_name=$1, avatar=$2, avatar_url=$3, " +
-		"     custom_mxid=$4, access_token=$5, next_batch=$6" +
-		" WHERE id=$7"
-
-	_, err := p.db.Exec(query, p.DisplayName, p.Avatar, p.AvatarURL.String(),
-		p.CustomMXID, p.AccessToken, p.NextBatch,
+	query := `
+		UPDATE puppet SET name=$1, name_set=$2, avatar=$3, avatar_url=$4, avatar_set=$5,
+		                  custom_mxid=$6, access_token=$7, next_batch=$8
+		WHERE id=$9
+	`
+	_, err := p.db.Exec(query, p.Name, p.NameSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+		strPtr(string(p.CustomMXID)), strPtr(p.AccessToken), strPtr(p.NextBatch),
 		p.ID)
 
 	if err != nil {
 		p.log.Warnfln("Failed to update %s: %v", p.ID, err)
+		panic(err)
 	}
 }

@@ -17,7 +17,7 @@ type MessageQuery struct {
 }
 
 const (
-	messageSelect = "SELECT dcid, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, mxid FROM message"
+	messageSelect = "SELECT dcid, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_thread_id, mxid FROM message"
 )
 
 func (mq *MessageQuery) New() *Message {
@@ -45,14 +45,12 @@ func (mq *MessageQuery) GetAll(key PortalKey) []*Message {
 
 func (mq *MessageQuery) GetByDiscordID(key PortalKey, discordID string) *Message {
 	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3"
+	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
+}
 
-	row := mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID)
-	if row == nil {
-		mq.log.Debugfln("failed to find existing message for discord_id %s", discordID)
-		return nil
-	}
-
-	return mq.New().Scan(row)
+func (mq *MessageQuery) GetLastInThread(key PortalKey, threadID string) *Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 ORDER BY timestamp DESC LIMIT 1"
+	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID))
 }
 
 func (mq *MessageQuery) GetByMXID(key PortalKey, mxid id.EventID) *Message {
@@ -74,36 +72,54 @@ type Message struct {
 	Channel   PortalKey
 	SenderID  string
 	Timestamp time.Time
+	ThreadID  string
 
 	MXID id.EventID
 }
 
+func (m *Message) DiscordProtoChannelID() string {
+	if m.ThreadID != "" {
+		return m.ThreadID
+	} else {
+		return m.Channel.ChannelID
+	}
+}
+
 func (m *Message) Scan(row dbutil.Scannable) *Message {
 	var ts int64
+	var threadID sql.NullString
 
-	err := row.Scan(&m.DiscordID, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &m.MXID)
+	err := row.Scan(&m.DiscordID, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &threadID, &m.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			m.log.Errorln("Database scan failed:", err)
+			panic(err)
 		}
 
 		return nil
 	}
 
 	if ts != 0 {
-		m.Timestamp = time.Unix(ts, 0)
+		m.Timestamp = time.UnixMilli(ts)
 	}
+	m.ThreadID = threadID.String
 
 	return m
 }
 
 func (m *Message) Insert() {
-	query := "INSERT INTO message (dcid, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, mxid) VALUES ($1, $2, $3, $4, $5, $6)"
+	query := `
+		INSERT INTO message (dcid, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_thread_id, mxid)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`
 
-	_, err := m.db.Exec(query, m.DiscordID, m.Channel.ChannelID, m.Channel.Receiver, m.SenderID, m.Timestamp.Unix(), m.MXID)
+	_, err := m.db.Exec(query,
+		m.DiscordID, m.Channel.ChannelID, m.Channel.Receiver, m.SenderID,
+		m.Timestamp.UnixMilli(), strPtr(m.ThreadID), m.MXID)
 
 	if err != nil {
 		m.log.Warnfln("Failed to insert %s@%s: %v", m.DiscordID, m.Channel, err)
+		panic(err)
 	}
 }
 
@@ -114,5 +130,6 @@ func (m *Message) Delete() {
 
 	if err != nil {
 		m.log.Warnfln("Failed to delete %s@%s: %v", m.DiscordID, m.Channel, err)
+		panic(err)
 	}
 }

@@ -116,7 +116,7 @@ func fnLogin(ce *WrappedCommandEvent) {
 		ce.Reply("Error connecting after login: %v", err)
 	}
 	ce.User.Lock()
-	ce.User.ID = user.UserID
+	ce.User.DiscordID = user.UserID
 	ce.User.Update()
 	ce.User.Unlock()
 	ce.Reply("Successfully logged in as %s#%s", user.Username, user.Discriminator)
@@ -251,19 +251,21 @@ func fnGuilds(ce *WrappedCommandEvent) {
 }
 
 func fnListGuilds(ce *WrappedCommandEvent) {
-	ce.User.guildsLock.Lock()
-	defer ce.User.guildsLock.Unlock()
-	if len(ce.User.guilds) == 0 {
-		ce.Reply("You haven't joined any guilds")
-	} else {
-		var output strings.Builder
-		for _, guild := range ce.User.guilds {
-			status := "not bridged"
-			if guild.Bridge {
-				status = "bridged"
-			}
-			_, _ = fmt.Fprintf(&output, "* %s (`%s`) - %s\n", guild.GuildName, guild.GuildID, status)
+	var output strings.Builder
+	for _, userGuild := range ce.User.GetGuilds() {
+		guild := ce.Bridge.GetGuildByID(userGuild.GuildID, false)
+		if guild == nil {
+			continue
 		}
+		status := "not bridged"
+		if guild.MXID != "" {
+			status = "bridged"
+		}
+		_, _ = fmt.Fprintf(&output, "* %s (`%s`) - %s\n", guild.Name, guild.ID, status)
+	}
+	if output.Len() == 0 {
+		ce.Reply("No guilds found")
+	} else {
 		ce.Reply("List of guilds:\n\n%s", output.String())
 	}
 }

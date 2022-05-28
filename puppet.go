@@ -7,6 +7,8 @@ import (
 
 	log "maunium.net/go/maulogger/v2"
 
+	"github.com/bwmarrin/discordgo"
+
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/id"
@@ -66,12 +68,12 @@ func (br *DiscordBridge) ParsePuppetMXID(mxid id.UserID) (string, bool) {
 }
 
 func (br *DiscordBridge) GetPuppetByMXID(mxid id.UserID) *Puppet {
-	id, ok := br.ParsePuppetMXID(mxid)
+	discordID, ok := br.ParsePuppetMXID(mxid)
 	if !ok {
 		return nil
 	}
 
-	return br.GetPuppetByID(id)
+	return br.GetPuppetByID(discordID)
 }
 
 func (br *DiscordBridge) GetPuppetByID(id string) *Puppet {
@@ -159,7 +161,7 @@ func (puppet *Puppet) DefaultIntent() *appservice.IntentAPI {
 }
 
 func (puppet *Puppet) IntentFor(portal *Portal) *appservice.IntentAPI {
-	if puppet.customIntent == nil {
+	if puppet.customIntent == nil || (portal.Key.Receiver != "" && portal.Key.Receiver != puppet.ID) {
 		return puppet.DefaultIntent()
 	}
 
@@ -179,121 +181,86 @@ func (puppet *Puppet) updatePortalMeta(meta func(portal *Portal)) {
 	}
 }
 
-func (puppet *Puppet) updateName(source *User) bool {
-	user, err := source.Session.User(puppet.ID)
-	if err != nil {
-		puppet.log.Warnln("failed to get user from id:", err)
+func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
+	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info)
+	if puppet.Name == newName && puppet.NameSet {
 		return false
 	}
-
-	newName := puppet.bridge.Config.Bridge.FormatDisplayname(user)
-
-	if puppet.DisplayName != newName {
-		err := puppet.DefaultIntent().SetDisplayName(newName)
-		if err == nil {
-			puppet.DisplayName = newName
-			go puppet.updatePortalName()
-			puppet.Update()
-		} else {
-			puppet.log.Warnln("failed to set display name:", err)
-		}
-
-		return true
-	}
-
-	return false
-}
-
-func (puppet *Puppet) updatePortalName() {
-	puppet.updatePortalMeta(func(portal *Portal) {
-		if portal.MXID != "" {
-			_, err := portal.MainIntent().SetRoomName(portal.MXID, puppet.DisplayName)
-			if err != nil {
-				portal.log.Warnln("Failed to set name:", err)
+	puppet.Name = newName
+	puppet.NameSet = false
+	err := puppet.DefaultIntent().SetDisplayName(newName)
+	if err != nil {
+		puppet.log.Warnln("Failed to update displayname:", err)
+	} else {
+		go puppet.updatePortalMeta(func(portal *Portal) {
+			if portal.UpdateName(puppet.Name) {
+				portal.Update()
 			}
-		}
-
-		portal.Name = puppet.DisplayName
-		portal.Update()
-	})
-}
-
-func (puppet *Puppet) updateAvatar(source *User) bool {
-	user, err := source.Session.User(puppet.ID)
-	if err != nil {
-		puppet.log.Warnln("Failed to get user:", err)
-
-		return false
+		})
+		puppet.NameSet = true
 	}
-
-	if puppet.Avatar == user.Avatar {
-		return false
-	}
-
-	if user.Avatar == "" {
-		puppet.log.Warnln("User does not have an avatar")
-
-		return false
-	}
-
-	url, err := uploadAvatar(puppet.DefaultIntent(), user.AvatarURL(""))
-	if err != nil {
-		puppet.log.Warnln("Failed to upload user avatar:", err)
-
-		return false
-	}
-
-	puppet.AvatarURL = url
-
-	err = puppet.DefaultIntent().SetAvatarURL(puppet.AvatarURL)
-	if err != nil {
-		puppet.log.Warnln("Failed to set avatar:", err)
-	}
-
-	puppet.log.Debugln("Updated avatar", puppet.Avatar, "->", user.Avatar)
-	puppet.Avatar = user.Avatar
-	go puppet.updatePortalAvatar()
-
 	return true
 }
 
-func (puppet *Puppet) updatePortalAvatar() {
-	puppet.updatePortalMeta(func(portal *Portal) {
-		if portal.MXID != "" {
-			_, err := portal.MainIntent().SetRoomAvatar(portal.MXID, puppet.AvatarURL)
-			if err != nil {
-				portal.log.Warnln("Failed to set avatar:", err)
-			}
+func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
+	if puppet.Avatar == info.Avatar && puppet.AvatarSet {
+		return false
+	}
+	puppet.Avatar = info.Avatar
+	puppet.AvatarSet = false
+
+	if puppet.Avatar == "" {
+		// TODO should we just use discord's default avatars?
+		puppet.AvatarURL = id.ContentURI{}
+	} else {
+		url, err := uploadAvatar(puppet.DefaultIntent(), info.AvatarURL(""))
+		if err != nil {
+			puppet.log.Warnln("Failed to reupload user avatar:", err)
+			return true
 		}
+		puppet.AvatarURL = url
+	}
 
-		portal.AvatarURL = puppet.AvatarURL
-		portal.Avatar = puppet.Avatar
-		portal.Update()
-	})
-
+	err := puppet.DefaultIntent().SetAvatarURL(puppet.AvatarURL)
+	if err != nil {
+		puppet.log.Warnln("Failed to update avatar:", err)
+	} else {
+		go puppet.updatePortalMeta(func(portal *Portal) {
+			if portal.UpdateAvatarFromPuppet(puppet) {
+				portal.Update()
+			}
+		})
+		puppet.AvatarSet = true
+	}
+	return true
 }
 
-func (puppet *Puppet) SyncContact(source *User) {
+func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User) {
 	puppet.syncLock.Lock()
 	defer puppet.syncLock.Unlock()
 
-	puppet.log.Debugln("syncing contact", puppet.DisplayName)
+	if info == nil || len(info.Username) == 0 || len(info.Discriminator) == 0 {
+		if puppet.Name != "" {
+			return
+		}
+		var err error
+		puppet.log.Debugfln("Fetching info through %s to update", source.DiscordID)
+		info, err = source.Session.User(puppet.ID)
+		if err != nil {
+			puppet.log.Errorfln("Failed to fetch info through %s: %v", source.DiscordID, err)
+			return
+		}
+	}
 
 	err := puppet.DefaultIntent().EnsureRegistered()
 	if err != nil {
 		puppet.log.Errorln("Failed to ensure registered:", err)
 	}
 
-	update := false
-
-	update = puppet.updateName(source) || update
-
-	if puppet.Avatar == "" {
-		update = puppet.updateAvatar(source) || update
-		puppet.log.Debugln("update avatar returned", update)
-	}
-
-	if update {
+	changed := false
+	changed = puppet.UpdateName(info) || changed
+	changed = puppet.UpdateAvatar(info) || changed
+	if changed {
 		puppet.Update()
 	}
 }

@@ -28,23 +28,16 @@ func (eq *EmojiQuery) New() *Emoji {
 
 func (eq *EmojiQuery) GetByDiscordID(discordID string) *Emoji {
 	query := emojiSelect + " WHERE discord_id=$1"
-
 	return eq.get(query, discordID)
 }
 
 func (eq *EmojiQuery) GetByMatrixURL(matrixURL id.ContentURI) *Emoji {
 	query := emojiSelect + " WHERE matrix_url=$1"
-
 	return eq.get(query, matrixURL.String())
 }
 
 func (eq *EmojiQuery) get(query string, args ...interface{}) *Emoji {
-	row := eq.db.QueryRow(query, args...)
-	if row == nil {
-		return nil
-	}
-
-	return eq.New().Scan(row)
+	return eq.New().Scan(eq.db.QueryRow(query, args...))
 }
 
 type Emoji struct {
@@ -59,18 +52,17 @@ type Emoji struct {
 
 func (e *Emoji) Scan(row dbutil.Scannable) *Emoji {
 	var matrixURL sql.NullString
-	err := row.Scan(&e.DiscordID, &e.DiscordName, &matrixURL)
 
+	err := row.Scan(&e.DiscordID, &e.DiscordName, &matrixURL)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			e.log.Errorln("Database scan failed:", err)
+			panic(err)
 		}
-
 		return nil
 	}
 
 	e.MatrixURL, _ = id.ParseContentURI(matrixURL.String)
-
 	return e
 }
 
@@ -83,6 +75,7 @@ func (e *Emoji) Insert() {
 
 	if err != nil {
 		e.log.Warnfln("Failed to insert emoji %s: %v", e.DiscordID, err)
+		panic(err)
 	}
 }
 
@@ -92,17 +85,15 @@ func (e *Emoji) Delete() {
 	_, err := e.db.Exec(query, e.DiscordID)
 	if err != nil {
 		e.log.Warnfln("Failed to delete emoji %s: %v", e.DiscordID, err)
+		panic(err)
 	}
 }
 
 func (e *Emoji) APIName() string {
 	if e.DiscordID != "" && e.DiscordName != "" {
 		return e.DiscordName + ":" + e.DiscordID
-	}
-
-	if e.DiscordName != "" {
+	} else if e.DiscordName != "" {
 		return e.DiscordName
 	}
-
 	return e.DiscordID
 }

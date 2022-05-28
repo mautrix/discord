@@ -20,13 +20,13 @@ import (
 	_ "embed"
 	"sync"
 
-	"go.mau.fi/mautrix-discord/database"
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/commands"
 	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/util/configupgrade"
 
 	"go.mau.fi/mautrix-discord/config"
+	"go.mau.fi/mautrix-discord/database"
 )
 
 // Information to find out exactly which commit the bridge was built from.
@@ -59,6 +59,14 @@ type DiscordBridge struct {
 	portalsByID   map[database.PortalKey]*Portal
 	portalsLock   sync.Mutex
 
+	threadsByID       map[string]*Thread
+	threadsByRootMXID map[id.EventID]*Thread
+	threadsLock       sync.Mutex
+
+	guildsByMXID map[id.RoomID]*Guild
+	guildsByID   map[string]*Guild
+	guildsLock   sync.Mutex
+
 	puppets             map[string]*Puppet
 	puppetsByCustomMXID map[id.UserID]*Puppet
 	puppetsLock         sync.Mutex
@@ -81,6 +89,7 @@ func (br *DiscordBridge) Init() {
 	br.RegisterCommands()
 
 	br.DB = database.New(br.Bridge.DB)
+	discordLog = br.Log.Sub("Discord")
 }
 
 func (br *DiscordBridge) Start() {
@@ -143,6 +152,12 @@ func main() {
 
 		portalsByMXID: make(map[id.RoomID]*Portal),
 		portalsByID:   make(map[database.PortalKey]*Portal),
+
+		threadsByID:       make(map[string]*Thread),
+		threadsByRootMXID: make(map[id.EventID]*Thread),
+
+		guildsByID:   make(map[string]*Guild),
+		guildsByMXID: make(map[id.RoomID]*Guild),
 
 		puppets:             make(map[string]*Puppet),
 		puppetsByCustomMXID: make(map[id.UserID]*Puppet),

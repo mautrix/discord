@@ -465,9 +465,9 @@ func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridg
 		MsgType: event.MsgNotice,
 	}
 
-	_, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
+	_, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, 0)
 	if err != nil {
-		portal.log.Warnfln("failed to send error message to matrix: %v", err)
+		portal.log.Warnfln("Failed to send media error message to matrix: %v", err)
 	}
 }
 
@@ -713,10 +713,14 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		Body:    msg.Content,
 		MsgType: event.MsgText,
 	}
-
 	content.SetEdit(existing.MXID)
 
-	_, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, time.Now().UTC().UnixMilli())
+	var editTS int64
+	if msg.EditedTimestamp != nil {
+		editTS = msg.EditedTimestamp.UnixMilli()
+	}
+	// TODO figure out some way to deduplicate outgoing edits
+	_, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, editTS)
 	if err != nil {
 		portal.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 
@@ -846,6 +850,74 @@ func generateNonce() string {
 	return strconv.FormatInt(snowflake, 10)
 }
 
+func (portal *Portal) getEvent(mxid id.EventID) (*event.Event, error) {
+	evt, err := portal.MainIntent().GetEvent(portal.MXID, mxid)
+	if err != nil {
+		return nil, err
+	}
+	_ = evt.Content.ParseRaw(evt.Type)
+	if evt.Type == event.EventEncrypted {
+		decryptedEvt, err := portal.bridge.Crypto.Decrypt(evt)
+		if err != nil {
+			return nil, err
+		} else {
+			evt = decryptedEvt
+		}
+	}
+	return evt, nil
+}
+
+func genThreadName(evt *event.Event) string {
+	body := evt.Content.AsMessage().Body
+	if len(body) == 0 {
+		return "thread"
+	}
+	fields := strings.Fields(body)
+	var title string
+	for _, field := range fields {
+		if len(title)+len(field) < 40 {
+			title += field
+			title += " "
+			continue
+		}
+		if len(title) == 0 {
+			title = field[:40]
+		}
+		break
+	}
+	return title
+}
+
+func (portal *Portal) startThreadFromMatrix(sender *User, threadRoot id.EventID) (string, error) {
+	rootEvt, err := portal.getEvent(threadRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to get root event: %w", err)
+	}
+	threadName := genThreadName(rootEvt)
+
+	existingMsg := portal.bridge.DB.Message.GetByMXID(portal.Key, threadRoot)
+	if existingMsg == nil {
+		return "", fmt.Errorf("unknown root event")
+	} else if existingMsg.ThreadID != "" {
+		return "", fmt.Errorf("root event is already in a thread")
+	} else {
+		var ch *discordgo.Channel
+		ch, err = sender.Session.MessageThreadStartComplex(portal.Key.ChannelID, existingMsg.DiscordID, &discordgo.ThreadStart{
+			Name:                threadName,
+			AutoArchiveDuration: 24 * 60,
+			Type:                discordgo.ChannelTypeGuildPublicThread,
+			Location:            "Message",
+		})
+		if err != nil {
+			return "", fmt.Errorf("error starting thread: %v", err)
+		}
+		portal.log.Debugfln("Created Discord thread from %s/%s", threadRoot, ch.ID)
+		fmt.Printf("Created thread %+v\n", ch)
+		portal.bridge.GetThreadByID(existingMsg.DiscordID, existingMsg)
+		return ch.ID, nil
+	}
+}
+
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		return
@@ -874,11 +946,17 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	} else if threadRoot := content.GetRelatesTo().GetThreadParent(); threadRoot != "" {
 		existingThread := portal.bridge.DB.Thread.GetByMatrixRootMsg(threadRoot)
 		if existingThread != nil {
-			channelID = existingThread.ID
 			threadID = existingThread.ID
 		} else {
-			// TODO create new thread
+			var err error
+			threadID, err = portal.startThreadFromMatrix(sender, threadRoot)
+			if err != nil {
+				portal.log.Warnfln("Failed to start thread from %s: %v", threadRoot, err)
+			}
 		}
+	}
+	if threadID != "" {
+		channelID = threadID
 	}
 
 	var sendReq discordgo.MessageSend
@@ -1190,8 +1268,13 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 			Key:     matrixReaction,
 		},
 	}}
+	if intent.IsCustomPuppet {
+		content.Raw = map[string]interface{}{
+			bridge.DoublePuppetKey: doublePuppetValue,
+		}
+	}
 
-	resp, err := intent.Client.SendMessageEvent(portal.MXID, event.EventReaction, &content)
+	resp, err := intent.SendMessageEvent(portal.MXID, event.EventReaction, &content)
 	if err != nil {
 		portal.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
 

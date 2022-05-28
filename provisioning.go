@@ -392,8 +392,8 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 
 	var data []map[string]interface{}
-	for _, userGuild := range user.GetGuilds() {
-		guild := p.bridge.GetGuildByID(userGuild.GuildID, false)
+	for _, userGuild := range user.GetPortals() {
+		guild := p.bridge.GetGuildByID(userGuild.DiscordID, false)
 		if guild == nil {
 			continue
 		}

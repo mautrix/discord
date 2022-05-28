@@ -39,8 +39,9 @@ type User struct {
 
 	PermissionLevel bridgeconfig.PermissionLevel
 
-	spaceCreateLock        sync.Mutex
-	spaceMembershipChecked bool
+	spaceCreateLock          sync.Mutex
+	spaceMembershipChecked   bool
+	dmSpaceMembershipChecked bool
 
 	Session *discordgo.Session
 }
@@ -237,26 +238,42 @@ func (user *User) SetManagementRoom(roomID id.RoomID) {
 	user.Update()
 }
 
-func (user *User) GetSpaceRoom() id.RoomID {
-	if len(user.SpaceRoom) == 0 {
+func (user *User) getSpaceRoom(ptr *id.RoomID, checked *bool, name, topic string, parent id.RoomID) id.RoomID {
+	if len(*ptr) == 0 {
 		user.spaceCreateLock.Lock()
 		defer user.spaceCreateLock.Unlock()
-		if len(user.SpaceRoom) > 0 {
-			return user.SpaceRoom
+		if len(*ptr) > 0 {
+			return *ptr
+		}
+
+		initialState := []*event.Event{{
+			Type: event.StateRoomAvatar,
+			Content: event.Content{
+				Parsed: &event.RoomAvatarEventContent{
+					URL: user.bridge.Config.AppService.Bot.ParsedAvatar,
+				},
+			},
+		}}
+
+		if parent != "" {
+			parentIDStr := parent.String()
+			initialState = append(initialState, &event.Event{
+				Type:     event.StateSpaceParent,
+				StateKey: &parentIDStr,
+				Content: event.Content{
+					Parsed: &event.SpaceParentEventContent{
+						Canonical: true,
+						Via:       []string{user.bridge.AS.HomeserverDomain},
+					},
+				},
+			})
 		}
 
 		resp, err := user.bridge.Bot.CreateRoom(&mautrix.ReqCreateRoom{
-			Visibility: "private",
-			Name:       "Discord",
-			Topic:      "Your Discord bridged chats",
-			InitialState: []*event.Event{{
-				Type: event.StateRoomAvatar,
-				Content: event.Content{
-					Parsed: &event.RoomAvatarEventContent{
-						URL: user.bridge.Config.AppService.Bot.ParsedAvatar,
-					},
-				},
-			}},
+			Visibility:   "private",
+			Name:         name,
+			Topic:        topic,
+			InitialState: initialState,
 			CreationContent: map[string]interface{}{
 				"type": event.RoomTypeSpace,
 			},
@@ -271,16 +288,34 @@ func (user *User) GetSpaceRoom() id.RoomID {
 		if err != nil {
 			user.log.Errorln("Failed to auto-create space room:", err)
 		} else {
-			user.SpaceRoom = resp.RoomID
+			*ptr = resp.RoomID
 			user.Update()
-			user.ensureInvited(user.bridge.Bot, user.SpaceRoom, false)
-		}
-	} else if !user.spaceMembershipChecked && !user.bridge.StateStore.IsInRoom(user.SpaceRoom, user.MXID) {
-		user.ensureInvited(user.bridge.Bot, user.SpaceRoom, false)
-	}
-	user.spaceMembershipChecked = true
+			user.ensureInvited(user.bridge.Bot, *ptr, false)
 
-	return user.SpaceRoom
+			if parent != "" {
+				_, err = user.bridge.Bot.SendStateEvent(parent, event.StateSpaceChild, resp.RoomID.String(), &event.SpaceChildEventContent{
+					Via:   []string{user.bridge.AS.HomeserverDomain},
+					Order: " 0000",
+				})
+				if err != nil {
+					user.log.Errorfln("Failed to add space room %s to parent space %s: %v", resp.RoomID, parent, err)
+				}
+			}
+		}
+	} else if !*checked && !user.bridge.StateStore.IsInRoom(*ptr, user.MXID) {
+		user.ensureInvited(user.bridge.Bot, *ptr, false)
+	}
+	*checked = true
+
+	return *ptr
+}
+
+func (user *User) GetSpaceRoom() id.RoomID {
+	return user.getSpaceRoom(&user.SpaceRoom, &user.spaceMembershipChecked, "Discord", "Your Discord bridged chats", "")
+}
+
+func (user *User) GetDMSpaceRoom() id.RoomID {
+	return user.getSpaceRoom(&user.DMSpaceRoom, &user.dmSpaceMembershipChecked, "Direct Messages", "Your Discord direct messages", user.GetSpaceRoom())
 }
 
 func (user *User) tryAutomaticDoublePuppeting() {
@@ -466,26 +501,46 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	}
 
 	updateTS := time.Now()
-	guildsInSpace := make(map[string]bool)
-	for _, guild := range user.GetGuilds() {
-		guildsInSpace[guild.GuildID] = guild.InSpace
+	portalsInSpace := make(map[string]bool)
+	for _, guild := range user.GetPortals() {
+		portalsInSpace[guild.DiscordID] = guild.InSpace
 	}
 	for _, guild := range r.Guilds {
-		user.handleGuild(guild, updateTS, guildsInSpace[guild.ID])
+		user.handleGuild(guild, updateTS, portalsInSpace[guild.ID])
 	}
-	user.PruneGuildList(updateTS)
+	user.PrunePortalList(updateTS)
 	const maxCreate = 5
 	for i, ch := range r.PrivateChannels {
 		portal := user.GetPortalByMeta(ch)
-		if i < maxCreate && portal.MXID == "" {
-			err := portal.CreateMatrixRoom(user, ch)
-			if err != nil {
-				user.log.Errorfln("Failed to create portal for private channel %s in initial sync: %v", ch.ID, err)
-			}
+		user.handlePrivateChannel(portal, ch, updateTS, i < maxCreate, portalsInSpace[portal.Key.String()])
+	}
+}
+
+func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, timestamp time.Time, create, isInSpace bool) {
+	if create && portal.MXID == "" {
+		err := portal.CreateMatrixRoom(user, meta)
+		if err != nil {
+			user.log.Errorfln("Failed to create portal for private channel %s in initial sync: %v", meta.ID, err)
+		}
+	} else {
+		portal.UpdateInfo(user, meta)
+	}
+	if len(portal.MXID) > 0 && !isInSpace {
+		_, err := user.bridge.Bot.SendStateEvent(user.GetDMSpaceRoom(), event.StateSpaceChild, portal.MXID.String(), &event.SpaceChildEventContent{
+			Via: []string{user.bridge.AS.HomeserverDomain},
+		})
+		if err != nil {
+			user.log.Errorfln("Failed to add DM room %s to user DM space: %v", portal.MXID, err)
 		} else {
-			portal.UpdateInfo(user, ch)
+			isInSpace = true
 		}
 	}
+	user.MarkInPortal(database.UserPortal{
+		DiscordID: meta.ID,
+		Type:      database.UserPortalTypeDM,
+		Timestamp: timestamp,
+		InSpace:   isInSpace,
+	})
 }
 
 func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSpace bool) {
@@ -514,7 +569,12 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 			isInSpace = true
 		}
 	}
-	user.MarkInGuild(database.UserGuild{GuildID: meta.ID, Timestamp: timestamp, InSpace: isInSpace})
+	user.MarkInPortal(database.UserPortal{
+		DiscordID: meta.ID,
+		Type:      database.UserPortalTypeGuild,
+		Timestamp: timestamp,
+		InSpace:   isInSpace,
+	})
 }
 
 func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
@@ -532,7 +592,7 @@ func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCre
 }
 
 func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDelete) {
-	user.MarkNotInGuild(g.ID)
+	user.MarkNotInPortal(g.ID)
 	guild := user.bridge.GetGuildByID(g.ID, false)
 	if guild == nil || guild.MXID == "" {
 		return
@@ -552,9 +612,13 @@ func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.Channe
 	if portal.MXID != "" {
 		return
 	}
-	err := portal.CreateMatrixRoom(user, c.Channel)
-	if err != nil {
-		user.log.Errorfln("Error creating Matrix room for %s on channel create event: %v", c.ID, err)
+	if c.GuildID == "" {
+		user.handlePrivateChannel(portal, c.Channel, time.Now(), true, user.IsInSpace(portal.Key.String()))
+	} else {
+		err := portal.CreateMatrixRoom(user, c.Channel)
+		if err != nil {
+			user.log.Errorfln("Error creating Matrix room for %s on channel create event: %v", c.ID, err)
+		}
 	}
 }
 
@@ -568,7 +632,11 @@ func (user *User) channelPinsUpdateHandler(_ *discordgo.Session, c *discordgo.Ch
 
 func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelUpdate) {
 	portal := user.GetPortalByMeta(c.Channel)
-	portal.UpdateInfo(user, c.Channel)
+	if c.GuildID == "" {
+		user.handlePrivateChannel(portal, c.Channel, time.Now(), true, user.IsInSpace(portal.Key.String()))
+	} else {
+		portal.UpdateInfo(user, c.Channel)
+	}
 }
 
 func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildID string) {

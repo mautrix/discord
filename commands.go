@@ -252,8 +252,8 @@ func fnGuilds(ce *WrappedCommandEvent) {
 
 func fnListGuilds(ce *WrappedCommandEvent) {
 	var output strings.Builder
-	for _, userGuild := range ce.User.GetGuilds() {
-		guild := ce.Bridge.GetGuildByID(userGuild.GuildID, false)
+	for _, userGuild := range ce.User.GetPortals() {
+		guild := ce.Bridge.GetGuildByID(userGuild.DiscordID, false)
 		if guild == nil {
 			continue
 		}

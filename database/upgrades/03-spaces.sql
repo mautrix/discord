@@ -13,15 +13,15 @@ CREATE TABLE guild (
     auto_bridge_channels BOOLEAN NOT NULL
 );
 
-CREATE TABLE user_guild (
-    guild_id  TEXT,
-    user_mxid TEXT,
-    in_space  BOOLEAN NOT NULL,
-    timestamp BIGINT NOT NULL,
+CREATE TABLE user_portal (
+    discord_id TEXT,
+    user_mxid  TEXT,
+    type       TEXT NOT NULL,
+    in_space   BOOLEAN NOT NULL,
+    timestamp  BIGINT NOT NULL,
 
-    PRIMARY KEY (guild_id, user_mxid),
-    CONSTRAINT ug_guild_fkey FOREIGN KEY (guild_id)  REFERENCES guild (dcid)  ON DELETE CASCADE,
-    CONSTRAINT ug_user_fkey  FOREIGN KEY (user_mxid) REFERENCES "user" (mxid) ON DELETE CASCADE
+    PRIMARY KEY (discord_id, user_mxid),
+    CONSTRAINT up_user_fkey FOREIGN KEY (user_mxid) REFERENCES "user" (mxid) ON DELETE CASCADE
 );
 
 ALTER TABLE portal ADD COLUMN dc_guild_id TEXT;
@@ -52,6 +52,7 @@ ALTER TABLE puppet ALTER COLUMN name_set DROP DEFAULT;
 ALTER TABLE puppet ALTER COLUMN avatar_set DROP DEFAULT;
 
 ALTER TABLE "user" ADD COLUMN space_room TEXT;
+ALTER TABLE "user" ADD COLUMN dm_space_room TEXT;
 ALTER TABLE "user" RENAME COLUMN token TO discord_token;
 
 UPDATE message SET timestamp=timestamp*1000;

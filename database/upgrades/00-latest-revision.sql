@@ -28,6 +28,7 @@ CREATE TABLE portal (
     name       TEXT NOT NULL,
     name_set   BOOLEAN NOT NULL,
     topic      TEXT NOT NULL,
+    topic_set  BOOLEAN NOT NULL,
     avatar     TEXT NOT NULL,
     avatar_url TEXT NOT NULL,
     avatar_set BOOLEAN NOT NULL,
@@ -72,18 +73,19 @@ CREATE TABLE "user" (
 
     discord_token   TEXT,
     management_room TEXT,
-    space_room      TEXT
+    space_room      TEXT,
+    dm_space_room   TEXT
 );
 
-CREATE TABLE user_guild (
-    guild_id  TEXT,
-    user_mxid TEXT,
-    in_space  BOOLEAN NOT NULL,
-    timestamp BIGINT NOT NULL,
+CREATE TABLE user_portal (
+    discord_id TEXT,
+    user_mxid  TEXT,
+    type       TEXT NOT NULL,
+    in_space   BOOLEAN NOT NULL,
+    timestamp  BIGINT NOT NULL,
 
-    PRIMARY KEY (guild_id, user_mxid),
-    CONSTRAINT ug_guild_fkey FOREIGN KEY (guild_id)  REFERENCES guild (dcid)  ON DELETE CASCADE,
-    CONSTRAINT ug_user_fkey  FOREIGN KEY (user_mxid) REFERENCES "user" (mxid) ON DELETE CASCADE
+    PRIMARY KEY (discord_id, user_mxid),
+    CONSTRAINT up_user_fkey FOREIGN KEY (user_mxid) REFERENCES "user" (mxid) ON DELETE CASCADE
 );
 
 CREATE TABLE message (

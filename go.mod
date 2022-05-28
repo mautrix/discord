@@ -10,7 +10,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.13
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.11.1-0.20220528195646-45d989575cbf
+	maunium.net/go/mautrix v0.11.1-0.20220528212725-21d71dc1a1d5
 )
 
 require (

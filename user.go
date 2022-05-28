@@ -290,7 +290,7 @@ func (user *User) getSpaceRoom(ptr *id.RoomID, checked *bool, name, topic string
 		} else {
 			*ptr = resp.RoomID
 			user.Update()
-			user.ensureInvited(user.bridge.Bot, *ptr, false)
+			user.ensureInvited(nil, *ptr, false)
 
 			if parent != "" {
 				_, err = user.bridge.Bot.SendStateEvent(parent, event.StateSpaceChild, resp.RoomID.String(), &event.SpaceChildEventContent{
@@ -303,7 +303,7 @@ func (user *User) getSpaceRoom(ptr *id.RoomID, checked *bool, name, topic string
 			}
 		}
 	} else if !*checked && !user.bridge.StateStore.IsInRoom(*ptr, user.MXID) {
-		user.ensureInvited(user.bridge.Bot, *ptr, false)
+		user.ensureInvited(nil, *ptr, false)
 	}
 	*checked = true
 

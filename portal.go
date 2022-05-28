@@ -644,11 +644,11 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	if msg.Flags == discordgo.MessageFlagsHasThread {
 		portal.bridge.GetThreadByID(msg.ID, existing)
 		portal.log.Debugfln("Marked %s as a thread root", msg.ID)
-		// TODO make autojoining optional
-		err := user.Session.ThreadJoinWithLocation(msg.ID, discordgo.ThreadJoinLocationContextMenu)
-		if err != nil {
-			user.log.Warnfln("Error autojoining thread %s@%s: %v", msg.ChannelID, portal.Key.ChannelID, err)
-		}
+		// TODO make autojoining configurable
+		//err := user.Session.ThreadJoinWithLocation(msg.ID, discordgo.ThreadJoinLocationContextMenu)
+		//if err != nil {
+		//	user.log.Warnfln("Error autojoining thread %s@%s: %v", msg.ChannelID, portal.Key.ChannelID, err)
+		//}
 	}
 
 	// There's a few scenarios where the author is nil but I haven't figured
@@ -665,7 +665,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 			return
 		}
 
-		portal.log.Errorfln("author is nil: %#v", msg)
+		//portal.log.Errorfln("author is nil: %#v", msg)
 		return
 	}
 

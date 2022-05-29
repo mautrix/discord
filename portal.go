@@ -929,9 +929,10 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if editMXID := content.GetRelatesTo().GetReplaceID(); editMXID != "" && content.NewContent != nil {
 		edits := portal.bridge.DB.Message.GetByMXID(portal.Key, editMXID)
 		if edits != nil {
+			discordContent := portal.parseMatrixHTML(sender, content.NewContent)
 			// we don't have anything to save for the update message right now
 			// as we're not tracking edited timestamps.
-			_, err := sender.Session.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, parseMatrixHTML(content.NewContent))
+			_, err := sender.Session.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
 			if err != nil {
 				portal.log.Errorln("Failed to update message %s: %v", edits.DiscordID, err)
 			}
@@ -966,7 +967,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				}
 			}
 		}
-		sendReq.Content = parseMatrixHTML(content)
+		sendReq.Content = portal.parseMatrixHTML(sender, content)
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := portal.downloadMatrixAttachment(evt.ID, content)
 		if err != nil {
@@ -1289,15 +1290,15 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	}
 }
 
-func (portal *Portal) handleMatrixRedaction(user *User, evt *event.Event) {
-	if user.DiscordID != portal.Key.Receiver {
+func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
+	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		return
 	}
 
 	// First look if we're redacting a message
 	message := portal.bridge.DB.Message.GetByMXID(portal.Key, evt.Redacts)
 	if message != nil {
-		err := user.Session.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID)
+		err := sender.Session.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID)
 		if err != nil {
 			portal.log.Debugfln("Failed to delete discord message %s: %v", message.DiscordID, err)
 		} else {
@@ -1309,7 +1310,7 @@ func (portal *Portal) handleMatrixRedaction(user *User, evt *event.Event) {
 	// Now check if it's a reaction.
 	reaction := portal.bridge.DB.Reaction.GetByMXID(evt.Redacts)
 	if reaction != nil && reaction.Channel == portal.Key {
-		err := user.Session.MessageReactionRemove(reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
+		err := sender.Session.MessageReactionRemove(reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
 		if err != nil {
 			portal.log.Debugfln("Failed to delete reaction %s from %s: %v", reaction.EmojiName, reaction.MessageID, err)
 		} else {

@@ -3,16 +3,11 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/yuin/goldmark"
-
-	"maunium.net/go/mautrix/format"
-	"maunium.net/go/mautrix/format/mdext"
 	"maunium.net/go/mautrix/util/variationselector"
 
 	"github.com/bwmarrin/discordgo"
@@ -543,17 +538,6 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgI
 	}
 }
 
-var mdRenderer = goldmark.New(format.Extensions, format.HTMLOptions,
-	goldmark.WithExtensions(mdext.EscapeHTML, mdext.SimpleSpoiler, mdext.DiscordUnderline))
-var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
-
-func renderDiscordMarkdown(text string) event.MessageEventContent {
-	text = escapeFixer.ReplaceAllStringFunc(text, func(s string) string {
-		return s[:2] + `\` + s[2:]
-	})
-	return format.RenderMarkdownCustom(text, mdRenderer)
-}
-
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
 	if portal.MXID == "" {
 		portal.log.Warnln("handle message called without a valid portal")
@@ -947,7 +931,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		if edits != nil {
 			// we don't have anything to save for the update message right now
 			// as we're not tracking edited timestamps.
-			_, err := sender.Session.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, content.NewContent.Body)
+			_, err := sender.Session.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, parseMatrixHTML(content.NewContent))
 			if err != nil {
 				portal.log.Errorln("Failed to update message %s: %v", edits.DiscordID, err)
 			}
@@ -982,7 +966,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				}
 			}
 		}
-		sendReq.Content = content.Body
+		sendReq.Content = parseMatrixHTML(content)
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := portal.downloadMatrixAttachment(evt.ID, content)
 		if err != nil {

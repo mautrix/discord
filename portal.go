@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/yuin/goldmark"
+
+	"maunium.net/go/mautrix/format"
+	"maunium.net/go/mautrix/format/mdext"
 	"maunium.net/go/mautrix/util/variationselector"
 
 	"github.com/bwmarrin/discordgo"
@@ -538,6 +543,17 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgI
 	}
 }
 
+var mdRenderer = goldmark.New(format.Extensions, format.HTMLOptions,
+	goldmark.WithExtensions(mdext.EscapeHTML, mdext.SimpleSpoiler, mdext.DiscordUnderline))
+var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
+
+func renderDiscordMarkdown(text string) event.MessageEventContent {
+	text = escapeFixer.ReplaceAllStringFunc(text, func(s string) string {
+		return s[:2] + `\` + s[2:]
+	})
+	return format.RenderMarkdownCustom(text, mdRenderer)
+}
+
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
 	if portal.MXID == "" {
 		portal.log.Warnln("handle message called without a valid portal")
@@ -593,11 +609,8 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 	if msg.Content != "" {
-		content := &event.MessageEventContent{
-			Body:      msg.Content,
-			MsgType:   event.MsgText,
-			RelatesTo: threadRelation.Copy(),
-		}
+		content := renderDiscordMarkdown(msg.Content)
+		content.RelatesTo = threadRelation.Copy()
 
 		if msg.MessageReference != nil {
 			//key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
@@ -610,7 +623,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			}
 		}
 
-		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, ts.UnixMilli())
+		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, ts.UnixMilli())
 		if err != nil {
 			portal.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 			return
@@ -709,10 +722,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		return
 	}
 
-	content := &event.MessageEventContent{
-		Body:    msg.Content,
-		MsgType: event.MsgText,
-	}
+	content := renderDiscordMarkdown(msg.Content)
 	content.SetEdit(existing.MXID)
 
 	var editTS int64
@@ -720,7 +730,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		editTS = msg.EditedTimestamp.UnixMilli()
 	}
 	// TODO figure out some way to deduplicate outgoing edits
-	_, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, editTS)
+	_, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, editTS)
 	if err != nil {
 		portal.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 

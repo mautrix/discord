@@ -1428,6 +1428,9 @@ func (portal *Portal) addToSpace(mxid id.RoomID) bool {
 		return false
 	}
 	portal.removeFromSpace()
+	if mxid == "" {
+		return true
+	}
 
 	_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateSpaceParent, mxid.String(), &event.SpaceParentEventContent{
 		Via:       []string{portal.bridge.AS.HomeserverDomain},
@@ -1455,7 +1458,7 @@ func (portal *Portal) UpdateParent(parentID string) bool {
 	}
 	portal.ParentID = parentID
 	if portal.ParentID != "" {
-		portal.Parent = portal.bridge.GetExistingPortalByID(database.NewPortalKey(parentID, ""))
+		portal.Parent = portal.bridge.GetPortalByID(database.NewPortalKey(parentID, ""), discordgo.ChannelTypeGuildCategory)
 	} else {
 		portal.Parent = nil
 	}

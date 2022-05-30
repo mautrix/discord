@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	log "maunium.net/go/maulogger/v2"
 
 	"github.com/bwmarrin/discordgo"
@@ -223,7 +224,13 @@ func (br *DiscordBridge) startUsers() {
 			err := user.Connect()
 			if err != nil {
 				user.log.Errorfln("Error connecting: %v", err)
-				user.BridgeState.Send(bridge.State{StateEvent: bridge.StateUnknownError, Message: err.Error()})
+				if closeErr := (&websocket.CloseError{}); errors.As(err, &closeErr) && closeErr.Code == 4004 {
+					user.BridgeState.Send(bridge.State{StateEvent: bridge.StateBadCredentials, Message: err.Error()})
+					user.DiscordToken = ""
+					user.Update()
+				} else {
+					user.BridgeState.Send(bridge.State{StateEvent: bridge.StateUnknownError, Message: err.Error()})
+				}
 			}
 		}(u)
 	}

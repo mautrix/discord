@@ -77,6 +77,9 @@ bridge:
 
     # Should the bridge send a read receipt from the bridge bot when a message has been sent to Discord?
     delivery_receipts: false
+    # Should the bridge use space-restricted join rules instead of invite-only for guild rooms?
+    # This can avoid unnecessary invite events in guild rooms when members are synced in.
+    restricted_rooms: true
     # Should the bridge sync with double puppeting to receive EDUs that aren't normally sent to appservices.
     sync_with_custom_puppets: true
     # Should the bridge update the m.direct account data event when double puppeting is enabled.

@@ -333,7 +333,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 			}},
 		})
 	}
-	if portal.Guild != nil && portal.Guild.MXID != "" {
+	if portal.bridge.Config.Bridge.RestrictedRooms && portal.Guild != nil && portal.Guild.MXID != "" {
 		// TODO don't do this for private channels in guilds
 		initialState = append(initialState, &event.Event{
 			Type: event.StateJoinRules,
@@ -346,7 +346,6 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 			}},
 		})
 	}
-	// TODO set restricted join rule based on guild
 
 	var invite []id.UserID
 

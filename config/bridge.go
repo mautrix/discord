@@ -32,6 +32,7 @@ type BridgeConfig struct {
 	ChannelnameTemplate string `yaml:"channelname_template"`
 
 	DeliveryReceipts bool `yaml:"delivery_receipts"`
+	RestrictedRooms  bool `yaml:"restricted_rooms"`
 
 	CommandPrefix string `yaml:"command_prefix"`
 

@@ -69,8 +69,13 @@ bridge:
     # {{.}} is replaced with the internal ID of the Discord user.
     username_template: discord_{{.}}
     # Displayname template for Discord users.
-    # TODO: document variables
-    displayname_template: '{{.Username}}#{{.Discriminator}} (D){{if .Bot}} (bot){{end}}'
+    # Available fields:
+    #   .ID - Internal user ID
+    #   .Username - User's displayname on Discord
+    #   .Discriminator - The 4 numbers after the name on Discord
+    #   .Bot - Whether the user is a bot
+    #   .System - Whether the user is an official system user
+    displayname_template: '{{.Username}}#{{.Discriminator}} {{if .Bot}} (bot){{end}}'
     channelname_template: '{{if .Guild}}{{.Guild}} - {{end}}{{if .Folder}}{{.Folder}} - {{end}}{{.Name}} (D)'
 
     portal_message_buffer: 128

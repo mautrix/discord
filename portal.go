@@ -1401,16 +1401,15 @@ func (portal *Portal) UpdateGroupDMAvatar(iconID string) bool {
 	}
 	portal.Avatar = iconID
 	portal.AvatarSet = false
+	portal.AvatarURL = id.ContentURI{}
 	if portal.Avatar != "" {
 		uri, err := uploadAvatar(portal.MainIntent(), discordgo.EndpointGroupIcon(portal.Key.ChannelID, portal.Avatar))
 		if err != nil {
-			portal.log.Warnln("Failed to reupload avatar:", err)
+			portal.log.Warnfln("Failed to reupload channel avatar %s: %v", portal.Avatar, err)
 			return true
 		} else {
 			portal.AvatarURL = uri
 		}
-	} else {
-		portal.AvatarURL = id.ContentURI{}
 	}
 	portal.updateRoomAvatar()
 	return true

@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	log "maunium.net/go/maulogger/v2"
+
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -265,15 +266,14 @@ func (guild *Guild) UpdateAvatar(iconID string) bool {
 	}
 	guild.AvatarSet = false
 	guild.Avatar = iconID
+	guild.AvatarURL = id.ContentURI{}
 	if guild.Avatar != "" {
 		var err error
 		guild.AvatarURL, err = uploadAvatar(guild.bridge.Bot, discordgo.EndpointGuildIcon(guild.ID, iconID))
 		if err != nil {
-			guild.log.Warnln("Failed to reupload avatar %s: %v", iconID, err)
+			guild.log.Warnfln("Failed to reupload guild avatar %s: %v", guild.Avatar, err)
 			return true
 		}
-	} else {
-		guild.AvatarURL = id.ContentURI{}
 	}
 	if guild.MXID != "" {
 		_, err := guild.bridge.Bot.SetRoomAvatar(guild.MXID, guild.AvatarURL)

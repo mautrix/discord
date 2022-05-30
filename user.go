@@ -454,7 +454,6 @@ func (user *User) Connect() error {
 
 	user.Session = session
 
-	// Add our event handlers
 	user.Session.AddHandler(user.readyHandler)
 	user.Session.AddHandler(user.connectedHandler)
 	user.Session.AddHandler(user.disconnectedHandler)
@@ -482,7 +481,6 @@ func (user *User) Connect() error {
 func (user *User) Disconnect() error {
 	user.Lock()
 	defer user.Unlock()
-
 	if user.Session == nil {
 		return ErrNotConnected
 	}
@@ -490,9 +488,7 @@ func (user *User) Disconnect() error {
 	if err := user.Session.Close(); err != nil {
 		return err
 	}
-
 	user.Session = nil
-
 	return nil
 }
 
@@ -507,14 +503,13 @@ func (user *User) bridgeMessage(guildID string) bool {
 		return true
 	}
 
-	user.log.Debugfln("Cgnoring message for non-bridged guild %s", guildID)
+	user.log.Debugfln("Ignoring message for non-bridged guild %s", guildID)
 	return false
 }
 
 func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	user.log.Debugln("Discord connection ready")
 
-	// Update our user fields
 	if user.DiscordID != r.User.ID {
 		user.DiscordID = r.User.ID
 		user.Update()

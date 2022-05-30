@@ -206,16 +206,16 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 	if puppet.Avatar == info.Avatar && puppet.AvatarSet {
 		return false
 	}
+	avatarChanged := info.Avatar != puppet.Avatar
 	puppet.Avatar = info.Avatar
 	puppet.AvatarSet = false
+	puppet.AvatarURL = id.ContentURI{}
 
-	if puppet.Avatar == "" {
-		// TODO should we just use discord's default avatars?
-		puppet.AvatarURL = id.ContentURI{}
-	} else {
+	// TODO should we just use discord's default avatars for users with no avatar?
+	if puppet.Avatar != "" && (puppet.AvatarURL.IsEmpty() || avatarChanged) {
 		url, err := uploadAvatar(puppet.DefaultIntent(), info.AvatarURL(""))
 		if err != nil {
-			puppet.log.Warnln("Failed to reupload user avatar:", err)
+			puppet.log.Warnfln("Failed to reupload user avatar %s: %v", puppet.Avatar, err)
 			return true
 		}
 		puppet.AvatarURL = url

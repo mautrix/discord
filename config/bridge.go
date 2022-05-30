@@ -31,6 +31,8 @@ type BridgeConfig struct {
 	DisplaynameTemplate string `yaml:"displayname_template"`
 	ChannelnameTemplate string `yaml:"channelname_template"`
 
+	DeliveryReceipts bool `yaml:"delivery_receipts"`
+
 	CommandPrefix string `yaml:"command_prefix"`
 
 	ManagementRoomText bridgeconfig.ManagementRoomTexts `yaml:"management_room_text"`

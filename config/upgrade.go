@@ -29,6 +29,7 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Str, "bridge", "displayname_template")
 	helper.Copy(up.Str, "bridge", "channelname_template")
 	helper.Copy(up.Int, "bridge", "portal_message_buffer")
+	helper.Copy(up.Bool, "bridge", "delivery_receipts")
 	helper.Copy(up.Bool, "bridge", "sync_with_custom_puppets")
 	helper.Copy(up.Bool, "bridge", "sync_direct_chat_list")
 	helper.Copy(up.Bool, "bridge", "federate_rooms")

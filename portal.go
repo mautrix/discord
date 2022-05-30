@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -536,6 +537,7 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgI
 	if threadRelation != nil {
 		threadRelation.InReplyTo.EventID = resp.EventID
 	}
+	go portal.sendDeliveryReceipt(resp.EventID)
 }
 
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
@@ -618,6 +620,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		if threadRelation != nil {
 			threadRelation.InReplyTo.EventID = resp.EventID
 		}
+		go portal.sendDeliveryReceipt(resp.EventID)
 	}
 
 	for _, attachment := range msg.Attachments {
@@ -714,12 +717,14 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		editTS = msg.EditedTimestamp.UnixMilli()
 	}
 	// TODO figure out some way to deduplicate outgoing edits
-	_, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, editTS)
+	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, editTS)
 	if err != nil {
 		portal.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
 
 		return
 	}
+
+	portal.sendDeliveryReceipt(resp.EventID)
 
 	//ts, _ := msg.Timestamp.Parse()
 	//portal.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
@@ -747,11 +752,12 @@ func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Mess
 			attachment.Delete()
 		}
 
-		_, err := intent.RedactEvent(portal.MXID, existing.MXID)
+		resp, err := intent.RedactEvent(portal.MXID, existing.MXID)
 		if err != nil {
 			portal.log.Warnfln("Failed to redact message %s: %v", existing.MXID, err)
 		}
 		existing.Delete()
+		portal.sendDeliveryReceipt(resp.EventID)
 	}
 }
 
@@ -914,12 +920,14 @@ func (portal *Portal) startThreadFromMatrix(sender *User, threadRoot id.EventID)
 
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("user is not portal receiver"), true, 0)
 		return
 	}
 
 	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
 	if !ok {
 		portal.log.Debugfln("Failed to handle event %s: unexpected parsed content type %T", evt.ID, evt.Content.Parsed)
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, fmt.Errorf("unexpected parsed content type %T", evt.Content.Parsed), true, 0)
 		return
 	}
 
@@ -972,7 +980,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		data, err := portal.downloadMatrixAttachment(evt.ID, content)
 		if err != nil {
 			portal.log.Errorfln("Failed to download matrix attachment: %v", err)
-
+			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
 			return
 		}
 
@@ -983,12 +991,14 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}}
 	default:
 		portal.log.Warnln("Unknown message type", content.MsgType)
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, fmt.Errorf("unsupported msgtype %s", content.MsgType), true, 0)
 		return
 	}
 	sendReq.Nonce = generateNonce()
 	msg, err := sender.Session.ChannelMessageSendComplex(channelID, &sendReq)
 	if err != nil {
 		portal.log.Errorfln("Failed to send message: %v", err)
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
 		return
 	}
 
@@ -1001,6 +1011,18 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		dbMsg.Timestamp, _ = discordgo.SnowflakeTimestamp(msg.ID)
 		dbMsg.ThreadID = threadID
 		dbMsg.Insert()
+		portal.log.Debugfln("Handled Matrix event %s", evt.ID)
+		portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
+		portal.sendDeliveryReceipt(evt.ID)
+	}
+}
+
+func (portal *Portal) sendDeliveryReceipt(eventID id.EventID) {
+	if portal.bridge.Config.Bridge.DeliveryReceipts {
+		err := portal.bridge.Bot.MarkRead(portal.MXID, eventID)
+		if err != nil {
+			portal.log.Debugfln("Failed to send delivery receipt for %s: %v", eventID, err)
+		}
 	}
 }
 
@@ -1117,12 +1139,14 @@ func (portal *Portal) getMatrixUsers() ([]id.UserID, error) {
 
 func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("user is not portal receiver"), true, 0)
 		return
 	}
 
 	reaction := evt.Content.AsReaction()
 	if reaction.RelatesTo.Type != event.RelAnnotation {
 		portal.log.Errorfln("Ignoring reaction %s due to unknown m.relates_to data", evt.ID)
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("unknown m.relates_to data"), true, 0)
 		return
 	}
 
@@ -1146,6 +1170,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	if msg == nil {
 		attachment := portal.bridge.DB.Attachment.GetByMatrixID(portal.Key, reaction.RelatesTo.EventID)
 		if attachment == nil {
+			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("unknown reaction target"), true, 0)
 			return
 		}
 		discordID = attachment.MessageID
@@ -1162,6 +1187,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 		emoji := portal.bridge.DB.Emoji.GetByMatrixURL(uri)
 		if emoji == nil {
 			portal.log.Errorfln("Couldn't find emoji corresponding to %s", emojiID)
+			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("unknown emoji"), true, 0)
 			return
 		}
 
@@ -1176,6 +1202,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	err := sender.Session.MessageReactionAdd(channelID, discordID, emojiID)
 	if err != nil {
 		portal.log.Debugf("Failed to send reaction to %s: %v", discordID, err)
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
 		return
 	}
 
@@ -1187,6 +1214,9 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	dbReaction.ThreadID = threadID
 	dbReaction.MXID = evt.ID
 	dbReaction.Insert()
+	portal.log.Debugfln("Handled Matrix reaction %s", evt.ID)
+	portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
+	portal.sendDeliveryReceipt(evt.ID)
 }
 
 func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool, thread *Thread) {
@@ -1243,13 +1273,13 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 			return
 		}
 
-		_, err := intent.RedactEvent(portal.MXID, existing.MXID)
+		resp, err := intent.RedactEvent(portal.MXID, existing.MXID)
 		if err != nil {
 			portal.log.Warnfln("Failed to remove reaction from %s: %v", portal.MXID, err)
 		}
 
 		existing.Delete()
-
+		go portal.sendDeliveryReceipt(resp.EventID)
 		return
 	} else if existing != nil {
 		portal.log.Debugfln("Ignoring duplicate reaction %s from %s to %s", discordID, reaction.UserID, message.DiscordID)
@@ -1287,11 +1317,13 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 			dbReaction.ThreadID = thread.ID
 		}
 		dbReaction.Insert()
+		portal.sendDeliveryReceipt(dbReaction.MXID)
 	}
 }
 
 func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
+		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("user is not portal receiver"), true, 0)
 		return
 	}
 
@@ -1301,8 +1333,11 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 		err := sender.Session.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID)
 		if err != nil {
 			portal.log.Debugfln("Failed to delete discord message %s: %v", message.DiscordID, err)
+			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
 		} else {
 			message.Delete()
+			portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
+			portal.sendDeliveryReceipt(evt.ID)
 		}
 		return
 	}
@@ -1313,14 +1348,18 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 		err := sender.Session.MessageReactionRemove(reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
 		if err != nil {
 			portal.log.Debugfln("Failed to delete reaction %s from %s: %v", reaction.EmojiName, reaction.MessageID, err)
+			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
 		} else {
 			reaction.Delete()
+			portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
+			portal.sendDeliveryReceipt(evt.ID)
 		}
 
 		return
 	}
 
 	portal.log.Warnfln("Failed to redact %s: no event found", evt.Redacts)
+	portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("redaction target not found"), true, 0)
 }
 
 func (portal *Portal) UpdateName(name string) bool {

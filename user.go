@@ -44,6 +44,19 @@ type User struct {
 	dmSpaceMembershipChecked bool
 
 	Session *discordgo.Session
+
+	BridgeState *bridge.BridgeStateQueue
+}
+
+func (user *User) GetRemoteID() string {
+	return user.DiscordID
+}
+
+func (user *User) GetRemoteName() string {
+	if user.Session != nil && user.Session.State != nil && user.Session.State.User != nil {
+		return fmt.Sprintf("%s#%s", user.Session.State.User.Username, user.Session.State.User.Discriminator)
+	}
+	return user.DiscordID
 }
 
 var discordLog log.Logger
@@ -177,6 +190,7 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 	}
 
 	user.PermissionLevel = br.Config.Bridge.Permissions.Get(user.MXID)
+	user.BridgeState = br.NewBridgeStateQueue(user, user.log)
 
 	return user
 }
@@ -202,13 +216,19 @@ func (br *DiscordBridge) getAllUsersWithToken() []*User {
 func (br *DiscordBridge) startUsers() {
 	br.Log.Debugln("Starting users")
 
-	for _, u := range br.getAllUsersWithToken() {
+	usersWithToken := br.getAllUsersWithToken()
+	for _, u := range usersWithToken {
 		go func(user *User) {
+			user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnecting})
 			err := user.Connect()
 			if err != nil {
 				user.log.Errorfln("Error connecting: %v", err)
+				user.BridgeState.Send(bridge.State{StateEvent: bridge.StateUnknownError, Message: err.Error()})
 			}
 		}(u)
+	}
+	if len(usersWithToken) == 0 {
+		br.SendGlobalBridgeState(bridge.State{StateEvent: bridge.StateUnconfigured}.Fill(nil))
 	}
 
 	br.Log.Debugln("Starting custom puppets")
@@ -499,6 +519,7 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.DiscordID = r.User.ID
 		user.Update()
 	}
+	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateBackfilling})
 
 	updateTS := time.Now()
 	portalsInSpace := make(map[string]bool)
@@ -514,6 +535,7 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		portal := user.GetPortalByMeta(ch)
 		user.handlePrivateChannel(portal, ch, updateTS, i < maxCreate, portalsInSpace[portal.Key.String()])
 	}
+	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnected})
 }
 
 func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, timestamp time.Time, create, isInSpace bool) {
@@ -592,6 +614,7 @@ func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
 
 func (user *User) disconnectedHandler(_ *discordgo.Session, d *discordgo.Disconnect) {
 	user.log.Debugln("Disconnected from discord")
+	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateTransientDisconnect})
 }
 
 func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {

@@ -610,6 +610,9 @@ func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
 	user.log.Debugln("Connected to discord")
 
 	user.tryAutomaticDoublePuppeting()
+	if user.BridgeState.GetPrev().StateEvent == bridge.StateTransientDisconnect {
+		user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnected})
+	}
 }
 
 func (user *User) disconnectedHandler(_ *discordgo.Session, d *discordgo.Disconnect) {

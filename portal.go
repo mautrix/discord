@@ -287,6 +287,9 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	portal.log.Infoln("Creating Matrix room for channel")
 
 	channel = portal.UpdateInfo(user, channel)
+	if channel == nil {
+		return fmt.Errorf("didn't find channel metadata")
+	}
 
 	intent := portal.MainIntent()
 	if err := intent.EnsureRegistered(); err != nil {
@@ -1521,6 +1524,20 @@ func (portal *Portal) updateSpace() bool {
 
 func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discordgo.Channel {
 	changed := false
+
+	if meta == nil {
+		portal.log.Debugfln("UpdateInfo called without metadata, fetching from %s's state cache", source.DiscordID)
+		meta, _ = source.Session.State.Channel(portal.Key.ChannelID)
+		if meta == nil {
+			portal.log.Warnfln("No metadata found in state cache, fetching from server via %s", source.DiscordID)
+			var err error
+			meta, err = source.Session.Channel(portal.Key.ChannelID)
+			if err != nil {
+				portal.log.Errorfln("Failed to fetch meta via %s: %v", source.DiscordID, err)
+				return nil
+			}
+		}
+	}
 
 	if portal.Type != meta.Type {
 		portal.log.Warnfln("Portal type changed from %d to %d", portal.Type, meta.Type)

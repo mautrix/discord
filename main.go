@@ -169,6 +169,8 @@ func main() {
 		Version:      "0.1.0",
 		ProtocolName: "Discord",
 
+		CryptoPickleKey: "maunium.net/go/mautrix-whatsapp",
+
 		ConfigUpgrader: &configupgrade.StructUpgrader{
 			SimpleUpgrader: configupgrade.SimpleUpgrader(config.DoUpgrade),
 			Blocks:         config.SpacedBlocks,

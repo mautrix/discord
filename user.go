@@ -506,7 +506,7 @@ func (user *User) bridgeMessage(guildID string) bool {
 	}
 
 	guild := user.bridge.GetGuildByID(guildID, false)
-	if guild.MXID != "" {
+	if guild != nil && guild.MXID != "" {
 		return true
 	}
 

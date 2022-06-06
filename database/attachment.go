@@ -16,7 +16,7 @@ type AttachmentQuery struct {
 }
 
 const (
-	attachmentSelect = "SELECT dcid, dc_msg_id, dc_chan_id, dc_chan_receiver, dc_thread_id FROM attachment"
+	attachmentSelect = "SELECT dcid, dc_msg_id, dc_chan_id, dc_chan_receiver, dc_thread_id, mxid FROM attachment"
 )
 
 func (aq *AttachmentQuery) New() *Attachment {
@@ -106,8 +106,8 @@ func (a *Attachment) Scan(row dbutil.Scannable) *Attachment {
 
 func (a *Attachment) Insert() {
 	query := `
-		INSERT INTO attachment (dcid, dc_msg_id, dc_chan_id, dc_chan_receiver, mxid)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO attachment (dcid, dc_msg_id, dc_chan_id, dc_chan_receiver, dc_thread_id, mxid)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	_, err := a.db.Exec(query, a.ID, a.MessageID, a.Channel.ChannelID, a.Channel.Receiver, strPtr(a.ThreadID), a.MXID)
 	if err != nil {

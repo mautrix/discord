@@ -81,7 +81,8 @@ type Reaction struct {
 }
 
 func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
-	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &r.ThreadID, &r.MXID)
+	var threadID sql.NullString
+	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &threadID, &r.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			r.log.Errorln("Database scan failed:", err)
@@ -89,6 +90,7 @@ func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
 		}
 		return nil
 	}
+	r.ThreadID = threadID.String
 
 	return r
 }

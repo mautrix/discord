@@ -166,7 +166,7 @@ var cmdLogout = &commands.FullHandler{
 	Name: "logout",
 	Help: commands.HelpMeta{
 		Section:     commands.HelpSectionAuth,
-		Description: "Unlink the bridge from your WhatsApp account.",
+		Description: "Forget the stored Discord auth token.",
 	},
 	RequiresLogin: true,
 }

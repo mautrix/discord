@@ -906,5 +906,5 @@ func (user *User) unbridgeGuild(guildID string) error {
 	//	}
 	//}
 
-	return nil
+	return errors.New("unbridging is not currently supported")
 }

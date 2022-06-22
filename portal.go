@@ -278,6 +278,15 @@ func (portal *Portal) UpdateBridgeInfo() {
 	}
 }
 
+func (portal *Portal) GetEncryptionEventContent() (evt *event.EncryptionEventContent) {
+	evt = &event.EncryptionEventContent{Algorithm: id.AlgorithmMegolmV1}
+	if rot := portal.bridge.Config.Bridge.Encryption.Rotation; rot.EnableCustom {
+		evt.RotationPeriodMillis = rot.Milliseconds
+		evt.RotationPeriodMessages = rot.Messages
+	}
+	return
+}
+
 func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) error {
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()
@@ -356,7 +365,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		initialState = append(initialState, &event.Event{
 			Type: event.StateEncryption,
 			Content: event.Content{
-				Parsed: event.EncryptionEventContent{Algorithm: id.AlgorithmMegolmV1},
+				Parsed: portal.GetEncryptionEventContent(),
 			},
 		})
 		portal.Encrypted = true

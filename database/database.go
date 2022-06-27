@@ -14,15 +14,14 @@ import (
 type Database struct {
 	*dbutil.Database
 
-	User       *UserQuery
-	Portal     *PortalQuery
-	Puppet     *PuppetQuery
-	Message    *MessageQuery
-	Thread     *ThreadQuery
-	Reaction   *ReactionQuery
-	Attachment *AttachmentQuery
-	Emoji      *EmojiQuery
-	Guild      *GuildQuery
+	User     *UserQuery
+	Portal   *PortalQuery
+	Puppet   *PuppetQuery
+	Message  *MessageQuery
+	Thread   *ThreadQuery
+	Reaction *ReactionQuery
+	Emoji    *EmojiQuery
+	Guild    *GuildQuery
 }
 
 func New(baseDB *dbutil.Database) *Database {
@@ -51,10 +50,6 @@ func New(baseDB *dbutil.Database) *Database {
 	db.Reaction = &ReactionQuery{
 		db:  db,
 		log: db.Log.Sub("Reaction"),
-	}
-	db.Attachment = &AttachmentQuery{
-		db:  db,
-		log: db.Log.Sub("Attachment"),
 	}
 	db.Emoji = &EmojiQuery{
 		db:  db,

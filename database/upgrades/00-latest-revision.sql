@@ -1,4 +1,4 @@
--- v0 -> v3: Latest revision
+-- v0 -> v4: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -90,6 +90,8 @@ CREATE TABLE user_portal (
 
 CREATE TABLE message (
     dcid             TEXT,
+    dc_attachment_id TEXT,
+    dc_edit_index    INTEGER,
     dc_chan_id       TEXT,
     dc_chan_receiver TEXT,
     dc_sender        TEXT NOT NULL,
@@ -98,7 +100,7 @@ CREATE TABLE message (
 
     mxid TEXT NOT NULL UNIQUE,
 
-    PRIMARY KEY (dcid, dc_chan_id, dc_chan_receiver),
+    PRIMARY KEY (dcid, dc_attachment_id, dc_edit_index, dc_chan_id, dc_chan_receiver),
     CONSTRAINT message_portal_fkey FOREIGN KEY (dc_chan_id, dc_chan_receiver) REFERENCES portal (dcid, receiver) ON DELETE CASCADE
 );
 
@@ -110,10 +112,13 @@ CREATE TABLE reaction (
     dc_emoji_name    TEXT,
     dc_thread_id     TEXT,
 
+    dc_first_attachment_id TEXT NOT NULL,
+    _dc_first_edit_index   INTEGER NOT NULL DEFAULT 0,
+
     mxid TEXT NOT NULL UNIQUE,
 
     PRIMARY KEY (dc_chan_id, dc_chan_receiver, dc_msg_id, dc_sender, dc_emoji_name),
-    CONSTRAINT reaction_message_fkey FOREIGN KEY (dc_msg_id, dc_chan_id, dc_chan_receiver) REFERENCES message (dcid, dc_chan_id, dc_chan_receiver) ON DELETE CASCADE
+    CONSTRAINT reaction_message_fkey FOREIGN KEY (dc_msg_id, dc_first_attachment_id, _dc_first_edit_index, dc_chan_id, dc_chan_receiver) REFERENCES message (dcid, dc_attachment_id, dc_edit_index, dc_chan_id, dc_chan_receiver) ON DELETE CASCADE
 );
 
 CREATE TABLE attachment (

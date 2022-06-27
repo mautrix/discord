@@ -690,8 +690,27 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 
 	intent := portal.bridge.GetPuppetByID(msg.Author.ID).IntentFor(portal)
 
+	attachmentMap := map[string]*database.Message{}
+	for _, existingPart := range existing {
+		if existingPart.AttachmentID != "" {
+			attachmentMap[existingPart.AttachmentID] = existingPart
+		}
+	}
+	for _, attachment := range msg.Attachments {
+		if _, found := attachmentMap[attachment.ID]; found {
+			delete(attachmentMap, attachment.ID)
+		}
+	}
+	for _, attachment := range attachmentMap {
+		_, err := intent.RedactEvent(portal.MXID, attachment.MXID)
+		if err != nil {
+			portal.log.Warnfln("Failed to remove attachment %s: %v", attachment.MXID, err)
+		}
+		attachment.Delete()
+	}
+
 	if msg.Content == "" || existing[0].AttachmentID != "" {
-		portal.log.Debugfln("Dropping non-text edit to %s", msg.ID)
+		portal.log.Debugfln("Dropping non-text edit to %s (message on matrix: %t, text on discord: %t)", msg.ID, existing[0].AttachmentID == "", len(msg.Content) > 0)
 		return
 	}
 	content := renderDiscordMarkdown(msg.Content)
@@ -1297,6 +1316,7 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 			portal.log.Debugfln("Failed to delete discord message %s: %v", message.DiscordID, err)
 			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
 		} else {
+			// TODO add support for deleting individual attachments from messages
 			message.Delete()
 			portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
 			portal.sendDeliveryReceipt(evt.ID)

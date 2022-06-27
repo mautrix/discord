@@ -169,12 +169,10 @@ func (m *Message) Insert() {
 }
 
 func (m *Message) Delete() {
-	query := "DELETE FROM message WHERE dcid=$1 AND dc_chan_id=$2 AND dc_chan_receiver=$3"
-
-	_, err := m.db.Exec(query, m.DiscordID, m.Channel.ChannelID, m.Channel.Receiver)
-
+	query := "DELETE FROM message WHERE dcid=$1 AND dc_chan_id=$2 AND dc_chan_receiver=$3 AND dc_attachment_id=$4"
+	_, err := m.db.Exec(query, m.DiscordID, m.Channel.ChannelID, m.Channel.Receiver, m.AttachmentID)
 	if err != nil {
-		m.log.Warnfln("Failed to delete %s@%s: %v", m.DiscordID, m.Channel, err)
+		m.log.Warnfln("Failed to delete %q of %s@%s: %v", m.AttachmentID, m.DiscordID, m.Channel, err)
 		panic(err)
 	}
 }

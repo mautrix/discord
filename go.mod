@@ -11,7 +11,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/yuin/goldmark v1.4.12
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.11.1-0.20220621174128-b64dc2427d45
+	maunium.net/go/mautrix v0.11.1-0.20220627081123-442224f153d1
 )
 
 require (

@@ -17,6 +17,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"text/template"
@@ -31,8 +32,10 @@ type BridgeConfig struct {
 	DisplaynameTemplate string `yaml:"displayname_template"`
 	ChannelnameTemplate string `yaml:"channelname_template"`
 
-	DeliveryReceipts bool `yaml:"delivery_receipts"`
-	RestrictedRooms  bool `yaml:"restricted_rooms"`
+	DeliveryReceipts    bool `yaml:"delivery_receipts"`
+	MessageStatusEvents bool `yaml:"message_status_events"`
+	MessageErrorNotices bool `yaml:"message_error_notices"`
+	RestrictedRooms     bool `yaml:"restricted_rooms"`
 
 	CommandPrefix string `yaml:"command_prefix"`
 
@@ -60,6 +63,32 @@ type BridgeConfig struct {
 	usernameTemplate    *template.Template `yaml:"-"`
 	displaynameTemplate *template.Template `yaml:"-"`
 	channelnameTemplate *template.Template `yaml:"-"`
+}
+
+func (bc *BridgeConfig) EnableMessageStatusEvents() bool {
+	return bc.MessageStatusEvents
+}
+
+func (bc *BridgeConfig) EnableMessageErrorNotices() bool {
+	return bc.MessageErrorNotices
+}
+
+func boolToInt(val bool) int {
+	if val {
+		return 1
+	}
+	return 0
+}
+
+func (bc *BridgeConfig) Validate() error {
+	_, hasWildcard := bc.Permissions["*"]
+	_, hasExampleDomain := bc.Permissions["example.com"]
+	_, hasExampleUser := bc.Permissions["@admin:example.com"]
+	exampleLen := boolToInt(hasWildcard) + boolToInt(hasExampleUser) + boolToInt(hasExampleDomain)
+	if len(bc.Permissions) <= exampleLen {
+		return errors.New("bridge.permissions not configured")
+	}
+	return nil
 }
 
 type umBridgeConfig BridgeConfig

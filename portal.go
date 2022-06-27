@@ -242,7 +242,7 @@ func (portal *Portal) getBridgeInfo() (string, event.BridgeEventContent) {
 		BridgeBot: portal.bridge.Bot.UserID,
 		Creator:   portal.MainIntent().UserID,
 		Protocol: event.BridgeInfoSection{
-			ID:          "discordgo",
+			ID:          "discord",
 			DisplayName: "Discord",
 			AvatarURL:   portal.bridge.Config.AppService.Bot.ParsedAvatar.CUString(),
 			ExternalURL: "https://discord.com/",

@@ -1388,6 +1388,8 @@ func (portal *Portal) UpdateTopic(topic string) bool {
 		_, err := portal.MainIntent().SetRoomTopic(portal.MXID, portal.Topic)
 		if err != nil {
 			portal.log.Warnln("Failed to update room topic:", err)
+		} else {
+			portal.TopicSet = true
 		}
 	}
 	return true

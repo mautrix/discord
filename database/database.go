@@ -2,7 +2,6 @@ package database
 
 import (
 	_ "embed"
-	"fmt"
 
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
@@ -26,19 +25,8 @@ type Database struct {
 	Guild      *GuildQuery
 }
 
-//go:embed legacymigrate.sql
-var legacyMigrate string
-
 func New(baseDB *dbutil.Database) *Database {
 	db := &Database{Database: baseDB}
-	_, err := db.Exec("SELECT id FROM version")
-	if err == nil {
-		baseDB.Log.Infoln("Migrating from legacy database versioning")
-		_, err = db.Exec(legacyMigrate)
-		if err != nil {
-			panic(fmt.Errorf("failed to migrate from legacy database versioning: %v", err))
-		}
-	}
 	db.UpgradeTable = upgrades.Table
 	db.User = &UserQuery{
 		db:  db,

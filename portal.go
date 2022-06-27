@@ -246,6 +246,7 @@ func (portal *Portal) getBridgeInfo() (string, event.BridgeEventContent) {
 	var bridgeInfoStateKey string
 	if portal.GuildID == "" {
 		bridgeInfoStateKey = fmt.Sprintf("fi.mau.discord://discord/dm/%s", portal.Key.ChannelID)
+		bridgeInfo.Channel.ExternalURL = fmt.Sprintf("https://discord.com/channels/@me/%s", portal.Key.ChannelID)
 	} else {
 		bridgeInfo.Network = &event.BridgeInfoSection{
 			ID: portal.GuildID,
@@ -256,6 +257,7 @@ func (portal *Portal) getBridgeInfo() (string, event.BridgeEventContent) {
 			// TODO is it possible to find the URL?
 		}
 		bridgeInfoStateKey = fmt.Sprintf("fi.mau.discord://discord/%s/%s", portal.GuildID, portal.Key.ChannelID)
+		bridgeInfo.Channel.ExternalURL = fmt.Sprintf("https://discord.com/channels/%s/%s", portal.GuildID, portal.Key.ChannelID)
 	}
 	return bridgeInfoStateKey, bridgeInfo
 }

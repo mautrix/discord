@@ -121,19 +121,6 @@ CREATE TABLE reaction (
     CONSTRAINT reaction_message_fkey FOREIGN KEY (dc_msg_id, dc_first_attachment_id, _dc_first_edit_index, dc_chan_id, dc_chan_receiver) REFERENCES message (dcid, dc_attachment_id, dc_edit_index, dc_chan_id, dc_chan_receiver) ON DELETE CASCADE
 );
 
-CREATE TABLE attachment (
-    dcid             TEXT,
-    dc_msg_id        TEXT,
-    dc_chan_id       TEXT,
-    dc_chan_receiver TEXT,
-    dc_thread_id     TEXT,
-
-    mxid TEXT NOT NULL UNIQUE,
-
-    PRIMARY KEY (dcid, dc_msg_id, dc_chan_id, dc_chan_receiver),
-    CONSTRAINT attachment_message_fkey FOREIGN KEY (dc_msg_id, dc_chan_id, dc_chan_receiver) REFERENCES message (dcid, dc_chan_id, dc_chan_receiver) ON DELETE CASCADE
-);
-
 CREATE TABLE emoji (
     discord_id   TEXT PRIMARY KEY,
     discord_name TEXT,

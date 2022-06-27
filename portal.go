@@ -165,6 +165,15 @@ func (br *DiscordBridge) GetAllPortals() []*Portal {
 	return br.dbPortalsToPortals(br.DB.Portal.GetAll())
 }
 
+func (br *DiscordBridge) GetAllIPortals() (iportals []bridge.Portal) {
+	portals := br.GetAllPortals()
+	iportals = make([]bridge.Portal, len(portals))
+	for i, portal := range portals {
+		iportals[i] = portal
+	}
+	return iportals
+}
+
 func (br *DiscordBridge) GetDMPortalsWith(otherUserID string) []*Portal {
 	return br.dbPortalsToPortals(br.DB.Portal.FindPrivateChatsWith(otherUserID))
 }
@@ -233,7 +242,7 @@ func (portal *Portal) getBridgeInfo() (string, event.BridgeEventContent) {
 		BridgeBot: portal.bridge.Bot.UserID,
 		Creator:   portal.MainIntent().UserID,
 		Protocol: event.BridgeInfoSection{
-			ID:          "discord",
+			ID:          "discordgo",
 			DisplayName: "Discord",
 			AvatarURL:   portal.bridge.Config.AppService.Bot.ParsedAvatar.CUString(),
 			ExternalURL: "https://discord.com/",

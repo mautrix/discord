@@ -95,6 +95,9 @@ bridge:
     # Note that updating the m.direct event is not atomic (except with mautrix-asmux)
     # and is therefore prone to race conditions.
     sync_direct_chat_list: false
+    # Set this to true to tell the bridge to re-send m.bridge events to all rooms on the next run.
+    # This field will automatically be changed back to false after it, except if the config file is not writable.
+    resend_bridge_info: false
     # Whether or not created rooms should have federation enabled.
     # If false, created portal rooms will never be federated.
     federate_rooms: true

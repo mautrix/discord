@@ -45,6 +45,7 @@ type BridgeConfig struct {
 
 	SyncWithCustomPuppets bool `yaml:"sync_with_custom_puppets"`
 	SyncDirectChatList    bool `yaml:"sync_direct_chat_list"`
+	ResendBridgeInfo      bool `yaml:"resend_bridge_info"`
 	FederateRooms         bool `yaml:"federate_rooms"`
 
 	DoublePuppetServerMap      map[string]string `yaml:"double_puppet_server_map"`
@@ -63,6 +64,10 @@ type BridgeConfig struct {
 	usernameTemplate    *template.Template `yaml:"-"`
 	displaynameTemplate *template.Template `yaml:"-"`
 	channelnameTemplate *template.Template `yaml:"-"`
+}
+
+func (bc *BridgeConfig) GetResendBridgeInfo() bool {
+	return bc.ResendBridgeInfo
 }
 
 func (bc *BridgeConfig) EnableMessageStatusEvents() bool {

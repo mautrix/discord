@@ -83,7 +83,7 @@ bridge:
     # Should the bridge send a read receipt from the bridge bot when a message has been sent to Discord?
     delivery_receipts: false
     # Whether the bridge should send the message status as a custom com.beeper.message_send_status event.
-    message_status_events: true
+    message_status_events: false
     # Whether the bridge should send error notices via m.notice events when a message fails to bridge.
     message_error_notices: true
     # Should the bridge use space-restricted join rules instead of invite-only for guild rooms?

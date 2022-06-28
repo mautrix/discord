@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/util/variationselector"
 
 	"github.com/bwmarrin/discordgo"
@@ -909,16 +910,137 @@ func (portal *Portal) startThreadFromMatrix(sender *User, threadRoot id.EventID)
 	}
 }
 
+func (portal *Portal) sendErrorMessage(msgType, message string, confirmed bool) id.EventID {
+	if !portal.bridge.Config.Bridge.MessageErrorNotices {
+		return ""
+	}
+	certainty := "may not have been"
+	if confirmed {
+		certainty = "was not"
+	}
+	resp, err := portal.sendMatrixMessage(portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
+		MsgType: event.MsgNotice,
+		Body:    fmt.Sprintf("\u26a0 Your %s %s bridged: %v", msgType, certainty, message),
+	}, nil, 0)
+	if err != nil {
+		portal.log.Warnfln("Failed to send bridging error message:", err)
+		return ""
+	}
+	return resp.EventID
+}
+
+var (
+	errUnknownMsgType              = errors.New("unknown msgtype")
+	errUnexpectedParsedContentType = errors.New("unexpected parsed content type")
+	errUserNotReceiver             = errors.New("user is not portal receiver")
+	errUnknownEditTarget           = errors.New("unknown edit target")
+	errUnknownRelationType         = errors.New("unknown relation type")
+	errTargetNotFound              = errors.New("target event not found")
+	errUnknownEmoji                = errors.New("unknown emoji")
+)
+
+func errorToStatusReason(err error) (reason event.MessageStatusReason, isCertain, canRetry, sendNotice bool) {
+	switch {
+	case errors.Is(err, errUnknownMsgType),
+		errors.Is(err, errUnknownRelationType),
+		errors.Is(err, errUnexpectedParsedContentType),
+		errors.Is(err, errUnknownEmoji),
+		errors.Is(err, id.InvalidContentURI),
+		errors.Is(err, attachment.UnsupportedVersion),
+		errors.Is(err, attachment.UnsupportedAlgorithm):
+		return event.MessageStatusUnsupported, true, false, true
+	case errors.Is(err, attachment.HashMismatch),
+		errors.Is(err, attachment.InvalidKey),
+		errors.Is(err, attachment.InvalidInitVector):
+		return event.MessageStatusUndecryptable, true, false, true
+	case errors.Is(err, errUserNotReceiver):
+		return event.MessageStatusNoPermission, true, false, false
+	case errors.Is(err, errUnknownEditTarget):
+		return event.MessageStatusGenericError, true, false, false
+	case errors.Is(err, errTargetNotFound):
+		return event.MessageStatusGenericError, true, false, true
+	default:
+		return event.MessageStatusGenericError, false, true, true
+	}
+}
+
+func (portal *Portal) sendStatusEvent(evtID id.EventID, err error) {
+	if !portal.bridge.Config.Bridge.MessageStatusEvents {
+		return
+	}
+	intent := portal.bridge.Bot
+	if !portal.Encrypted {
+		// Bridge bot isn't present in unencrypted DMs
+		intent = portal.MainIntent()
+	}
+	stateKey, _ := portal.getBridgeInfo()
+	content := event.BeeperMessageStatusEventContent{
+		Network: stateKey,
+		RelatesTo: event.RelatesTo{
+			Type:    event.RelReference,
+			EventID: evtID,
+		},
+		Success: err == nil,
+	}
+	if !content.Success {
+		reason, isCertain, canRetry, _ := errorToStatusReason(err)
+		content.Reason = reason
+		content.IsCertain = &isCertain
+		content.CanRetry = &canRetry
+		content.Error = err.Error()
+	}
+	_, err = intent.SendMessageEvent(portal.MXID, event.BeeperMessageStatus, &content)
+	if err != nil {
+		portal.log.Warnln("Failed to send message status event:", err)
+	}
+}
+
+func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part string) {
+	var msgType string
+	switch evt.Type {
+	case event.EventMessage:
+		msgType = "message"
+	case event.EventReaction:
+		msgType = "reaction"
+	case event.EventRedaction:
+		msgType = "redaction"
+	default:
+		msgType = "unknown event"
+	}
+	evtDescription := evt.ID.String()
+	if evt.Type == event.EventRedaction {
+		evtDescription += fmt.Sprintf(" of %s", evt.Redacts)
+	}
+	if err != nil {
+		level := log.LevelError
+		if part == "Ignoring" {
+			level = log.LevelDebug
+		}
+		portal.log.Logfln(level, "%s %s %s from %s: %v", part, msgType, evtDescription, evt.Sender, err)
+		reason, isCertain, _, sendNotice := errorToStatusReason(err)
+		status := bridge.ReasonToCheckpointStatus(reason)
+		portal.bridge.SendMessageCheckpoint(evt, bridge.MsgStepRemote, err, status, 0)
+		if sendNotice {
+			portal.sendErrorMessage(msgType, err.Error(), isCertain)
+		}
+		portal.sendStatusEvent(evt.ID, err)
+	} else {
+		portal.log.Debugfln("Handled Matrix %s %s", msgType, evtDescription)
+		portal.sendDeliveryReceipt(evt.ID)
+		portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
+		portal.sendStatusEvent(evt.ID, nil)
+	}
+}
+
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("user is not portal receiver"), true, 0)
+		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
 		return
 	}
 
 	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
 	if !ok {
-		portal.log.Debugfln("Failed to handle event %s: unexpected parsed content type %T", evt.ID, evt.Content.Parsed)
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, fmt.Errorf("unexpected parsed content type %T", evt.Content.Parsed), true, 0)
+		go portal.sendMessageMetrics(evt, fmt.Errorf("%w %T", errUnexpectedParsedContentType, evt.Content.Parsed), "Ignoring")
 		return
 	}
 
@@ -929,12 +1051,11 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		edits := portal.bridge.DB.Message.GetByMXID(portal.Key, editMXID)
 		if edits != nil {
 			discordContent := portal.parseMatrixHTML(sender, content.NewContent)
-			// we don't have anything to save for the update message right now
-			// as we're not tracking edited timestamps.
+			// TODO save edit in message table
 			_, err := sender.Session.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
-			if err != nil {
-				portal.log.Errorln("Failed to update message %s: %v", edits.DiscordID, err)
-			}
+			go portal.sendMessageMetrics(evt, err, "Failed to edit")
+		} else {
+			go portal.sendMessageMetrics(evt, fmt.Errorf("%w %s", errUnknownEditTarget, editMXID), "Ignoring")
 		}
 		return
 	} else if threadRoot := content.GetRelatesTo().GetThreadParent(); threadRoot != "" {
@@ -968,10 +1089,9 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}
 		sendReq.Content = portal.parseMatrixHTML(sender, content)
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
-		data, err := portal.downloadMatrixAttachment(evt.ID, content)
+		data, err := portal.downloadMatrixAttachment(content)
 		if err != nil {
-			portal.log.Errorfln("Failed to download matrix attachment: %v", err)
-			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
+			go portal.sendMessageMetrics(evt, err, "Error downloading media in")
 			return
 		}
 
@@ -980,19 +1100,17 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			ContentType: content.Info.MimeType,
 			Reader:      bytes.NewReader(data),
 		}}
+		if content.FileName != "" && content.FileName != content.Body {
+			sendReq.Files[0].Name = content.FileName
+			sendReq.Content = portal.parseMatrixHTML(sender, content)
+		}
 	default:
-		portal.log.Warnln("Unknown message type", content.MsgType)
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, fmt.Errorf("unsupported msgtype %s", content.MsgType), true, 0)
+		go portal.sendMessageMetrics(evt, fmt.Errorf("%w %q", errUnknownMsgType, content.MsgType), "Ignoring")
 		return
 	}
 	sendReq.Nonce = generateNonce()
 	msg, err := sender.Session.ChannelMessageSendComplex(channelID, &sendReq)
-	if err != nil {
-		portal.log.Errorfln("Failed to send message: %v", err)
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
-		return
-	}
-
+	go portal.sendMessageMetrics(evt, err, "Error sending")
 	if msg != nil {
 		dbMsg := portal.bridge.DB.Message.New()
 		dbMsg.Channel = portal.Key
@@ -1005,9 +1123,6 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		dbMsg.Timestamp, _ = discordgo.SnowflakeTimestamp(msg.ID)
 		dbMsg.ThreadID = threadID
 		dbMsg.Insert()
-		portal.log.Debugfln("Handled Matrix event %s", evt.ID)
-		portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
-		portal.sendDeliveryReceipt(evt.ID)
 	}
 }
 
@@ -1133,20 +1248,20 @@ func (portal *Portal) getMatrixUsers() ([]id.UserID, error) {
 
 func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("user is not portal receiver"), true, 0)
+		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
 		return
 	}
 
 	reaction := evt.Content.AsReaction()
 	if reaction.RelatesTo.Type != event.RelAnnotation {
-		portal.log.Errorfln("Ignoring reaction %s due to unknown m.relates_to data", evt.ID)
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("unknown m.relates_to data"), true, 0)
+		go portal.sendMessageMetrics(evt, fmt.Errorf("%w %s", errUnknownRelationType, reaction.RelatesTo.Type), "Ignoring")
 		return
 	}
 
 	msg := portal.bridge.DB.Message.GetByMXID(portal.Key, reaction.RelatesTo.EventID)
 	if msg == nil {
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("unknown reaction target"), true, 0)
+		go portal.sendMessageMetrics(evt, errTargetNotFound, "Ignoring")
+		return
 	}
 
 	firstMsg := msg
@@ -1161,8 +1276,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 		uri, _ := id.ParseContentURI(emojiID)
 		emoji := portal.bridge.DB.Emoji.GetByMatrixURL(uri)
 		if emoji == nil {
-			portal.log.Errorfln("Couldn't find emoji corresponding to %s", emojiID)
-			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("unknown emoji"), true, 0)
+			go portal.sendMessageMetrics(evt, fmt.Errorf("%w %s", errUnknownEmoji, emojiID), "Ignoring")
 			return
 		}
 
@@ -1174,30 +1288,23 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, msg.DiscordID, sender.DiscordID, emojiID)
 	if existing != nil {
 		portal.log.Debugfln("Dropping duplicate Matrix reaction %s (already sent as %s)", evt.ID, existing.MXID)
-		portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
-		portal.sendDeliveryReceipt(evt.ID)
+		go portal.sendMessageMetrics(evt, nil, "")
 		return
 	}
 
 	err := sender.Session.MessageReactionAdd(msg.DiscordProtoChannelID(), msg.DiscordID, emojiID)
-	if err != nil {
-		portal.log.Debugf("Failed to send reaction to %s: %v", msg.DiscordID, err)
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
-		return
+	go portal.sendMessageMetrics(evt, err, "Error sending")
+	if err == nil {
+		dbReaction := portal.bridge.DB.Reaction.New()
+		dbReaction.Channel = portal.Key
+		dbReaction.MessageID = msg.DiscordID
+		dbReaction.FirstAttachmentID = firstMsg.AttachmentID
+		dbReaction.Sender = sender.DiscordID
+		dbReaction.EmojiName = emojiID
+		dbReaction.ThreadID = msg.ThreadID
+		dbReaction.MXID = evt.ID
+		dbReaction.Insert()
 	}
-
-	dbReaction := portal.bridge.DB.Reaction.New()
-	dbReaction.Channel = portal.Key
-	dbReaction.MessageID = msg.DiscordID
-	dbReaction.FirstAttachmentID = firstMsg.AttachmentID
-	dbReaction.Sender = sender.DiscordID
-	dbReaction.EmojiName = emojiID
-	dbReaction.ThreadID = msg.ThreadID
-	dbReaction.MXID = evt.ID
-	dbReaction.Insert()
-	portal.log.Debugfln("Handled Matrix reaction %s", evt.ID)
-	portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
-	portal.sendDeliveryReceipt(evt.ID)
 }
 
 func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool, thread *Thread) {
@@ -1304,22 +1411,18 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 
 func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
-		portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("user is not portal receiver"), true, 0)
+		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
 		return
 	}
 
 	// First look if we're redacting a message
 	message := portal.bridge.DB.Message.GetByMXID(portal.Key, evt.Redacts)
 	if message != nil {
+		// TODO add support for deleting individual attachments from messages
 		err := sender.Session.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID)
-		if err != nil {
-			portal.log.Debugfln("Failed to delete discord message %s: %v", message.DiscordID, err)
-			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
-		} else {
-			// TODO add support for deleting individual attachments from messages
+		go portal.sendMessageMetrics(evt, err, "Error sending")
+		if err == nil {
 			message.Delete()
-			portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
-			portal.sendDeliveryReceipt(evt.ID)
 		}
 		return
 	}
@@ -1328,20 +1431,14 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 	reaction := portal.bridge.DB.Reaction.GetByMXID(evt.Redacts)
 	if reaction != nil && reaction.Channel == portal.Key {
 		err := sender.Session.MessageReactionRemove(reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
-		if err != nil {
-			portal.log.Debugfln("Failed to delete reaction %s from %s: %v", reaction.EmojiName, reaction.MessageID, err)
-			portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, err, true, 0)
-		} else {
+		go portal.sendMessageMetrics(evt, err, "Error sending")
+		if err == nil {
 			reaction.Delete()
-			portal.bridge.SendMessageSuccessCheckpoint(evt, bridge.MsgStepRemote, 0)
-			portal.sendDeliveryReceipt(evt.ID)
 		}
-
 		return
 	}
 
-	portal.log.Warnfln("Failed to redact %s: no event found", evt.Redacts)
-	portal.bridge.SendMessageErrorCheckpoint(evt, bridge.MsgStepRemote, errors.New("redaction target not found"), true, 0)
+	go portal.sendMessageMetrics(evt, errTargetNotFound, "Ignoring")
 }
 
 func (portal *Portal) UpdateName(name string) bool {

@@ -41,7 +41,7 @@ func (portal *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func (portal *Portal) downloadMatrixAttachment(eventID id.EventID, content *event.MessageEventContent) ([]byte, error) {
+func (portal *Portal) downloadMatrixAttachment(content *event.MessageEventContent) ([]byte, error) {
 	var file *event.EncryptedFileInfo
 	rawMXC := content.URL
 
@@ -52,22 +52,17 @@ func (portal *Portal) downloadMatrixAttachment(eventID id.EventID, content *even
 
 	mxc, err := rawMXC.Parse()
 	if err != nil {
-		portal.log.Errorln("Malformed content URL in %s: %v", eventID, err)
-
 		return nil, err
 	}
 
 	data, err := portal.MainIntent().DownloadBytes(mxc)
 	if err != nil {
-		portal.log.Errorfln("Failed to download media in %s: %v", eventID, err)
-
 		return nil, err
 	}
 
 	if file != nil {
 		err = file.DecryptInPlace(data)
 		if err != nil {
-			portal.log.Errorfln("Failed to decrypt media in %s: %v", eventID, err)
 			return nil, err
 		}
 	}

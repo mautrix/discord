@@ -31,6 +31,7 @@ type Puppet struct {
 }
 
 var _ bridge.Ghost = (*Puppet)(nil)
+var _ bridge.GhostWithProfile = (*Puppet)(nil)
 
 func (puppet *Puppet) GetMXID() id.UserID {
 	return puppet.MXID
@@ -154,6 +155,14 @@ func (br *DiscordBridge) FormatPuppetMXID(did string) id.UserID {
 		br.Config.Bridge.FormatUsername(did),
 		br.Config.Homeserver.Domain,
 	)
+}
+
+func (puppet *Puppet) GetDisplayname() string {
+	return puppet.Name
+}
+
+func (puppet *Puppet) GetAvatarURL() id.ContentURI {
+	return puppet.AvatarURL
 }
 
 func (puppet *Puppet) DefaultIntent() *appservice.IntentAPI {

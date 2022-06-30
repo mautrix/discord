@@ -771,46 +771,27 @@ func (portal *Portal) syncParticipants(source *User, participants []*discordgo.U
 	}
 }
 
-func (portal *Portal) encrypt(content *event.Content, eventType event.Type) (event.Type, error) {
-	if portal.Encrypted && portal.bridge.Crypto != nil {
-		// TODO maybe the locking should be inside mautrix-go?
-		portal.encryptLock.Lock()
-		encrypted, err := portal.bridge.Crypto.Encrypt(portal.MXID, eventType, *content)
-		portal.encryptLock.Unlock()
-		if err != nil {
-			return eventType, fmt.Errorf("failed to encrypt event: %w", err)
-		}
-		eventType = event.EventEncrypted
-		content.Parsed = encrypted
+func (portal *Portal) encrypt(intent *appservice.IntentAPI, content *event.Content, eventType event.Type) (event.Type, error) {
+	if !portal.Encrypted || portal.bridge.Crypto == nil {
+		return eventType, nil
 	}
-	return eventType, nil
+	intent.AddDoublePuppetValue(content)
+	// TODO maybe the locking should be inside mautrix-go?
+	portal.encryptLock.Lock()
+	err := portal.bridge.Crypto.Encrypt(portal.MXID, eventType, content)
+	portal.encryptLock.Unlock()
+	if err != nil {
+		return eventType, fmt.Errorf("failed to encrypt event: %w", err)
+	}
+	return event.EventEncrypted, nil
 }
-
-const doublePuppetValue = "mautrix-discord"
 
 func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType event.Type, content *event.MessageEventContent, extraContent map[string]interface{}, timestamp int64) (*mautrix.RespSendEvent, error) {
 	wrappedContent := event.Content{Parsed: content, Raw: extraContent}
-	if timestamp != 0 && intent.IsCustomPuppet {
-		if wrappedContent.Raw == nil {
-			wrappedContent.Raw = map[string]interface{}{}
-		}
-		if intent.IsCustomPuppet {
-			wrappedContent.Raw[bridge.DoublePuppetKey] = doublePuppetValue
-		}
-	}
 	var err error
-	eventType, err = portal.encrypt(&wrappedContent, eventType)
+	eventType, err = portal.encrypt(intent, &wrappedContent, eventType)
 	if err != nil {
 		return nil, err
-	}
-
-	if eventType == event.EventEncrypted {
-		// Clear other custom keys if the event was encrypted, but keep the double puppet identifier
-		if intent.IsCustomPuppet {
-			wrappedContent.Raw = map[string]interface{}{bridge.DoublePuppetKey: doublePuppetValue}
-		} else {
-			wrappedContent.Raw = nil
-		}
 	}
 
 	_, _ = intent.UserTyping(portal.MXID, false, 0)
@@ -1373,23 +1354,17 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		return
 	}
 
-	content := event.Content{Parsed: &event.ReactionEventContent{
+	content := event.ReactionEventContent{
 		RelatesTo: event.RelatesTo{
 			EventID: message[0].MXID,
 			Type:    event.RelAnnotation,
 			Key:     matrixReaction,
 		},
-	}}
-	if intent.IsCustomPuppet {
-		content.Raw = map[string]interface{}{
-			bridge.DoublePuppetKey: doublePuppetValue,
-		}
 	}
 
 	resp, err := intent.SendMessageEvent(portal.MXID, event.EventReaction, &content)
 	if err != nil {
 		portal.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
-
 		return
 	}
 

@@ -675,9 +675,6 @@ func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.Channe
 }
 
 func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildID string) {
-	if user.Session.LogLevel == discordgo.LogDebug {
-		fmt.Printf("%+v\n", msg)
-	}
 	if !user.bridgeMessage(guildID) {
 		return
 	}

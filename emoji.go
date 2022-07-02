@@ -10,6 +10,32 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
+func (portal *Portal) getEmojiMXCByDiscordID(emojiID, name string, animated bool) id.ContentURI {
+	dbEmoji := portal.bridge.DB.Emoji.GetByDiscordID(emojiID)
+
+	if dbEmoji == nil {
+		data, mimeType, err := portal.downloadDiscordEmoji(emojiID, animated)
+		if err != nil {
+			portal.log.Warnfln("Failed to download emoji %s from discord: %v", emojiID, err)
+			return id.ContentURI{}
+		}
+
+		uri, err := portal.uploadMatrixEmoji(portal.MainIntent(), data, mimeType)
+		if err != nil {
+			portal.log.Warnfln("Failed to upload discord emoji %s to homeserver: %v", emojiID, err)
+			return id.ContentURI{}
+		}
+
+		dbEmoji = portal.bridge.DB.Emoji.New()
+		dbEmoji.DiscordID = emojiID
+		dbEmoji.DiscordName = name
+		dbEmoji.MatrixURL = uri
+		dbEmoji.Insert()
+	}
+
+	return dbEmoji.MatrixURL
+}
+
 func (portal *Portal) downloadDiscordEmoji(id string, animated bool) ([]byte, string, error) {
 	var url string
 	var mimeType string

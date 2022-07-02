@@ -611,7 +611,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	var parts []database.MessagePart
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 	if msg.Content != "" {
-		content := renderDiscordMarkdown(msg.Content)
+		content := portal.renderDiscordMarkdown(msg.Content)
 		content.RelatesTo = threadRelation.Copy()
 
 		if msg.MessageReference != nil {
@@ -697,24 +697,24 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 			attachmentMap[existingPart.AttachmentID] = existingPart
 		}
 	}
-	for _, attachment := range msg.Attachments {
-		if _, found := attachmentMap[attachment.ID]; found {
-			delete(attachmentMap, attachment.ID)
+	for _, remainingAttachment := range msg.Attachments {
+		if _, found := attachmentMap[remainingAttachment.ID]; found {
+			delete(attachmentMap, remainingAttachment.ID)
 		}
 	}
-	for _, attachment := range attachmentMap {
-		_, err := intent.RedactEvent(portal.MXID, attachment.MXID)
+	for _, deletedAttachment := range attachmentMap {
+		_, err := intent.RedactEvent(portal.MXID, deletedAttachment.MXID)
 		if err != nil {
-			portal.log.Warnfln("Failed to remove attachment %s: %v", attachment.MXID, err)
+			portal.log.Warnfln("Failed to remove attachment %s: %v", deletedAttachment.MXID, err)
 		}
-		attachment.Delete()
+		deletedAttachment.Delete()
 	}
 
 	if msg.Content == "" || existing[0].AttachmentID != "" {
 		portal.log.Debugfln("Dropping non-text edit to %s (message on matrix: %t, text on discord: %t)", msg.ID, existing[0].AttachmentID == "", len(msg.Content) > 0)
 		return
 	}
-	content := renderDiscordMarkdown(msg.Content)
+	content := portal.renderDiscordMarkdown(msg.Content)
 	content.SetEdit(existing[0].MXID)
 
 	var editTS int64
@@ -885,7 +885,6 @@ func (portal *Portal) startThreadFromMatrix(sender *User, threadRoot id.EventID)
 			return "", fmt.Errorf("error starting thread: %v", err)
 		}
 		portal.log.Debugfln("Created Discord thread from %s/%s", threadRoot, ch.ID)
-		fmt.Printf("Created thread %+v\n", ch)
 		portal.bridge.GetThreadByID(existingMsg.DiscordID, existingMsg)
 		return ch.ID, nil
 	}
@@ -1295,32 +1294,12 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	var matrixReaction string
 
 	if reaction.Emoji.ID != "" {
-		dbEmoji := portal.bridge.DB.Emoji.GetByDiscordID(reaction.Emoji.ID)
-
-		if dbEmoji == nil {
-			data, mimeType, err := portal.downloadDiscordEmoji(reaction.Emoji.ID, reaction.Emoji.Animated)
-			if err != nil {
-				portal.log.Warnfln("Failed to download emoji %s from discord: %v", reaction.Emoji.ID, err)
-
-				return
-			}
-
-			uri, err := portal.uploadMatrixEmoji(intent, data, mimeType)
-			if err != nil {
-				portal.log.Warnfln("Failed to upload discord emoji %s to homeserver: %v", reaction.Emoji.ID, err)
-
-				return
-			}
-
-			dbEmoji = portal.bridge.DB.Emoji.New()
-			dbEmoji.DiscordID = reaction.Emoji.ID
-			dbEmoji.DiscordName = reaction.Emoji.Name
-			dbEmoji.MatrixURL = uri
-			dbEmoji.Insert()
+		reactionMXC := portal.getEmojiMXCByDiscordID(reaction.Emoji.ID, reaction.Emoji.Name, reaction.Emoji.Animated)
+		if reactionMXC.IsEmpty() {
+			return
 		}
-
-		discordID = dbEmoji.DiscordID
-		matrixReaction = dbEmoji.MatrixURL.String()
+		matrixReaction = reactionMXC.String()
+		discordID = reaction.Emoji.ID
 	} else {
 		discordID = reaction.Emoji.Name
 		matrixReaction = variationselector.Add(reaction.Emoji.Name)

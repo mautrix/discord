@@ -645,7 +645,11 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			parts = append(parts, *part)
 		}
 	}
-	portal.markMessageHandled(msg.ID, 0, msg.Author.ID, ts, threadID, parts)
+	if len(parts) == 0 {
+		portal.log.Warnfln("Unhandled message %q", msg.ID)
+	} else {
+		portal.markMessageHandled(msg.ID, 0, msg.Author.ID, ts, threadID, parts)
+	}
 }
 
 func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Message) {

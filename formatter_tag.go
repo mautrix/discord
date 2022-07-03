@@ -175,7 +175,11 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			Receiver:  "",
 		})
 		if portal != nil {
-			_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s?via=%s">%s</a>`, portal.MXID, portal.bridge.AS.HomeserverDomain, portal.Name)
+			if portal.MXID != "" {
+				_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s?via=%s">%s</a>`, portal.MXID, portal.bridge.AS.HomeserverDomain, portal.Name)
+			} else {
+				_, _ = w.WriteString(portal.Name)
+			}
 			return
 		}
 	case *astDiscordCustomEmoji:

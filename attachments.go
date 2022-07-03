@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"io"
 	"net/http"
 	"strings"
+
+	"maunium.net/go/mautrix/crypto/attachment"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -16,15 +19,6 @@ import (
 )
 
 func (portal *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
-	// We might want to make this save to disk in the future. Discord defaults
-	// to 8mb for all attachments to a messages for non-nitro users and
-	// non-boosted servers.
-	//
-	// If the user has nitro classic, their limit goes up to 50mb but if a user
-	// has regular nitro the limit is increased to 100mb.
-	//
-	// Servers boosted to level 2 will have the limit bumped to 50mb.
-
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -38,6 +32,10 @@ func (portal *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode > 300 {
+		data, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, data)
+	}
 	return io.ReadAll(resp.Body)
 }
 
@@ -71,9 +69,23 @@ func (portal *Portal) downloadMatrixAttachment(content *event.MessageEventConten
 }
 
 func (portal *Portal) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, content *event.MessageEventContent) error {
+	content.Info.Size = len(data)
+	if content.Info.Width == 0 && content.Info.Height == 0 && strings.HasPrefix(content.Info.MimeType, "image/") {
+		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
+		content.Info.Width = cfg.Width
+		content.Info.Height = cfg.Height
+	}
+
+	uploadMime := content.Info.MimeType
+	var file *attachment.EncryptedFile
+	if portal.Encrypted {
+		file = attachment.NewEncryptedFile()
+		file.EncryptInPlace(data)
+		uploadMime = "application/octet-stream"
+	}
 	req := mautrix.ReqUploadMedia{
 		ContentBytes: data,
-		ContentType:  content.Info.MimeType,
+		ContentType:  uploadMime,
 	}
 	var mxc id.ContentURI
 	if portal.bridge.Config.Homeserver.AsyncMedia {
@@ -90,13 +102,13 @@ func (portal *Portal) uploadMatrixAttachment(intent *appservice.IntentAPI, data 
 		mxc = uploaded.ContentURI
 	}
 
-	content.URL = mxc.CUString()
-	content.Info.Size = len(data)
-
-	if content.Info.Width == 0 && content.Info.Height == 0 && strings.HasPrefix(content.Info.MimeType, "image/") {
-		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
-		content.Info.Width = cfg.Width
-		content.Info.Height = cfg.Height
+	if file != nil {
+		content.File = &event.EncryptedFileInfo{
+			EncryptedFile: *file,
+			URL:           mxc.CUString(),
+		}
+	} else {
+		content.URL = mxc.CUString()
 	}
 
 	return nil

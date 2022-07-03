@@ -494,42 +494,10 @@ func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridg
 	}
 }
 
-func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgID string, attachment *discordgo.MessageAttachment, ts time.Time, threadRelation *event.RelatesTo, threadID string) *database.MessagePart {
-	// var captionContent *event.MessageEventContent
+const DiscordStickerSize = 160
 
-	// if attachment.Description != "" {
-	// 	captionContent = &event.MessageEventContent{
-	// 		Body:    attachment.Description,
-	// 		MsgType: event.MsgNotice,
-	// 	}
-	// }
-	// portal.Log.Debugfln("captionContent: %#v", captionContent)
-
-	content := &event.MessageEventContent{
-		Body: attachment.Filename,
-		Info: &event.FileInfo{
-			Height:   attachment.Height,
-			MimeType: attachment.ContentType,
-			Width:    attachment.Width,
-
-			// This gets overwritten later after the file is uploaded to the homeserver
-			Size: attachment.Size,
-		},
-		RelatesTo: threadRelation,
-	}
-
-	switch strings.ToLower(strings.Split(attachment.ContentType, "/")[0]) {
-	case "audio":
-		content.MsgType = event.MsgAudio
-	case "image":
-		content.MsgType = event.MsgImage
-	case "video":
-		content.MsgType = event.MsgVideo
-	default:
-		content.MsgType = event.MsgFile
-	}
-
-	data, err := portal.downloadDiscordAttachment(attachment.URL)
+func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.IntentAPI, id, url string, content *event.MessageEventContent, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
+	data, err := portal.downloadDiscordAttachment(url)
 	if err != nil {
 		portal.sendMediaFailedMessage(intent, err)
 		return nil
@@ -541,18 +509,92 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, msgI
 		return nil
 	}
 
-	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, ts.UnixMilli())
+	evtType := event.EventMessage
+	if typeName == "sticker" && (content.Info.Width > DiscordStickerSize || content.Info.Height > DiscordStickerSize) {
+		if content.Info.Width > content.Info.Height {
+			content.Info.Height /= content.Info.Width / DiscordStickerSize
+			content.Info.Width = DiscordStickerSize
+		} else if content.Info.Width < content.Info.Height {
+			content.Info.Width /= content.Info.Height / DiscordStickerSize
+			content.Info.Height = DiscordStickerSize
+		} else {
+			content.Info.Width = DiscordStickerSize
+			content.Info.Height = DiscordStickerSize
+		}
+		evtType = event.EventSticker
+	}
+
+	resp, err := portal.sendMatrixMessage(intent, evtType, content, nil, ts.UnixMilli())
 	if err != nil {
-		portal.log.Warnfln("failed to send media message to matrix: %v", err)
+		portal.log.Warnfln("Failed to send %s to Matrix: %v", typeName, err)
+		return nil
 	}
 	// Update the fallback reply event for the next attachment
 	if threadRelation != nil {
 		threadRelation.InReplyTo.EventID = resp.EventID
 	}
 	return &database.MessagePart{
-		AttachmentID: attachment.ID,
+		AttachmentID: id,
 		MXID:         resp.EventID,
 	}
+}
+
+func (portal *Portal) handleDiscordSticker(intent *appservice.IntentAPI, sticker *discordgo.Sticker, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
+	var mime string
+	switch sticker.FormatType {
+	case discordgo.StickerFormatTypePNG:
+		mime = "image/png"
+	case discordgo.StickerFormatTypeAPNG:
+		mime = "image/apng"
+	case discordgo.StickerFormatTypeLottie:
+		//mime = "application/json"
+		return nil
+	}
+	content := &event.MessageEventContent{
+		Body: sticker.Name, // TODO find description from somewhere?
+		Info: &event.FileInfo{
+			MimeType: mime,
+		},
+		RelatesTo: threadRelation,
+	}
+	return portal.handleDiscordFile("sticker", intent, sticker.ID, sticker.URL(), content, ts, threadRelation)
+}
+
+func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, att *discordgo.MessageAttachment, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
+	// var captionContent *event.MessageEventContent
+
+	// if att.Description != "" {
+	// 	captionContent = &event.MessageEventContent{
+	// 		Body:    att.Description,
+	// 		MsgType: event.MsgNotice,
+	// 	}
+	// }
+	// portal.Log.Debugfln("captionContent: %#v", captionContent)
+
+	content := &event.MessageEventContent{
+		Body: att.Filename,
+		Info: &event.FileInfo{
+			Height:   att.Height,
+			MimeType: att.ContentType,
+			Width:    att.Width,
+
+			// This gets overwritten later after the file is uploaded to the homeserver
+			Size: att.Size,
+		},
+		RelatesTo: threadRelation,
+	}
+
+	switch strings.ToLower(strings.Split(att.ContentType, "/")[0]) {
+	case "audio":
+		content.MsgType = event.MsgAudio
+	case "image":
+		content.MsgType = event.MsgImage
+	case "video":
+		content.MsgType = event.MsgVideo
+	default:
+		content.MsgType = event.MsgFile
+	}
+	return portal.handleDiscordFile("attachment", intent, att.ID, att.URL, content, ts, threadRelation)
 }
 
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
@@ -638,9 +680,14 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 		go portal.sendDeliveryReceipt(resp.EventID)
 	}
-
-	for _, attachment := range msg.Attachments {
-		part := portal.handleDiscordAttachment(intent, msg.ID, attachment, ts, threadRelation, threadID)
+	for _, att := range msg.Attachments {
+		part := portal.handleDiscordAttachment(intent, att, ts, threadRelation)
+		if part != nil {
+			parts = append(parts, *part)
+		}
+	}
+	for _, sticker := range msg.StickerItems {
+		part := portal.handleDiscordSticker(intent, sticker, ts, threadRelation)
 		if part != nil {
 			parts = append(parts, *part)
 		}
@@ -704,6 +751,11 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	for _, remainingAttachment := range msg.Attachments {
 		if _, found := attachmentMap[remainingAttachment.ID]; found {
 			delete(attachmentMap, remainingAttachment.ID)
+		}
+	}
+	for _, remainingSticker := range msg.StickerItems {
+		if _, found := attachmentMap[remainingSticker.ID]; found {
+			delete(attachmentMap, remainingSticker.ID)
 		}
 	}
 	for _, deletedAttachment := range attachmentMap {

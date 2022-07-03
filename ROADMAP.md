@@ -2,10 +2,10 @@
 * Matrix → Discord
   * [x] Message content
     * [x] Plain text
-    * [ ] Formatted messages
+    * [x] Formatted messages
     * [x] Media/files
     * [x] Replies
-    * [ ] Threads
+    * [x] Threads
   * [x] Message redactions
   * [x] Reactions
     * [x] Unicode emojis
@@ -26,14 +26,17 @@
 * Discord → Matrix
   * [ ] Message content
     * [x] Plain text
-    * [ ] Formatted messages
+    * [x] Formatted messages
     * [x] Media/files
     * [x] Replies
-    * [ ] Threads
+    * [x] Threads
+      * [ ] Auto-joining threads
+      * [ ] Backfilling threads after joining
+    * [x] Custom emojis
   * [x] Message deletions
-  * [ ] Reactions
+  * [x] Reactions
     * [x] Unicode emojis
-    * [ ] Custom emojis
+    * [x] Custom emojis (not yet supported on Matrix)
   * [x] Avatars
   * [ ] Presence
   * [ ] Typing notifications

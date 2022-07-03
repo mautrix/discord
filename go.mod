@@ -11,7 +11,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/yuin/goldmark v1.4.12
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.11.1-0.20220630174618-e98784f2fe26
+	maunium.net/go/mautrix v0.11.1-0.20220701202406-0b319c6d555a
 )
 
 require (
@@ -26,4 +26,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => gitlab.com/beeper/discordgo v0.23.3-0.20220528212118-5e6370d356e6
+replace github.com/bwmarrin/discordgo => gitlab.com/beeper/discordgo v0.23.3-0.20220703095519-7b2c44e4bc2f

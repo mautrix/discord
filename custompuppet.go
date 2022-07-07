@@ -6,11 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"time"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
-	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -19,9 +17,6 @@ var (
 	ErrMismatchingMXID = errors.New("whoami result does not match custom mxid")
 )
 
-///////////////////////////////////////////////////////////////////////////////
-// additional bridge api
-///////////////////////////////////////////////////////////////////////////////
 func (br *DiscordBridge) newDoublePuppetClient(mxid id.UserID, accessToken string) (*mautrix.Client, error) {
 	_, homeserver, err := mxid.Parse()
 	if err != nil {
@@ -57,115 +52,6 @@ func (br *DiscordBridge) newDoublePuppetClient(mxid id.UserID, accessToken strin
 	return client, nil
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// mautrix.Syncer implementation
-///////////////////////////////////////////////////////////////////////////////
-func (puppet *Puppet) GetFilterJSON(_ id.UserID) *mautrix.Filter {
-	everything := []event.Type{{Type: "*"}}
-	return &mautrix.Filter{
-		Presence: mautrix.FilterPart{
-			Senders: []id.UserID{puppet.CustomMXID},
-			Types:   []event.Type{event.EphemeralEventPresence},
-		},
-		AccountData: mautrix.FilterPart{NotTypes: everything},
-		Room: mautrix.RoomFilter{
-			Ephemeral:    mautrix.FilterPart{Types: []event.Type{event.EphemeralEventTyping, event.EphemeralEventReceipt}},
-			IncludeLeave: false,
-			AccountData:  mautrix.FilterPart{NotTypes: everything},
-			State:        mautrix.FilterPart{NotTypes: everything},
-			Timeline:     mautrix.FilterPart{NotTypes: everything},
-		},
-	}
-}
-
-func (puppet *Puppet) OnFailedSync(_ *mautrix.RespSync, err error) (time.Duration, error) {
-	puppet.log.Warnln("Sync error:", err)
-	if errors.Is(err, mautrix.MUnknownToken) {
-		if !puppet.tryRelogin(err, "syncing") {
-			return 0, err
-		}
-
-		puppet.customIntent.AccessToken = puppet.AccessToken
-
-		return 0, nil
-	}
-
-	return 10 * time.Second, nil
-}
-
-func (puppet *Puppet) ProcessResponse(resp *mautrix.RespSync, _ string) error {
-	if !puppet.customUser.IsLoggedIn() {
-		puppet.log.Debugln("Skipping sync processing: custom user not connected to discord")
-
-		return nil
-	}
-
-	// for roomID, events := range resp.Rooms.Join {
-	// 	for _, evt := range events.Ephemeral.Events {
-	// 		evt.RoomID = roomID
-	// 		err := evt.Content.ParseRaw(evt.Type)
-	// 		if err != nil {
-	// 			continue
-	// 		}
-
-	// 		switch evt.Type {
-	// 		case event.EphemeralEventReceipt:
-	// 			if puppet.EnableReceipts {
-	// 				go puppet.bridge.MatrixHandler.HandleReceipt(evt)
-	// 			}
-	// 		case event.EphemeralEventTyping:
-	// 			go puppet.bridge.MatrixHandler.HandleTyping(evt)
-	// 		}
-	// 	}
-	// }
-
-	// if puppet.EnablePresence {
-	// 	for _, evt := range resp.Presence.Events {
-	// 		if evt.Sender != puppet.CustomMXID {
-	// 			continue
-	// 		}
-
-	// 		err := evt.Content.ParseRaw(evt.Type)
-	// 		if err != nil {
-	// 			continue
-	// 		}
-
-	// 		go puppet.bridge.MatrixHandler.HandlePresence(evt)
-	// 	}
-	// }
-
-	return nil
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// mautrix.Storer implementation
-///////////////////////////////////////////////////////////////////////////////
-func (puppet *Puppet) SaveFilterID(_ id.UserID, _ string) {
-}
-
-func (puppet *Puppet) SaveNextBatch(_ id.UserID, nbt string) {
-	puppet.NextBatch = nbt
-	puppet.Update()
-}
-
-func (puppet *Puppet) SaveRoom(_ *mautrix.Room) {
-}
-
-func (puppet *Puppet) LoadFilterID(_ id.UserID) string {
-	return ""
-}
-
-func (puppet *Puppet) LoadNextBatch(_ id.UserID) string {
-	return puppet.NextBatch
-}
-
-func (puppet *Puppet) LoadRoom(_ id.RoomID) *mautrix.Room {
-	return nil
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// additional puppet api
-///////////////////////////////////////////////////////////////////////////////
 func (puppet *Puppet) clearCustomMXID() {
 	puppet.CustomMXID = ""
 	puppet.AccessToken = ""
@@ -183,29 +69,23 @@ func (puppet *Puppet) newCustomIntent() (*appservice.IntentAPI, error) {
 		return nil, err
 	}
 
-	client.Syncer = puppet
-	client.Store = puppet
-
 	ia := puppet.bridge.AS.NewIntentAPI("custom")
 	ia.Client = client
 	ia.Localpart, _, _ = puppet.CustomMXID.Parse()
 	ia.UserID = puppet.CustomMXID
 	ia.IsCustomPuppet = true
-
 	return ia, nil
 }
 
 func (puppet *Puppet) StartCustomMXID(reloginOnFail bool) error {
 	if puppet.CustomMXID == "" {
 		puppet.clearCustomMXID()
-
 		return nil
 	}
 
 	intent, err := puppet.newCustomIntent()
 	if err != nil {
 		puppet.clearCustomMXID()
-
 		return err
 	}
 
@@ -213,21 +93,17 @@ func (puppet *Puppet) StartCustomMXID(reloginOnFail bool) error {
 	if err != nil {
 		if !reloginOnFail || (errors.Is(err, mautrix.MUnknownToken) && !puppet.tryRelogin(err, "initializing double puppeting")) {
 			puppet.clearCustomMXID()
-
 			return err
 		}
 
 		intent.AccessToken = puppet.AccessToken
 	} else if resp.UserID != puppet.CustomMXID {
 		puppet.clearCustomMXID()
-
 		return ErrMismatchingMXID
 	}
 
 	puppet.customIntent = intent
 	puppet.customUser = puppet.bridge.GetUserByMXID(puppet.CustomMXID)
-	puppet.startSyncing()
-
 	return nil
 }
 
@@ -235,49 +111,19 @@ func (puppet *Puppet) tryRelogin(cause error, action string) bool {
 	if !puppet.bridge.Config.CanAutoDoublePuppet(puppet.CustomMXID) {
 		return false
 	}
-
 	puppet.log.Debugfln("Trying to relogin after '%v' while %s", cause, action)
-
 	accessToken, err := puppet.loginWithSharedSecret(puppet.CustomMXID)
 	if err != nil {
 		puppet.log.Errorfln("Failed to relogin after '%v' while %s: %v", cause, action, err)
-
 		return false
 	}
-
 	puppet.log.Infofln("Successfully relogined after '%v' while %s", cause, action)
 	puppet.AccessToken = accessToken
-
 	return true
-}
-
-func (puppet *Puppet) startSyncing() {
-	if !puppet.bridge.Config.Bridge.SyncWithCustomPuppets {
-		return
-	}
-
-	go func() {
-		puppet.log.Debugln("Starting syncing...")
-		puppet.customIntent.SyncPresence = "offline"
-
-		err := puppet.customIntent.Sync()
-		if err != nil {
-			puppet.log.Errorln("Fatal error syncing:", err)
-		}
-	}()
-}
-
-func (puppet *Puppet) stopSyncing() {
-	if !puppet.bridge.Config.Bridge.SyncWithCustomPuppets {
-		return
-	}
-
-	puppet.customIntent.StopSync()
 }
 
 func (puppet *Puppet) loginWithSharedSecret(mxid id.UserID) (string, error) {
 	_, homeserver, _ := mxid.Parse()
-
 	puppet.log.Debugfln("Logging into %s with shared secret", mxid)
 
 	mac := hmac.New(sha512.New, []byte(puppet.bridge.Config.Bridge.LoginSharedSecretMap[homeserver]))
@@ -298,16 +144,11 @@ func (puppet *Puppet) loginWithSharedSecret(mxid id.UserID) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	return resp.AccessToken, nil
 }
 
 func (puppet *Puppet) SwitchCustomMXID(accessToken string, mxid id.UserID) error {
 	prevCustomMXID := puppet.CustomMXID
-	if puppet.customIntent != nil {
-		puppet.stopSyncing()
-	}
-
 	puppet.CustomMXID = mxid
 	puppet.AccessToken = accessToken
 
@@ -319,16 +160,11 @@ func (puppet *Puppet) SwitchCustomMXID(accessToken string, mxid id.UserID) error
 	if prevCustomMXID != "" {
 		delete(puppet.bridge.puppetsByCustomMXID, prevCustomMXID)
 	}
-
 	if puppet.CustomMXID != "" {
 		puppet.bridge.puppetsByCustomMXID[puppet.CustomMXID] = puppet
 	}
-
 	puppet.bridge.AS.StateStore.MarkRegistered(puppet.CustomMXID)
-
 	puppet.Update()
-
 	// TODO leave rooms with default puppet
-
 	return nil
 }

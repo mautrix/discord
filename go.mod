@@ -7,11 +7,11 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/lib/pq v1.10.6
-	github.com/mattn/go-sqlite3 v1.14.13
+	github.com/mattn/go-sqlite3 v1.14.14
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/yuin/goldmark v1.4.12
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.11.1-0.20220708134822-7534f9e547b0
+	maunium.net/go/mautrix v0.11.1-0.20220708142125-1f795238d635
 )
 
 require (
@@ -26,4 +26,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => gitlab.com/beeper/discordgo v0.23.3-0.20220708140423-bd66a3680fbc
+replace github.com/bwmarrin/discordgo => gitlab.com/beeper/discordgo v0.23.3-0.20220708141955-6445b637ad87

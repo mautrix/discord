@@ -1000,6 +1000,7 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	if guild == nil {
 		return errors.New("guild not found")
 	}
+	guild.AutoBridgeChannels = everything
 	meta, _ := user.Session.State.Guild(guildID)
 	err := guild.CreateMatrixRoom(user, meta)
 	if err != nil {

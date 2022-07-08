@@ -279,6 +279,7 @@ func fnBridgeGuild(ce *WrappedCommandEvent) {
 		ce.Reply("Successfully bridged guild")
 	}
 }
+
 func fnUnbridgeGuild(ce *WrappedCommandEvent) {
 	if len(ce.Args) != 1 {
 		ce.Reply("**Usage**: `$cmdprefix guilds unbridge <guild ID>")

@@ -18,9 +18,11 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -83,6 +85,41 @@ func (n *astDiscordChannelMention) String() string {
 	return fmt.Sprintf("<#%d>", n.id)
 }
 
+type discordTimestampStyle rune
+
+func (dts discordTimestampStyle) Format() string {
+	switch dts {
+	case 't':
+		return "15:04 MST"
+	case 'T':
+		return "15:04:05 MST"
+	case 'd':
+		return "2006-01-02 MST"
+	case 'D':
+		return "2 January 2006 MST"
+	case 'F':
+		return "Monday, 2 January 2006 15:04 MST"
+	case 'f':
+		fallthrough
+	default:
+		return "2 January 2006 15:04 MST"
+	}
+}
+
+type astDiscordTimestamp struct {
+	astDiscordTag
+
+	timestamp int64
+	style     discordTimestampStyle
+}
+
+func (n *astDiscordTimestamp) String() string {
+	if n.style == 'f' {
+		return fmt.Sprintf("<t:%d>", n.timestamp)
+	}
+	return fmt.Sprintf("<t:%d:%c>", n.timestamp, n.style)
+}
+
 type astDiscordCustomEmoji struct {
 	astDiscordTag
 	name     string
@@ -98,7 +135,8 @@ func (n *astDiscordCustomEmoji) String() string {
 
 type discordTagParser struct{}
 
-var discordTagRegex = regexp.MustCompile(`<(a?:\w+:|@[!&]?|#)(\d+)(?::(\d+):(.+?))?>`)
+// Regex to match everything in https://discord.com/developers/docs/reference#message-formatting
+var discordTagRegex = regexp.MustCompile(`<(a?:\w+:|@[!&]?|#|t:)(\d+)(?::([tTdDfFR])|(\d+):(.+?))?>`)
 var defaultDiscordTagParser = &discordTagParser{}
 
 func (s *discordTagParser) Trigger() []byte {
@@ -131,11 +169,23 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 	case tagName == "#":
 		var guildID int64
 		var channelName string
-		if len(match[3]) > 0 && len(match[4]) > 0 {
-			guildID, _ = strconv.ParseInt(string(match[3]), 10, 64)
-			channelName = string(match[4])
+		if len(match[4]) > 0 && len(match[5]) > 0 {
+			guildID, _ = strconv.ParseInt(string(match[4]), 10, 64)
+			channelName = string(match[5])
 		}
 		return &astDiscordChannelMention{astDiscordTag: tag, guildID: guildID, name: channelName}
+	case tagName == "t:":
+		var style discordTimestampStyle
+		if len(match[3]) == 0 {
+			style = 'f'
+		} else {
+			style = discordTimestampStyle(match[3][0])
+		}
+		return &astDiscordTimestamp{
+			astDiscordTag: tag,
+			timestamp:     id,
+			style:         style,
+		}
 	case strings.HasPrefix(tagName, ":"):
 		return &astDiscordCustomEmoji{name: tagName, astDiscordTag: tag}
 	case strings.HasPrefix(tagName, "a:"):
@@ -155,6 +205,51 @@ type discordTagHTMLRenderer struct {
 
 func (r *discordTagHTMLRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(astKindDiscordTag, r.renderDiscordMention)
+}
+
+func relativeTimeFormat(ts time.Time) string {
+	now := time.Now()
+	if ts.Year() >= 2262 {
+		return "date out of range for relative format"
+	}
+	duration := ts.Sub(now)
+	word := "in %s"
+	if duration < 0 {
+		duration = -duration
+		word = "%s ago"
+	}
+	var count int
+	var unit string
+	switch {
+	case duration < time.Second:
+		count = int(duration.Milliseconds())
+		unit = "millisecond"
+	case duration < time.Minute:
+		count = int(math.Round(duration.Seconds()))
+		unit = "second"
+	case duration < time.Hour:
+		count = int(math.Round(duration.Minutes()))
+		unit = "minute"
+	case duration < 24*time.Hour:
+		count = int(math.Round(duration.Hours()))
+		unit = "hour"
+	case duration < 30*24*time.Hour:
+		count = int(math.Round(duration.Hours() / 24))
+		unit = "day"
+	case duration < 365*24*time.Hour:
+		count = int(math.Round(duration.Hours() / 24 / 30))
+		unit = "month"
+	default:
+		count = int(math.Round(duration.Hours() / 24 / 365))
+		unit = "year"
+	}
+	var diff string
+	if count == 1 {
+		diff = fmt.Sprintf("a %s", unit)
+	} else {
+		diff = fmt.Sprintf("%d %ss", count, unit)
+	}
+	return fmt.Sprintf(word, diff)
 }
 
 func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source []byte, n ast.Node, entering bool) (status ast.WalkStatus, err error) {
@@ -188,6 +283,19 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			_, _ = fmt.Fprintf(w, `<img data-mx-emoticon src="%[1]s" alt="%[2]s" title="%[2]s" height="32"/>`, reactionMXC.String(), node.name)
 			return
 		}
+	case *astDiscordTimestamp:
+		ts := time.Unix(node.timestamp, 0).UTC()
+		var formatted string
+		if node.style == 'R' {
+			formatted = relativeTimeFormat(ts)
+		} else {
+			formatted = ts.Format(node.style.Format())
+		}
+		// https://github.com/matrix-org/matrix-spec-proposals/pull/3160
+		const fullDatetimeFormat = "2006-01-02T15:04:05.000-0700"
+		fullRFC := ts.Format(fullDatetimeFormat)
+		fullHumanReadable := ts.Format(discordTimestampStyle('F').Format())
+		_, _ = fmt.Fprintf(w, `<time title="%s" datetime="%s"><strong>%s</strong></time>`, fullHumanReadable, fullRFC, formatted)
 	}
 	stringifiable, ok := n.(mautrix.Stringifiable)
 	if ok {

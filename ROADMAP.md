@@ -11,7 +11,7 @@
     * [x] Unicode emojis
     * [ ] Custom emojis (re-reacting with custom emojis sent from Discord already works)
   * [ ] Presence
-  * [ ] Typing notifications
+  * [x] Typing notifications
   * [x] Own read status
   * [ ] Power level
   * [ ] Membership actions
@@ -39,7 +39,7 @@
     * [x] Custom emojis (not yet supported on Matrix)
   * [x] Avatars
   * [ ] Presence
-  * [ ] Typing notifications
+  * [ ] Typing notifications (currently partial support: DMs work after you type in them)
   * [x] Own read status
   * [ ] Membership actions
     * [ ] Invite

@@ -52,6 +52,9 @@ type Portal struct {
 
 	discordMessages chan portalDiscordMessage
 	matrixMessages  chan portalMatrixMessage
+
+	currentlyTyping     []id.UserID
+	currentlyTypingLock sync.Mutex
 }
 
 func (portal *Portal) IsEncrypted() bool {
@@ -547,8 +550,7 @@ func (portal *Portal) handleDiscordSticker(intent *appservice.IntentAPI, sticker
 	case discordgo.StickerFormatTypeAPNG:
 		mime = "image/apng"
 	case discordgo.StickerFormatTypeLottie:
-		//mime = "application/json"
-		return nil
+		mime = "application/json"
 	}
 	content := &event.MessageEventContent{
 		Body: sticker.Name, // TODO find description from somewhere?
@@ -1472,6 +1474,38 @@ func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.Eve
 		portal.log.Debugfln("Marked %s/%s as read by %s (and got unexpected non-nil token %s)", msg.MXID, msg.DiscordID, sender.MXID, *resp.Token)
 	} else {
 		portal.log.Debugfln("Marked %s/%s as read by %s", msg.MXID, msg.DiscordID, sender.MXID)
+	}
+}
+
+func typingDiff(prev, new []id.UserID) (started []id.UserID) {
+OuterNew:
+	for _, userID := range new {
+		for _, previousUserID := range prev {
+			if userID == previousUserID {
+				continue OuterNew
+			}
+		}
+		started = append(started, userID)
+	}
+	return
+}
+
+func (portal *Portal) HandleMatrixTyping(newTyping []id.UserID) {
+	portal.currentlyTypingLock.Lock()
+	defer portal.currentlyTypingLock.Unlock()
+	startedTyping := typingDiff(portal.currentlyTyping, newTyping)
+	portal.currentlyTyping = newTyping
+	for _, userID := range startedTyping {
+		user := portal.bridge.GetUserByMXID(userID)
+		if user != nil && user.Session != nil {
+			user.ViewingChannel(portal)
+			err := user.Session.ChannelTyping(portal.Key.ChannelID)
+			if err != nil {
+				portal.log.Warnfln("Failed to mark %s as typing: %v", user.MXID, err)
+			} else {
+				portal.log.Debugfln("Marked %s as typing", user.MXID)
+			}
+		}
 	}
 }
 

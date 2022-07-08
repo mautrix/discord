@@ -47,6 +47,9 @@ type User struct {
 	Session *discordgo.Session
 
 	BridgeState *bridge.BridgeStateQueue
+
+	markedOpened     map[string]time.Time
+	markedOpenedLock sync.Mutex
 }
 
 func (user *User) GetRemoteID() string {
@@ -181,9 +184,10 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 		User:   dbUser,
 		bridge: br,
 		log:    br.Log.Sub("User").Sub(string(dbUser.MXID)),
-	}
 
-	user.PermissionLevel = br.Config.Bridge.Permissions.Get(user.MXID)
+		markedOpened:    make(map[string]time.Time),
+		PermissionLevel: br.Config.Bridge.Permissions.Get(dbUser.MXID),
+	}
 	user.BridgeState = br.NewBridgeStateQueue(user, user.log)
 	return user
 }
@@ -370,6 +374,25 @@ func (user *User) tryAutomaticDoublePuppeting() {
 	user.log.Infoln("Successfully automatically enabled custom puppet")
 }
 
+func (user *User) ViewingChannel(portal *Portal) bool {
+	if portal.GuildID != "" {
+		return false
+	}
+	user.markedOpenedLock.Lock()
+	defer user.markedOpenedLock.Unlock()
+	ts := user.markedOpened[portal.Key.ChannelID]
+	// TODO is there an expiry time?
+	if ts.IsZero() {
+		user.markedOpened[portal.Key.ChannelID] = time.Now()
+		err := user.Session.MarkViewing(portal.Key.ChannelID)
+		if err != nil {
+			user.log.Errorfln("Failed to mark user as viewing %s: %v", portal.Key.ChannelID, err)
+		}
+		return true
+	}
+	return false
+}
+
 func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) {
 	doublePuppet := portal.bridge.GetPuppetByCustomMXID(user.MXID)
 	if doublePuppet == nil {
@@ -474,6 +497,7 @@ func (user *User) Connect() error {
 	user.Session.AddHandler(user.reactionAddHandler)
 	user.Session.AddHandler(user.reactionRemoveHandler)
 	user.Session.AddHandler(user.messageAckHandler)
+	user.Session.AddHandler(user.typingStartHandler)
 
 	user.Session.Identify.Presence.Status = "online"
 
@@ -844,6 +868,18 @@ func (user *User) messageAckHandler(_ *discordgo.Session, m *discordgo.MessageAc
 			// TODO maybe don't update every time?
 			user.Update()
 		}
+	}
+}
+
+func (user *User) typingStartHandler(_ *discordgo.Session, t *discordgo.TypingStart) {
+	portal := user.GetExistingPortalByID(t.ChannelID)
+	if portal == nil || portal.MXID == "" {
+		return
+	}
+	puppet := user.bridge.GetPuppetByID(t.UserID)
+	_, err := puppet.IntentFor(portal).UserTyping(portal.MXID, true, 12*time.Second)
+	if err != nil {
+		user.log.Warnfln("Failed to mark %s as typing in %s: %v", puppet.MXID, portal.MXID, err)
 	}
 }
 

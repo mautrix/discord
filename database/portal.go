@@ -11,10 +11,14 @@ import (
 	"maunium.net/go/mautrix/util/dbutil"
 )
 
+// language=postgresql
 const (
-	portalSelect = "SELECT dcid, receiver, type, other_user_id, dc_guild_id, dc_parent_id, " +
-		" mxid, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set, encrypted, in_space, first_event_id" +
-		" FROM portal"
+	portalSelect = `
+		SELECT dcid, receiver, type, other_user_id, dc_guild_id, dc_parent_id, mxid,
+		       plain_name, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
+		       encrypted, in_space, first_event_id
+		FROM portal
+	`
 )
 
 type PortalKey struct {
@@ -101,6 +105,7 @@ type Portal struct {
 
 	MXID id.RoomID
 
+	PlainName string
 	Name      string
 	NameSet   bool
 	Topic     string
@@ -120,7 +125,7 @@ func (p *Portal) Scan(row dbutil.Scannable) *Portal {
 	var avatarURL string
 
 	err := row.Scan(&p.Key.ChannelID, &p.Key.Receiver, &chanType, &otherUserID, &guildID, &parentID,
-		&mxid, &p.Name, &p.NameSet, &p.Topic, &p.TopicSet, &p.Avatar, &avatarURL, &p.AvatarSet,
+		&mxid, &p.PlainName, &p.Name, &p.NameSet, &p.Topic, &p.TopicSet, &p.Avatar, &avatarURL, &p.AvatarSet,
 		&p.Encrypted, &p.InSpace, &firstEventID)
 
 	if err != nil {
@@ -146,13 +151,13 @@ func (p *Portal) Scan(row dbutil.Scannable) *Portal {
 func (p *Portal) Insert() {
 	query := `
 		INSERT INTO portal (dcid, receiver, type, other_user_id, dc_guild_id, dc_parent_id, mxid,
-		                    name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
+		                    plain_name, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
 		                    encrypted, in_space, first_event_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 	`
 	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver, p.Type,
 		strPtr(p.OtherUserID), strPtr(p.GuildID), strPtr(p.ParentID), strPtr(string(p.MXID)),
-		p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+		p.PlainName, p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
 		p.Encrypted, p.InSpace, p.FirstEventID.String())
 
 	if err != nil {
@@ -163,14 +168,15 @@ func (p *Portal) Insert() {
 
 func (p *Portal) Update() {
 	query := `
-		UPDATE portal SET type=$1, other_user_id=$2, dc_guild_id=$3, dc_parent_id=$4, mxid=$5,
-		                  name=$6, name_set=$7, topic=$8, topic_set=$9, avatar=$10, avatar_url=$11, avatar_set=$12,
-		                  encrypted=$13, in_space=$14, first_event_id=$15
-		WHERE dcid=$16 AND receiver=$17
+		UPDATE portal
+		SET type=$1, other_user_id=$2, dc_guild_id=$3, dc_parent_id=$4, mxid=$5,
+			plain_name=$6, name=$7, name_set=$8, topic=$9, topic_set=$10, avatar=$11, avatar_url=$12, avatar_set=$13,
+			encrypted=$14, in_space=$15, first_event_id=$16
+		WHERE dcid=$17 AND receiver=$18
 	`
 	_, err := p.db.Exec(query,
 		p.Type, strPtr(p.OtherUserID), strPtr(p.GuildID), strPtr(p.ParentID), strPtr(string(p.MXID)),
-		p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+		p.PlainName, p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
 		p.Encrypted, p.InSpace, p.FirstEventID.String(),
 		p.Key.ChannelID, p.Key.Receiver)
 

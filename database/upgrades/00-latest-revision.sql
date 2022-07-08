@@ -3,6 +3,7 @@
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
     mxid       TEXT UNIQUE,
+    plain_name TEXT NOT NULL,
     name       TEXT NOT NULL,
     name_set   BOOLEAN NOT NULL,
     avatar     TEXT NOT NULL,
@@ -25,6 +26,7 @@ CREATE TABLE portal (
     dc_parent_receiver TEXT NOT NULL DEFAULT '',
 
     mxid       TEXT UNIQUE,
+    plain_name TEXT NOT NULL,
     name       TEXT NOT NULL,
     name_set   BOOLEAN NOT NULL,
     topic      TEXT NOT NULL,

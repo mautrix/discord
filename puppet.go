@@ -202,8 +202,9 @@ func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
 		puppet.log.Warnln("Failed to update displayname:", err)
 	} else {
 		go puppet.updatePortalMeta(func(portal *Portal) {
-			if portal.UpdateName(puppet.Name) {
+			if portal.UpdateNameDirect(puppet.Name) {
 				portal.Update()
+				portal.UpdateBridgeInfo()
 			}
 		})
 		puppet.NameSet = true
@@ -237,6 +238,7 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 		go puppet.updatePortalMeta(func(portal *Portal) {
 			if portal.UpdateAvatarFromPuppet(puppet) {
 				portal.Update()
+				portal.UpdateBridgeInfo()
 			}
 		})
 		puppet.AvatarSet = true

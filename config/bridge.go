@@ -28,9 +28,11 @@ import (
 )
 
 type BridgeConfig struct {
-	UsernameTemplate    string `yaml:"username_template"`
-	DisplaynameTemplate string `yaml:"displayname_template"`
-	ChannelnameTemplate string `yaml:"channelname_template"`
+	UsernameTemplate      string `yaml:"username_template"`
+	DisplaynameTemplate   string `yaml:"displayname_template"`
+	ChannelNameTemplate   string `yaml:"channel_name_template"`
+	GuildNameTemplate     string `yaml:"guild_name_template"`
+	PrivateChatPortalMeta bool   `yaml:"private_chat_portal_meta"`
 
 	DeliveryReceipts    bool `yaml:"delivery_receipts"`
 	MessageStatusEvents bool `yaml:"message_status_events"`
@@ -62,7 +64,8 @@ type BridgeConfig struct {
 
 	usernameTemplate    *template.Template `yaml:"-"`
 	displaynameTemplate *template.Template `yaml:"-"`
-	channelnameTemplate *template.Template `yaml:"-"`
+	channelNameTemplate *template.Template `yaml:"-"`
+	guildNameTemplate   *template.Template `yaml:"-"`
 }
 
 func (bc *BridgeConfig) GetResendBridgeInfo() bool {
@@ -109,13 +112,15 @@ func (bc *BridgeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	} else if !strings.Contains(bc.FormatUsername("1234567890"), "1234567890") {
 		return fmt.Errorf("username template is missing user ID placeholder")
 	}
-
 	bc.displaynameTemplate, err = template.New("displayname").Parse(bc.DisplaynameTemplate)
 	if err != nil {
 		return err
 	}
-
-	bc.channelnameTemplate, err = template.New("channelname").Parse(bc.ChannelnameTemplate)
+	bc.channelNameTemplate, err = template.New("channel_name").Parse(bc.ChannelNameTemplate)
+	if err != nil {
+		return err
+	}
+	bc.guildNameTemplate, err = template.New("guild_name").Parse(bc.GuildNameTemplate)
 	if err != nil {
 		return err
 	}
@@ -137,9 +142,9 @@ func (bc BridgeConfig) GetManagementRoomTexts() bridgeconfig.ManagementRoomTexts
 	return bc.ManagementRoomText
 }
 
-func (bc BridgeConfig) FormatUsername(userid string) string {
+func (bc BridgeConfig) FormatUsername(userID string) string {
 	var buffer strings.Builder
-	_ = bc.usernameTemplate.Execute(&buffer, userid)
+	_ = bc.usernameTemplate.Execute(&buffer, userID)
 	return buffer.String()
 }
 
@@ -149,45 +154,26 @@ func (bc BridgeConfig) FormatDisplayname(user *discordgo.User) string {
 	return buffer.String()
 }
 
-type wrappedChannel struct {
-	*discordgo.Channel
-	Guild  string
-	Folder string
+type ChannelNameParams struct {
+	Name       string
+	ParentName string
+	GuildName  string
+	NSFW       bool
+	Type       discordgo.ChannelType
 }
 
-func (bc BridgeConfig) FormatChannelname(channel *discordgo.Channel, session *discordgo.Session) (string, error) {
+func (bc BridgeConfig) FormatChannelName(params ChannelNameParams) string {
 	var buffer strings.Builder
-	var guildName, folderName string
+	_ = bc.channelNameTemplate.Execute(&buffer, params)
+	return buffer.String()
+}
 
-	if channel.Type != discordgo.ChannelTypeDM && channel.Type != discordgo.ChannelTypeGroupDM {
-		guild, err := session.Guild(channel.GuildID)
-		if err != nil {
-			return "", fmt.Errorf("find guild: %w", err)
-		}
-		guildName = guild.Name
+type GuildNameParams struct {
+	Name string
+}
 
-		folder, err := session.Channel(channel.ParentID)
-		if err == nil {
-			folderName = folder.Name
-		}
-	} else {
-		// Group DM's can have a name, but DM's can't, so if we didn't get a
-		// name return a comma separated list of the formatted user names.
-		if channel.Name == "" {
-			recipients := make([]string, len(channel.Recipients))
-			for idx, user := range channel.Recipients {
-				recipients[idx] = bc.FormatDisplayname(user)
-			}
-
-			return strings.Join(recipients, ", "), nil
-		}
-	}
-
-	_ = bc.channelnameTemplate.Execute(&buffer, wrappedChannel{
-		Channel: channel,
-		Guild:   guildName,
-		Folder:  folderName,
-	})
-
-	return buffer.String(), nil
+func (bc BridgeConfig) FormatGuildName(params GuildNameParams) string {
+	var buffer strings.Builder
+	_ = bc.guildNameTemplate.Execute(&buffer, params)
+	return buffer.String()
 }

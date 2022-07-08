@@ -28,6 +28,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"go.mau.fi/mautrix-discord/config"
 	"go.mau.fi/mautrix-discord/database"
 )
 
@@ -227,14 +228,7 @@ func (guild *Guild) UpdateInfo(source *User, meta *discordgo.Guild) *discordgo.G
 		return meta
 	}
 	changed := false
-	// FIXME
-	//name, err := guild.bridge.Config.Bridge.FormatChannelname(meta, user.Session)
-	//if err != nil {
-	//	guild.log.Warnfln("failed to format name, proceeding with generic name: %v", err)
-	//	guild.Name = meta.Name
-	//} else {
-	//}
-	changed = guild.UpdateName(meta.Name) || changed
+	changed = guild.UpdateName(meta) || changed
 	changed = guild.UpdateAvatar(meta.Icon) || changed
 	if changed {
 		guild.UpdateBridgeInfo()
@@ -243,11 +237,15 @@ func (guild *Guild) UpdateInfo(source *User, meta *discordgo.Guild) *discordgo.G
 	return meta
 }
 
-func (guild *Guild) UpdateName(name string) bool {
-	if guild.Name == name && guild.NameSet {
+func (guild *Guild) UpdateName(meta *discordgo.Guild) bool {
+	name := guild.bridge.Config.Bridge.FormatGuildName(config.GuildNameParams{
+		Name: meta.Name,
+	})
+	if guild.PlainName == meta.Name && guild.Name == name && guild.NameSet {
 		return false
 	}
 	guild.Name = name
+	guild.PlainName = meta.Name
 	guild.NameSet = false
 	if guild.MXID != "" {
 		_, err := guild.bridge.Bot.SetRoomName(guild.MXID, guild.Name)

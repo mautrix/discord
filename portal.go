@@ -23,6 +23,7 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
+	"go.mau.fi/mautrix-discord/config"
 	"go.mau.fi/mautrix-discord/database"
 )
 
@@ -1509,11 +1510,29 @@ func (portal *Portal) HandleMatrixTyping(newTyping []id.UserID) {
 	}
 }
 
-func (portal *Portal) UpdateName(name string) bool {
+func (portal *Portal) UpdateName(meta *discordgo.Channel) bool {
+	var parentName, guildName string
+	if portal.Parent != nil {
+		parentName = portal.Parent.PlainName
+	}
+	if portal.Guild != nil {
+		guildName = portal.Guild.PlainName
+	}
+	plainNameChanged := portal.PlainName != meta.Name
+	portal.PlainName = meta.Name
+	return portal.UpdateNameDirect(portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
+		Name:       meta.Name,
+		ParentName: parentName,
+		GuildName:  guildName,
+		NSFW:       meta.NSFW,
+		Type:       meta.Type,
+	})) || plainNameChanged
+}
+
+func (portal *Portal) UpdateNameDirect(name string) bool {
 	if portal.Name == name && portal.NameSet {
 		return false
-	} else if !portal.Encrypted && portal.IsPrivateChat() {
-		// TODO custom config option for always setting private chat portal meta?
+	} else if !portal.Encrypted && !portal.bridge.Config.Bridge.PrivateChatPortalMeta && portal.IsPrivateChat() {
 		return false
 	}
 	portal.Name = name
@@ -1708,25 +1727,18 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		changed = true
 	}
 
-	// FIXME
-	//name, err := portal.bridge.Config.Bridge.FormatChannelname(meta, source.Session)
-	//if err != nil {
-	//	portal.log.Errorln("Failed to format channel name:", err)
-	//	return
-	//}
-
 	switch portal.Type {
 	case discordgo.ChannelTypeDM:
 		if portal.OtherUserID != "" {
 			puppet := portal.bridge.GetPuppetByID(portal.OtherUserID)
 			changed = portal.UpdateAvatarFromPuppet(puppet) || changed
-			changed = portal.UpdateName(puppet.Name) || changed
+			changed = portal.UpdateNameDirect(puppet.Name) || changed
 		}
 	case discordgo.ChannelTypeGroupDM:
 		changed = portal.UpdateGroupDMAvatar(meta.Icon) || changed
 		fallthrough
 	default:
-		changed = portal.UpdateName(meta.Name) || changed
+		changed = portal.UpdateName(meta) || changed
 	}
 	changed = portal.UpdateTopic(meta.Topic) || changed
 	changed = portal.UpdateParent(meta.ParentID) || changed

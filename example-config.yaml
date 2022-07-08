@@ -67,15 +67,29 @@ bridge:
     # Localpart template of MXIDs for Discord users.
     # {{.}} is replaced with the internal ID of the Discord user.
     username_template: discord_{{.}}
-    # Displayname template for Discord users.
-    # Available fields:
+    # Displayname template for Discord users. This is also used as the room name in DMs if private_chat_portal_meta is enabled.
+    # Available variables:
     #   .ID - Internal user ID
     #   .Username - User's displayname on Discord
     #   .Discriminator - The 4 numbers after the name on Discord
     #   .Bot - Whether the user is a bot
     #   .System - Whether the user is an official system user
     displayname_template: '{{.Username}}#{{.Discriminator}} {{if .Bot}} (bot){{end}}'
-    channelname_template: '{{if .Guild}}{{.Guild}} - {{end}}{{if .Folder}}{{.Folder}} - {{end}}{{.Name}} (D)'
+    # Displayname template for Discord channels (bridged as rooms, or spaces when type=4).
+    # Available variables:
+    #   .Name - Channel name, or user displayname (pre-formatted with displayname_template) in DMs.
+    #   .ParentName - Parent channel name (used for categories).
+    #   .GuildName - Guild name.
+    #   .NSFW - Whether the channel is marked as NSFW.
+    #   .Type - Channel type (see values at https://github.com/bwmarrin/discordgo/blob/v0.25.0/structs.go#L251-L267)
+    channel_name_template: '{{if or (eq .Type 3) (eq .Type 4)}}{{.Name}}{{else}}#{{.Name}}{{end}}'
+    # Displayname template for Discord guilds (bridged as spaces).
+    # Available variables:
+    #   .Name - Guild name
+    guild_name_template: '{{.Name}}'
+    # Should the bridge explicitly set the avatar and room name for DM portal rooms?
+    # This is implicitly enabled in encrypted rooms.
+    private_chat_portal_meta: false
 
     portal_message_buffer: 128
 
@@ -133,7 +147,6 @@ bridge:
         allow: false
         # Default to encryption, force-enable encryption in all portals the bridge creates
         # This will cause the bridge bot to be in private chats for the encryption to work properly.
-        # It is recommended to also set private_chat_portal_meta to true when using this.
         default: false
         # Require encryption, drop any unencrypted messages.
         require: false

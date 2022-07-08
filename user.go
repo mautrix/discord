@@ -129,37 +129,32 @@ func (user *User) GetIGhost() bridge.Ghost {
 var _ bridge.User = (*User)(nil)
 
 func (br *DiscordBridge) loadUser(dbUser *database.User, mxid *id.UserID) *User {
-	// If we weren't passed in a user we attempt to create one if we were given
-	// a matrix id.
 	if dbUser == nil {
 		if mxid == nil {
 			return nil
 		}
-
 		dbUser = br.DB.User.New()
 		dbUser.MXID = *mxid
 		dbUser.Insert()
 	}
 
 	user := br.NewUser(dbUser)
-
-	// We assume the usersLock was acquired by our caller.
 	br.usersByMXID[user.MXID] = user
 	if user.DiscordID != "" {
 		br.usersByID[user.DiscordID] = user
 	}
-
 	if user.ManagementRoom != "" {
-		// Lock the management rooms for our update
 		br.managementRoomsLock.Lock()
 		br.managementRooms[user.ManagementRoom] = user
 		br.managementRoomsLock.Unlock()
 	}
-
 	return user
 }
 
 func (br *DiscordBridge) GetUserByMXID(userID id.UserID) *User {
+	if userID == br.Bot.UserID || br.IsGhost(userID) {
+		return nil
+	}
 	br.usersLock.Lock()
 	defer br.usersLock.Unlock()
 
@@ -167,7 +162,6 @@ func (br *DiscordBridge) GetUserByMXID(userID id.UserID) *User {
 	if !ok {
 		return br.loadUser(br.DB.User.GetByMXID(userID), &userID)
 	}
-
 	return user
 }
 
@@ -179,7 +173,6 @@ func (br *DiscordBridge) GetUserByID(id string) *User {
 	if !ok {
 		return br.loadUser(br.DB.User.GetByID(id), nil)
 	}
-
 	return user
 }
 
@@ -192,7 +185,6 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 
 	user.PermissionLevel = br.Config.Bridge.Permissions.Get(user.MXID)
 	user.BridgeState = br.NewBridgeStateQueue(user, user.log)
-
 	return user
 }
 
@@ -210,7 +202,6 @@ func (br *DiscordBridge) getAllUsersWithToken() []*User {
 		}
 		users[idx] = user
 	}
-
 	return users
 }
 
@@ -538,6 +529,19 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		portal := user.GetPortalByMeta(ch)
 		user.handlePrivateChannel(portal, ch, updateTS, i < maxCreate, portalsInSpace[portal.Key.String()])
 	}
+
+	if r.ReadState.Version > user.ReadStateVersion {
+		// TODO can we figure out which read states are actually new?
+		for _, entry := range r.ReadState.Entries {
+			user.messageAckHandler(nil, &discordgo.MessageAck{
+				MessageID: string(entry.LastMessageID),
+				ChannelID: entry.ID,
+			})
+		}
+		user.ReadStateVersion = r.ReadState.Version
+		user.Update()
+	}
+
 	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnected})
 }
 
@@ -761,6 +765,11 @@ func (user *User) messageAckHandler(_ *discordgo.Session, m *discordgo.MessageAc
 		user.log.Warnfln("Failed to mark %s/%s as read: %v", msg.MXID, msg.DiscordID, err)
 	} else {
 		user.log.Debugfln("Marked %s/%s as read after Discord message ack event", msg.MXID, msg.DiscordID)
+		if user.ReadStateVersion < m.Version {
+			user.ReadStateVersion = m.Version
+			// TODO maybe don't update every time?
+			user.Update()
+		}
 	}
 }
 

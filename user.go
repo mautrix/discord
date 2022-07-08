@@ -459,6 +459,9 @@ func (user *User) Connect() error {
 	user.Session.AddHandler(user.guildCreateHandler)
 	user.Session.AddHandler(user.guildDeleteHandler)
 	user.Session.AddHandler(user.guildUpdateHandler)
+	user.Session.AddHandler(user.guildRoleCreateHandler)
+	user.Session.AddHandler(user.guildRoleUpdateHandler)
+	user.Session.AddHandler(user.guildRoleDeleteHandler)
 
 	user.Session.AddHandler(user.channelCreateHandler)
 	user.Session.AddHandler(user.channelDeleteHandler)
@@ -586,6 +589,74 @@ func (user *User) addGuildToSpace(guild *Guild) bool {
 	return false
 }
 
+func (user *User) discordRoleToDB(guildID string, role *discordgo.Role, dbRole *database.Role) (*database.Role, bool) {
+	var changed bool
+	if dbRole == nil {
+		dbRole = user.bridge.DB.Role.New()
+		dbRole.ID = role.ID
+		dbRole.GuildID = guildID
+		changed = true
+	} else {
+		changed = dbRole.Name != role.Name ||
+			dbRole.Icon != role.Icon ||
+			dbRole.Mentionable != role.Mentionable ||
+			dbRole.Managed != role.Managed ||
+			dbRole.Hoist != role.Hoist ||
+			dbRole.Color != role.Color ||
+			dbRole.Position != role.Position ||
+			dbRole.Permissions != role.Permissions
+	}
+	dbRole.Role = *role
+	return dbRole, changed
+}
+
+func (user *User) handleGuildRoles(guildID string, newRoles []*discordgo.Role) {
+	existingRoles := user.bridge.DB.Role.GetAll(guildID)
+	existingRoleMap := make(map[string]*database.Role, len(existingRoles))
+	for _, role := range existingRoles {
+		existingRoleMap[role.ID] = role
+	}
+	txn, err := user.bridge.DB.Begin()
+	if err != nil {
+		user.log.Errorln("Failed to start transaction for guild role sync:", err)
+		panic(err)
+		return
+	}
+	for _, role := range newRoles {
+		dbRole, changed := user.discordRoleToDB(guildID, role, existingRoleMap[role.ID])
+		delete(existingRoleMap, role.ID)
+		if changed {
+			dbRole.Upsert(txn)
+		}
+	}
+	for _, removeRole := range existingRoleMap {
+		removeRole.Delete(txn)
+	}
+	err = txn.Commit()
+	if err != nil {
+		user.log.Errorln("Failed to commit guild role sync:", err)
+		rollbackErr := txn.Rollback()
+		if rollbackErr != nil {
+			user.log.Errorln("Failed to rollback errored guild role sync:", rollbackErr)
+		}
+		panic(err)
+	}
+}
+
+func (user *User) guildRoleCreateHandler(_ *discordgo.Session, r *discordgo.GuildRoleCreate) {
+	dbRole, _ := user.discordRoleToDB(r.GuildID, r.Role, nil)
+	dbRole.Upsert(nil)
+}
+
+func (user *User) guildRoleUpdateHandler(_ *discordgo.Session, r *discordgo.GuildRoleUpdate) {
+	dbRole, _ := user.discordRoleToDB(r.GuildID, r.Role, nil)
+	dbRole.Upsert(nil)
+}
+
+func (user *User) guildRoleDeleteHandler(_ *discordgo.Session, r *discordgo.GuildRoleDelete) {
+	user.bridge.DB.Role.DeleteByID(r.GuildID, r.RoleID)
+}
+
 func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSpace bool) {
 	guild := user.bridge.GetGuildByID(meta.ID, true)
 	guild.UpdateInfo(user, meta)
@@ -601,6 +672,9 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 				portal.UpdateInfo(user, ch)
 			}
 		}
+	}
+	if len(meta.Roles) > 0 {
+		user.handleGuildRoles(meta.ID, meta.Roles)
 	}
 	if !isInSpace {
 		isInSpace = user.addGuildToSpace(guild)

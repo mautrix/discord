@@ -263,7 +263,11 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s">%s</a>`, puppet.MXID, puppet.Name)
 		return
 	case *astDiscordRoleMention:
-		// TODO
+		role := r.portal.bridge.DB.Role.GetByID(r.portal.GuildID, strconv.FormatInt(node.id, 10))
+		if role != nil {
+			_, _ = fmt.Fprintf(w, `<font color="#%06x"><strong>@%s</strong></font>`, role.Color, role.Name)
+			return
+		}
 	case *astDiscordChannelMention:
 		portal := r.portal.bridge.GetExistingPortalByID(database.PortalKey{
 			ChannelID: strconv.FormatInt(node.id, 10),

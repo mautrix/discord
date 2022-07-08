@@ -22,6 +22,7 @@ type Database struct {
 	Reaction *ReactionQuery
 	Emoji    *EmojiQuery
 	Guild    *GuildQuery
+	Role     *RoleQuery
 }
 
 func New(baseDB *dbutil.Database) *Database {
@@ -58,6 +59,10 @@ func New(baseDB *dbutil.Database) *Database {
 	db.Guild = &GuildQuery{
 		db:  db,
 		log: db.Log.Sub("Guild"),
+	}
+	db.Role = &RoleQuery{
+		db:  db,
+		log: db.Log.Sub("Role"),
 	}
 	return db
 }

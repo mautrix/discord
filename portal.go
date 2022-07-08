@@ -1531,7 +1531,7 @@ func (portal *Portal) UpdateName(meta *discordgo.Channel) bool {
 }
 
 func (portal *Portal) UpdateNameDirect(name string) bool {
-	if portal.Name == name && portal.NameSet {
+	if portal.Name == name && (portal.NameSet || portal.MXID == "") {
 		return false
 	} else if !portal.Encrypted && !portal.bridge.Config.Bridge.PrivateChatPortalMeta && portal.IsPrivateChat() {
 		return false
@@ -1550,7 +1550,7 @@ func (portal *Portal) UpdateNameDirect(name string) bool {
 }
 
 func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
-	if portal.Avatar == puppet.Avatar && portal.AvatarSet {
+	if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && (portal.AvatarSet || portal.MXID == "") {
 		return false
 	}
 	portal.Avatar = puppet.Avatar
@@ -1561,7 +1561,7 @@ func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
 }
 
 func (portal *Portal) UpdateGroupDMAvatar(iconID string) bool {
-	if portal.Avatar == iconID && portal.AvatarSet {
+	if portal.Avatar == iconID && (iconID == "") == portal.AvatarURL.IsEmpty() && (portal.AvatarSet || portal.MXID == "") {
 		return false
 	}
 	portal.Avatar = iconID
@@ -1593,7 +1593,7 @@ func (portal *Portal) updateRoomAvatar() {
 }
 
 func (portal *Portal) UpdateTopic(topic string) bool {
-	if portal.Topic == topic && portal.TopicSet {
+	if portal.Topic == topic && (portal.TopicSet || portal.MXID == "") {
 		return false
 	}
 	portal.Topic = topic

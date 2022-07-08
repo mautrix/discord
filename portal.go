@@ -1451,6 +1451,30 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 	go portal.sendMessageMetrics(evt, errTargetNotFound, "Ignoring")
 }
 
+func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.EventID, receiptTimestamp time.Time) {
+	sender := brUser.(*User)
+	if sender.Session == nil {
+		return
+	}
+	msg := portal.bridge.DB.Message.GetByMXID(portal.Key, eventID)
+	if msg == nil {
+		msg = portal.bridge.DB.Message.GetClosestBefore(portal.Key, receiptTimestamp)
+		if msg == nil {
+			portal.log.Debugfln("Dropping Matrix read receipt from %s for %s: no messages found", sender.MXID, eventID)
+		} else {
+			portal.log.Debugfln("Matrix read receipt target %s from %s not found, using closest message %s", eventID, sender.MXID, msg.MXID)
+		}
+	}
+	resp, err := sender.Session.ChannelMessageAckNoToken(msg.DiscordProtoChannelID(), msg.DiscordID)
+	if err != nil {
+		portal.log.Warnfln("Failed to handle read receipt for %s/%s from %s: %v", msg.MXID, msg.DiscordID, sender.MXID)
+	} else if resp.Token != nil {
+		portal.log.Debugfln("Marked %s/%s as read by %s (and got unexpected non-nil token %s)", msg.MXID, msg.DiscordID, sender.MXID, *resp.Token)
+	} else {
+		portal.log.Debugfln("Marked %s/%s as read by %s", msg.MXID, msg.DiscordID, sender.MXID)
+	}
+}
+
 func (portal *Portal) UpdateName(name string) bool {
 	if portal.Name == name && portal.NameSet {
 		return false

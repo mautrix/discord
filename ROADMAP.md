@@ -9,10 +9,10 @@
   * [x] Message redactions
   * [x] Reactions
     * [x] Unicode emojis
-    * [ ] Custom emojis
+    * [ ] Custom emojis (re-reacting with custom emojis sent from Discord already works)
   * [ ] Presence
   * [ ] Typing notifications
-  * [ ] Own read status
+  * [x] Own read status
   * [ ] Power level
   * [ ] Membership actions
     * [ ] Invite
@@ -40,6 +40,7 @@
   * [x] Avatars
   * [ ] Presence
   * [ ] Typing notifications
+  * [x] Own read status
   * [ ] Membership actions
     * [ ] Invite
     * [ ] Join

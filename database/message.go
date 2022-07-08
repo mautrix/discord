@@ -56,6 +56,16 @@ func (mq *MessageQuery) GetFirstByDiscordID(key PortalKey, discordID string) *Me
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
 }
 
+func (mq *MessageQuery) GetLastByDiscordID(key PortalKey, discordID string) *Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 AND dc_edit_index=0 ORDER BY dc_attachment_id DESC LIMIT 1"
+	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
+}
+
+func (mq *MessageQuery) GetClosestBefore(key PortalKey, ts time.Time) *Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND timestamp<=$3 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
+	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, ts.UnixMilli()))
+}
+
 func (mq *MessageQuery) GetLastInThread(key PortalKey, threadID string) *Message {
 	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 AND dc_edit_index=0 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID))

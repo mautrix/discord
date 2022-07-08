@@ -479,6 +479,7 @@ func (user *User) Connect() error {
 	user.Session.AddHandler(user.messageUpdateHandler)
 	user.Session.AddHandler(user.reactionAddHandler)
 	user.Session.AddHandler(user.reactionRemoveHandler)
+	user.Session.AddHandler(user.messageAckHandler)
 
 	user.Session.Identify.Presence.Status = "online"
 
@@ -715,6 +716,52 @@ func (user *User) reactionAddHandler(_ *discordgo.Session, m *discordgo.MessageR
 
 func (user *User) reactionRemoveHandler(_ *discordgo.Session, m *discordgo.MessageReactionRemove) {
 	user.pushPortalMessage(m, "reaction remove", m.ChannelID, m.GuildID)
+}
+
+type CustomReadReceipt struct {
+	Timestamp          int64  `json:"ts,omitempty"`
+	DoublePuppetSource string `json:"fi.mau.double_puppet_source,omitempty"`
+}
+
+type CustomReadMarkers struct {
+	mautrix.ReqSetReadMarkers
+	ReadExtra      CustomReadReceipt `json:"com.beeper.read.extra"`
+	FullyReadExtra CustomReadReceipt `json:"com.beeper.fully_read.extra"`
+}
+
+func (user *User) makeReadMarkerContent(eventID id.EventID) *CustomReadMarkers {
+	var extra CustomReadReceipt
+	extra.DoublePuppetSource = user.bridge.Name
+	return &CustomReadMarkers{
+		ReqSetReadMarkers: mautrix.ReqSetReadMarkers{
+			Read:      eventID,
+			FullyRead: eventID,
+		},
+		ReadExtra:      extra,
+		FullyReadExtra: extra,
+	}
+}
+
+func (user *User) messageAckHandler(_ *discordgo.Session, m *discordgo.MessageAck) {
+	portal := user.GetExistingPortalByID(m.ChannelID)
+	if portal == nil || portal.MXID == "" {
+		return
+	}
+	dp := user.GetIDoublePuppet()
+	if dp == nil {
+		return
+	}
+	msg := user.bridge.DB.Message.GetLastByDiscordID(portal.Key, m.MessageID)
+	if msg == nil {
+		user.log.Debugfln("Dropping message ack event for unknown message %s/%s", m.ChannelID, m.MessageID)
+		return
+	}
+	err := dp.CustomIntent().SetReadMarkers(portal.MXID, user.makeReadMarkerContent(msg.MXID))
+	if err != nil {
+		user.log.Warnfln("Failed to mark %s/%s as read: %v", msg.MXID, msg.DiscordID, err)
+	} else {
+		user.log.Debugfln("Marked %s/%s as read after Discord message ack event", msg.MXID, msg.DiscordID)
+	}
 }
 
 func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isDirect bool) bool {

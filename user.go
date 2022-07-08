@@ -679,7 +679,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 	if len(meta.Channels) > 0 {
 		for _, ch := range meta.Channels {
 			portal := user.GetPortalByMeta(ch)
-			if guild.AutoBridgeChannels && portal.MXID == "" {
+			if (guild.AutoBridgeChannels && channelIsBridgeable(ch)) && portal.MXID == "" {
 				err := portal.CreateMatrixRoom(user, ch)
 				if err != nil {
 					user.log.Errorfln("Failed to create portal for guild channel %s/%s in initial sync: %v", guild.ID, ch.ID, err)

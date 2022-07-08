@@ -34,6 +34,8 @@ type BridgeConfig struct {
 	GuildNameTemplate     string `yaml:"guild_name_template"`
 	PrivateChatPortalMeta bool   `yaml:"private_chat_portal_meta"`
 
+	PrivateChannelCreateLimit int `yaml:"startup_private_channel_create_limit"`
+
 	DeliveryReceipts    bool `yaml:"delivery_receipts"`
 	MessageStatusEvents bool `yaml:"message_status_events"`
 	MessageErrorNotices bool `yaml:"message_error_notices"`

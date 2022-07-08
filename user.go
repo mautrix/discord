@@ -544,10 +544,9 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.handleGuild(guild, updateTS, portalsInSpace[guild.ID])
 	}
 	user.PrunePortalList(updateTS)
-	const maxCreate = 5
 	for i, ch := range r.PrivateChannels {
 		portal := user.GetPortalByMeta(ch)
-		user.handlePrivateChannel(portal, ch, updateTS, i < maxCreate, portalsInSpace[portal.Key.ChannelID])
+		user.handlePrivateChannel(portal, ch, updateTS, i < user.bridge.Config.Bridge.PrivateChannelCreateLimit, portalsInSpace[portal.Key.ChannelID])
 	}
 
 	if r.ReadState.Version > user.ReadStateVersion {

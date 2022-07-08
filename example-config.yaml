@@ -93,6 +93,9 @@ bridge:
 
     portal_message_buffer: 128
 
+    # Number of private channel portals to create on bridge startup.
+    # Other portals will be created when receiving messages.
+    startup_private_channel_create_limit: 5
     # Should the bridge send a read receipt from the bridge bot when a message has been sent to Discord?
     delivery_receipts: false
     # Whether the bridge should send the message status as a custom com.beeper.message_send_status event.

@@ -1464,6 +1464,7 @@ func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.Eve
 		msg = portal.bridge.DB.Message.GetClosestBefore(portal.Key, receiptTimestamp)
 		if msg == nil {
 			portal.log.Debugfln("Dropping Matrix read receipt from %s for %s: no messages found", sender.MXID, eventID)
+			return
 		} else {
 			portal.log.Debugfln("Matrix read receipt target %s from %s not found, using closest message %s", eventID, sender.MXID, msg.MXID)
 		}

@@ -519,18 +519,11 @@ func (user *User) Disconnect() error {
 }
 
 func (user *User) bridgeMessage(guildID string) bool {
-	// Non guild message always get bridged.
 	if guildID == "" {
 		return true
 	}
-
 	guild := user.bridge.GetGuildByID(guildID, false)
-	if guild != nil && guild.MXID != "" {
-		return true
-	}
-
-	user.log.Debugfln("Ignoring message for non-bridged guild %s", guildID)
-	return false
+	return guild != nil && guild.MXID != ""
 }
 
 func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {

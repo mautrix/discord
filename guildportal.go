@@ -244,6 +244,7 @@ func (guild *Guild) UpdateName(meta *discordgo.Guild) bool {
 	if guild.PlainName == meta.Name && guild.Name == name && guild.NameSet {
 		return false
 	}
+	guild.log.Debugfln("Updating name %q -> %q", guild.Name, name)
 	guild.Name = name
 	guild.PlainName = meta.Name
 	guild.NameSet = false
@@ -262,6 +263,7 @@ func (guild *Guild) UpdateAvatar(iconID string) bool {
 	if guild.Avatar == iconID && guild.AvatarSet {
 		return false
 	}
+	guild.log.Debugfln("Updating avatar %q -> %q", guild.Avatar, iconID)
 	guild.AvatarSet = false
 	guild.Avatar = iconID
 	guild.AvatarURL = id.ContentURI{}

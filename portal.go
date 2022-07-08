@@ -1536,6 +1536,7 @@ func (portal *Portal) UpdateNameDirect(name string) bool {
 	} else if !portal.Encrypted && !portal.bridge.Config.Bridge.PrivateChatPortalMeta && portal.IsPrivateChat() {
 		return false
 	}
+	portal.log.Debugfln("Updating name %q -> %q", portal.Name, name)
 	portal.Name = name
 	portal.NameSet = false
 	if portal.MXID != "" {
@@ -1553,6 +1554,7 @@ func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
 	if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && (portal.AvatarSet || portal.MXID == "") {
 		return false
 	}
+	portal.log.Debugfln("Updating avatar from puppet %q -> %q", portal.Avatar, puppet.Avatar)
 	portal.Avatar = puppet.Avatar
 	portal.AvatarURL = puppet.AvatarURL
 	portal.AvatarSet = false
@@ -1564,6 +1566,7 @@ func (portal *Portal) UpdateGroupDMAvatar(iconID string) bool {
 	if portal.Avatar == iconID && (iconID == "") == portal.AvatarURL.IsEmpty() && (portal.AvatarSet || portal.MXID == "") {
 		return false
 	}
+	portal.log.Debugfln("Updating group DM avatar %q -> %q", portal.Avatar, iconID)
 	portal.Avatar = iconID
 	portal.AvatarSet = false
 	portal.AvatarURL = id.ContentURI{}
@@ -1596,6 +1599,7 @@ func (portal *Portal) UpdateTopic(topic string) bool {
 	if portal.Topic == topic && (portal.TopicSet || portal.MXID == "") {
 		return false
 	}
+	portal.log.Debugfln("Updating topic %q -> %q", portal.Topic, topic)
 	portal.Topic = topic
 	portal.TopicSet = false
 	if portal.MXID != "" {
@@ -1614,6 +1618,7 @@ func (portal *Portal) removeFromSpace() {
 		return
 	}
 
+	portal.log.Debugfln("Removing room from space %s", portal.InSpace)
 	_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateSpaceParent, portal.InSpace.String(), struct{}{})
 	if err != nil {
 		portal.log.Warnfln("Failed to unset canonical space %s: %v", portal.InSpace, err)
@@ -1634,6 +1639,7 @@ func (portal *Portal) addToSpace(mxid id.RoomID) bool {
 		return true
 	}
 
+	portal.log.Debugfln("Adding room to space %s", mxid)
 	_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateSpaceParent, mxid.String(), &event.SpaceParentEventContent{
 		Via:       []string{portal.bridge.AS.HomeserverDomain},
 		Canonical: true,
@@ -1658,6 +1664,7 @@ func (portal *Portal) UpdateParent(parentID string) bool {
 	if portal.ParentID == parentID {
 		return false
 	}
+	portal.log.Debugfln("Updating parent ID %q -> %q", portal.ParentID, parentID)
 	portal.ParentID = parentID
 	if portal.ParentID != "" {
 		portal.Parent = portal.bridge.GetPortalByID(database.NewPortalKey(parentID, ""), discordgo.ChannelTypeGuildCategory)

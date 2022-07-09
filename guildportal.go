@@ -241,7 +241,7 @@ func (guild *Guild) UpdateName(meta *discordgo.Guild) bool {
 	name := guild.bridge.Config.Bridge.FormatGuildName(config.GuildNameParams{
 		Name: meta.Name,
 	})
-	if guild.PlainName == meta.Name && guild.Name == name && guild.NameSet {
+	if guild.PlainName == meta.Name && guild.Name == name && (guild.NameSet || guild.MXID == "") {
 		return false
 	}
 	guild.log.Debugfln("Updating name %q -> %q", guild.Name, name)
@@ -260,7 +260,7 @@ func (guild *Guild) UpdateName(meta *discordgo.Guild) bool {
 }
 
 func (guild *Guild) UpdateAvatar(iconID string) bool {
-	if guild.Avatar == iconID && guild.AvatarSet {
+	if guild.Avatar == iconID && (iconID == "") == guild.AvatarURL.IsEmpty() && (guild.AvatarSet || guild.MXID == "") {
 		return false
 	}
 	guild.log.Debugfln("Updating avatar %q -> %q", guild.Avatar, iconID)

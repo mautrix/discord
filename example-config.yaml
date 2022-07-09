@@ -74,7 +74,7 @@ bridge:
     #   .Discriminator - The 4 numbers after the name on Discord
     #   .Bot - Whether the user is a bot
     #   .System - Whether the user is an official system user
-    displayname_template: '{{.Username}}#{{.Discriminator}} {{if .Bot}} (bot){{end}}'
+    displayname_template: '{{.Username}}#{{.Discriminator}}{{if .Bot}} (bot){{end}}'
     # Displayname template for Discord channels (bridged as rooms, or spaces when type=4).
     # Available variables:
     #   .Name - Channel name, or user displayname (pre-formatted with displayname_template) in DMs.

@@ -750,7 +750,15 @@ func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.Channe
 }
 
 func (user *User) channelDeleteHandler(_ *discordgo.Session, c *discordgo.ChannelDelete) {
-	user.log.Debugln("channel delete handler")
+	portal := user.GetExistingPortalByID(c.ID)
+	if portal == nil {
+		user.log.Debugfln("Ignoring delete of unknown channel %s/%s", c.GuildID, c.ID)
+		return
+	}
+	user.log.Infofln("Got delete notification for %s/%s, cleaning up portal", c.GuildID, c.ID)
+	portal.Delete()
+	portal.cleanup(!user.bridge.Config.Bridge.DeletePortalOnChannelDelete)
+	user.log.Debugfln("Completed cleaning up %s/%s", c.GuildID, c.ID)
 }
 
 func (user *User) channelPinsUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelPinsUpdate) {

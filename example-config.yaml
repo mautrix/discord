@@ -112,6 +112,9 @@ bridge:
     # Set this to true to tell the bridge to re-send m.bridge events to all rooms on the next run.
     # This field will automatically be changed back to false after it, except if the config file is not writable.
     resend_bridge_info: false
+    # Should the bridge attempt to completely delete portal rooms when a channel is deleted on Discord?
+    # If true, the bridge will try to kick Matrix users from the room. Otherwise, the bridge only makes ghosts leave.
+    delete_portal_on_channel_delete: false
     # Whether or not created rooms should have federation enabled.
     # If false, created portal rooms will never be federated.
     federate_rooms: true

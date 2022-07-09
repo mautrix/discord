@@ -28,32 +28,30 @@ import (
 )
 
 type BridgeConfig struct {
-	UsernameTemplate      string `yaml:"username_template"`
-	DisplaynameTemplate   string `yaml:"displayname_template"`
-	ChannelNameTemplate   string `yaml:"channel_name_template"`
-	GuildNameTemplate     string `yaml:"guild_name_template"`
-	PrivateChatPortalMeta bool   `yaml:"private_chat_portal_meta"`
-
-	PrivateChannelCreateLimit int `yaml:"startup_private_channel_create_limit"`
-
-	DeliveryReceipts    bool `yaml:"delivery_receipts"`
-	MessageStatusEvents bool `yaml:"message_status_events"`
-	MessageErrorNotices bool `yaml:"message_error_notices"`
-	RestrictedRooms     bool `yaml:"restricted_rooms"`
-
-	CommandPrefix string `yaml:"command_prefix"`
-
-	ManagementRoomText bridgeconfig.ManagementRoomTexts `yaml:"management_room_text"`
+	UsernameTemplate          string `yaml:"username_template"`
+	DisplaynameTemplate       string `yaml:"displayname_template"`
+	ChannelNameTemplate       string `yaml:"channel_name_template"`
+	GuildNameTemplate         string `yaml:"guild_name_template"`
+	PrivateChatPortalMeta     bool   `yaml:"private_chat_portal_meta"`
+	PrivateChannelCreateLimit int    `yaml:"startup_private_channel_create_limit"`
 
 	PortalMessageBuffer int `yaml:"portal_message_buffer"`
 
-	SyncDirectChatList bool `yaml:"sync_direct_chat_list"`
-	ResendBridgeInfo   bool `yaml:"resend_bridge_info"`
-	FederateRooms      bool `yaml:"federate_rooms"`
+	DeliveryReceipts            bool `yaml:"delivery_receipts"`
+	MessageStatusEvents         bool `yaml:"message_status_events"`
+	MessageErrorNotices         bool `yaml:"message_error_notices"`
+	RestrictedRooms             bool `yaml:"restricted_rooms"`
+	SyncDirectChatList          bool `yaml:"sync_direct_chat_list"`
+	ResendBridgeInfo            bool `yaml:"resend_bridge_info"`
+	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`
+	FederateRooms               bool `yaml:"federate_rooms"`
 
 	DoublePuppetServerMap      map[string]string `yaml:"double_puppet_server_map"`
 	DoublePuppetAllowDiscovery bool              `yaml:"double_puppet_allow_discovery"`
 	LoginSharedSecretMap       map[string]string `yaml:"login_shared_secret_map"`
+
+	CommandPrefix      string                           `yaml:"command_prefix"`
+	ManagementRoomText bridgeconfig.ManagementRoomTexts `yaml:"management_room_text"`
 
 	Encryption bridgeconfig.EncryptionConfig `yaml:"encryption"`
 

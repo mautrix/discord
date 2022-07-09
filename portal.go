@@ -1174,13 +1174,14 @@ func (portal *Portal) sendDeliveryReceipt(eventID id.EventID) {
 }
 
 func (portal *Portal) HandleMatrixLeave(brSender bridge.User) {
-	portal.log.Debugln("User left private chat portal, cleaning up and deleting...")
-	portal.Delete()
-	portal.cleanup(false)
-
-	// TODO: figure out how to close a dm from the API.
-
-	portal.cleanupIfEmpty()
+	sender := brSender.(*User)
+	if portal.IsPrivateChat() && sender.DiscordID == portal.Key.Receiver {
+		portal.log.Debugln("User left private chat portal, cleaning up and deleting...")
+		portal.Delete()
+		portal.cleanup(false)
+	} else {
+		portal.cleanupIfEmpty()
+	}
 }
 
 func (portal *Portal) leave(sender *User) {
@@ -1196,11 +1197,9 @@ func (portal *Portal) Delete() {
 	portal.Portal.Delete()
 	portal.bridge.portalsLock.Lock()
 	delete(portal.bridge.portalsByID, portal.Key)
-
 	if portal.MXID != "" {
 		delete(portal.bridge.portalsByMXID, portal.MXID)
 	}
-
 	portal.bridge.portalsLock.Unlock()
 }
 
@@ -1217,9 +1216,21 @@ func (portal *Portal) cleanupIfEmpty() {
 
 	if len(users) == 0 {
 		portal.log.Infoln("Room seems to be empty, cleaning up...")
-		portal.Delete()
 		portal.cleanup(false)
+		portal.RemoveMXID()
 	}
+}
+
+func (portal *Portal) RemoveMXID() {
+	portal.bridge.portalsLock.Lock()
+	defer portal.bridge.portalsLock.Unlock()
+	if portal.MXID == "" {
+		return
+	}
+	delete(portal.bridge.portalsByMXID, portal.MXID)
+	portal.MXID = ""
+	portal.Update()
+	portal.bridge.DB.Message.DeleteAll(portal.Key)
 }
 
 func (portal *Portal) cleanup(puppetsOnly bool) {

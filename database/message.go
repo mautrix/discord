@@ -71,6 +71,15 @@ func (mq *MessageQuery) GetLastInThread(key PortalKey, threadID string) *Message
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID))
 }
 
+func (mq *MessageQuery) DeleteAll(key PortalKey) {
+	query := "DELETE FROM message WHERE dc_chan_id=$1 AND dc_chan_receiver=$2"
+	_, err := mq.db.Exec(query, key.ChannelID, key.Receiver)
+	if err != nil {
+		mq.log.Warnfln("Failed to delete messages of %s: %v", key, err)
+		panic(err)
+	}
+}
+
 func (mq *MessageQuery) GetByMXID(key PortalKey, mxid id.EventID) *Message {
 	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND mxid=$3"
 

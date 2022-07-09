@@ -672,7 +672,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 
 		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, ts.UnixMilli())
 		if err != nil {
-			portal.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
+			portal.log.Warnfln("Failed to send message %s to matrix: %v", msg.ID, err)
 			return
 		}
 
@@ -696,7 +696,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 	}
 	if len(parts) == 0 {
-		portal.log.Warnfln("Unhandled message %q", msg.ID)
+		portal.log.Warnfln("Unhandled message %s", msg.ID)
 	} else {
 		portal.markMessageHandled(msg.ID, 0, msg.Author.ID, ts, threadID, parts)
 	}
@@ -783,8 +783,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	// TODO figure out some way to deduplicate outgoing edits
 	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, editTS)
 	if err != nil {
-		portal.log.Warnfln("failed to send message %q to matrix: %v", msg.ID, err)
-
+		portal.log.Warnfln("Failed to send message %s to matrix: %v", msg.ID, err)
 		return
 	}
 

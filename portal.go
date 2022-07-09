@@ -416,6 +416,13 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	portal.Update()
 	portal.log.Infoln("Matrix room created:", portal.MXID)
 
+	if portal.Encrypted && portal.IsPrivateChat() {
+		err = portal.bridge.Bot.EnsureJoined(portal.MXID, appservice.EnsureJoinedParams{BotOverride: portal.MainIntent().Client})
+		if err != nil {
+			portal.log.Errorfln("Failed to ensure bridge bot is joined to private chat portal: %v", err)
+		}
+	}
+
 	portal.updateSpace(user)
 	portal.ensureUserInvited(user)
 	user.syncChatDoublePuppetDetails(portal, true)
@@ -1177,12 +1184,15 @@ func (portal *Portal) HandleMatrixLeave(brSender bridge.User) {
 	sender := brSender.(*User)
 	if portal.IsPrivateChat() && sender.DiscordID == portal.Key.Receiver {
 		portal.log.Debugln("User left private chat portal, cleaning up and deleting...")
-		portal.Delete()
 		portal.cleanup(false)
+		portal.RemoveMXID()
 	} else {
 		portal.cleanupIfEmpty()
 	}
 }
+
+func (portal *Portal) HandleMatrixKick(brSender bridge.User, brTarget bridge.Ghost)   {}
+func (portal *Portal) HandleMatrixInvite(brSender bridge.User, brTarget bridge.Ghost) {}
 
 func (portal *Portal) leave(sender *User) {
 	if portal.MXID == "" {

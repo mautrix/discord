@@ -416,7 +416,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	portal.Update()
 	portal.log.Infoln("Matrix room created:", portal.MXID)
 
-	portal.updateSpace()
+	portal.updateSpace(user)
 	portal.ensureUserInvited(user)
 	user.syncChatDoublePuppetDetails(portal, true)
 
@@ -1693,11 +1693,21 @@ func (portal *Portal) ExpectedSpaceID() id.RoomID {
 	return ""
 }
 
-func (portal *Portal) updateSpace() bool {
+func (portal *Portal) IsInSpace(user *User) bool {
+	if portal.GuildID == "" {
+		return user.IsInSpace(portal.Key.ChannelID)
+	} else {
+		return portal.ExpectedSpaceID() == portal.InSpace
+	}
+}
+
+func (portal *Portal) updateSpace(user *User) bool {
 	if portal.MXID == "" {
 		return false
 	}
-	if portal.Parent != nil {
+	if portal.GuildID == "" {
+		user.addPrivateChannelToSpace(portal)
+	} else if portal.Parent != nil {
 		return portal.addToSpace(portal.Parent.MXID)
 	} else if portal.Guild != nil {
 		return portal.addToSpace(portal.Guild.MXID)
@@ -1760,8 +1770,8 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 	}
 	changed = portal.UpdateTopic(meta.Topic) || changed
 	changed = portal.UpdateParent(meta.ParentID) || changed
-	if portal.MXID != "" && portal.ExpectedSpaceID() != portal.InSpace {
-		changed = portal.updateSpace() || changed
+	if portal.MXID != "" && portal.IsInSpace(source) {
+		changed = portal.updateSpace(source) || changed
 	}
 	if changed {
 		portal.UpdateBridgeInfo()

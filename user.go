@@ -561,34 +561,39 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnected})
 }
 
+func (user *User) addPrivateChannelToSpace(portal *Portal) bool {
+	if portal.MXID == "" {
+		return false
+	}
+	_, err := user.bridge.Bot.SendStateEvent(user.GetDMSpaceRoom(), event.StateSpaceChild, portal.MXID.String(), &event.SpaceChildEventContent{
+		Via: []string{user.bridge.AS.HomeserverDomain},
+	})
+	if err != nil {
+		user.log.Errorfln("Failed to add DM room %s to user DM space: %v", portal.MXID, err)
+		return false
+	} else {
+		return true
+	}
+}
+
 func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, timestamp time.Time, create, isInSpace bool) {
 	if create && portal.MXID == "" {
 		err := portal.CreateMatrixRoom(user, meta)
 		if err != nil {
-			user.log.Errorfln("Failed to create portal for private channel %s in initial sync: %v", meta.ID, err)
+			user.log.Errorfln("Failed to create portal for private channel %s in initial sync: %v", portal.Key.ChannelID, err)
 		}
 	} else {
 		portal.UpdateInfo(user, meta)
 	}
-	if len(portal.MXID) > 0 && !isInSpace {
-		_, err := user.bridge.Bot.SendStateEvent(user.GetDMSpaceRoom(), event.StateSpaceChild, portal.MXID.String(), &event.SpaceChildEventContent{
-			Via: []string{user.bridge.AS.HomeserverDomain},
-		})
-		if err != nil {
-			user.log.Errorfln("Failed to add DM room %s to user DM space: %v", portal.MXID, err)
-		} else {
-			isInSpace = true
-		}
-	}
 	user.MarkInPortal(database.UserPortal{
-		DiscordID: meta.ID,
+		DiscordID: portal.Key.ChannelID,
 		Type:      database.UserPortalTypeDM,
 		Timestamp: timestamp,
-		InSpace:   isInSpace,
+		InSpace:   isInSpace || user.addPrivateChannelToSpace(portal),
 	})
 }
 
-func (user *User) addGuildToSpace(guild *Guild) bool {
+func (user *User) addGuildToSpace(guild *Guild, isInSpace bool, timestamp time.Time) bool {
 	if len(guild.MXID) > 0 {
 		_, err := user.bridge.Bot.SendStateEvent(user.GetSpaceRoom(), event.StateSpaceChild, guild.MXID.String(), &event.SpaceChildEventContent{
 			Via: []string{user.bridge.AS.HomeserverDomain},
@@ -596,10 +601,16 @@ func (user *User) addGuildToSpace(guild *Guild) bool {
 		if err != nil {
 			user.log.Errorfln("Failed to add guild space %s to user space: %v", guild.MXID, err)
 		} else {
-			return true
+			isInSpace = true
 		}
 	}
-	return false
+	user.MarkInPortal(database.UserPortal{
+		DiscordID: guild.ID,
+		Type:      database.UserPortalTypeGuild,
+		Timestamp: timestamp,
+		InSpace:   isInSpace,
+	})
+	return isInSpace
 }
 
 func (user *User) discordRoleToDB(guildID string, role *discordgo.Role, dbRole *database.Role) (*database.Role, bool) {
@@ -689,15 +700,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 	if len(meta.Roles) > 0 {
 		user.handleGuildRoles(meta.ID, meta.Roles)
 	}
-	if !isInSpace {
-		isInSpace = user.addGuildToSpace(guild)
-	}
-	user.MarkInPortal(database.UserPortal{
-		DiscordID: meta.ID,
-		Type:      database.UserPortalTypeGuild,
-		Timestamp: timestamp,
-		InSpace:   isInSpace,
-	})
+	user.addGuildToSpace(guild, isInSpace, timestamp)
 }
 
 func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
@@ -758,6 +761,9 @@ func (user *User) channelDeleteHandler(_ *discordgo.Session, c *discordgo.Channe
 	user.log.Infofln("Got delete notification for %s/%s, cleaning up portal", c.GuildID, c.ID)
 	portal.Delete()
 	portal.cleanup(!user.bridge.Config.Bridge.DeletePortalOnChannelDelete)
+	if c.GuildID == "" {
+		user.MarkNotInPortal(portal.Key.ChannelID)
+	}
 	user.log.Debugfln("Completed cleaning up %s/%s", c.GuildID, c.ID)
 }
 
@@ -1010,13 +1016,7 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	if err != nil {
 		return err
 	}
-	user.addGuildToSpace(guild)
-	user.MarkInPortal(database.UserPortal{
-		DiscordID: meta.ID,
-		Type:      database.UserPortalTypeGuild,
-		Timestamp: time.Now(),
-		InSpace:   true,
-	})
+	user.addGuildToSpace(guild, false, time.Now())
 	for _, ch := range meta.Channels {
 		portal := user.GetPortalByMeta(ch)
 		if (everything && channelIsBridgeable(ch)) || ch.Type == discordgo.ChannelTypeGuildCategory {

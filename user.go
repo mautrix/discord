@@ -260,84 +260,81 @@ func (user *User) SetManagementRoom(roomID id.RoomID) {
 	user.Update()
 }
 
-func (user *User) getSpaceRoom(ptr *id.RoomID, checked *bool, name, topic string, parent id.RoomID) id.RoomID {
-	if len(*ptr) == 0 {
-		user.spaceCreateLock.Lock()
-		defer user.spaceCreateLock.Unlock()
-		if len(*ptr) > 0 {
-			return *ptr
-		}
+func (user *User) getSpaceRoom(ptr *id.RoomID, name, topic string, parent id.RoomID) id.RoomID {
+	if len(*ptr) > 0 {
+		return *ptr
+	}
+	user.spaceCreateLock.Lock()
+	defer user.spaceCreateLock.Unlock()
+	if len(*ptr) > 0 {
+		return *ptr
+	}
 
-		initialState := []*event.Event{{
-			Type: event.StateRoomAvatar,
+	initialState := []*event.Event{{
+		Type: event.StateRoomAvatar,
+		Content: event.Content{
+			Parsed: &event.RoomAvatarEventContent{
+				URL: user.bridge.Config.AppService.Bot.ParsedAvatar,
+			},
+		},
+	}}
+
+	if parent != "" {
+		parentIDStr := parent.String()
+		initialState = append(initialState, &event.Event{
+			Type:     event.StateSpaceParent,
+			StateKey: &parentIDStr,
 			Content: event.Content{
-				Parsed: &event.RoomAvatarEventContent{
-					URL: user.bridge.Config.AppService.Bot.ParsedAvatar,
-				},
-			},
-		}}
-
-		if parent != "" {
-			parentIDStr := parent.String()
-			initialState = append(initialState, &event.Event{
-				Type:     event.StateSpaceParent,
-				StateKey: &parentIDStr,
-				Content: event.Content{
-					Parsed: &event.SpaceParentEventContent{
-						Canonical: true,
-						Via:       []string{user.bridge.AS.HomeserverDomain},
-					},
-				},
-			})
-		}
-
-		resp, err := user.bridge.Bot.CreateRoom(&mautrix.ReqCreateRoom{
-			Visibility:   "private",
-			Name:         name,
-			Topic:        topic,
-			InitialState: initialState,
-			CreationContent: map[string]interface{}{
-				"type": event.RoomTypeSpace,
-			},
-			PowerLevelOverride: &event.PowerLevelsEventContent{
-				Users: map[id.UserID]int{
-					user.bridge.Bot.UserID: 9001,
-					user.MXID:              50,
+				Parsed: &event.SpaceParentEventContent{
+					Canonical: true,
+					Via:       []string{user.bridge.AS.HomeserverDomain},
 				},
 			},
 		})
+	}
 
-		if err != nil {
-			user.log.Errorln("Failed to auto-create space room:", err)
-		} else {
-			*ptr = resp.RoomID
-			user.Update()
-			user.ensureInvited(nil, *ptr, false)
+	resp, err := user.bridge.Bot.CreateRoom(&mautrix.ReqCreateRoom{
+		Visibility:   "private",
+		Name:         name,
+		Topic:        topic,
+		InitialState: initialState,
+		CreationContent: map[string]interface{}{
+			"type": event.RoomTypeSpace,
+		},
+		PowerLevelOverride: &event.PowerLevelsEventContent{
+			Users: map[id.UserID]int{
+				user.bridge.Bot.UserID: 9001,
+				user.MXID:              50,
+			},
+		},
+	})
 
-			if parent != "" {
-				_, err = user.bridge.Bot.SendStateEvent(parent, event.StateSpaceChild, resp.RoomID.String(), &event.SpaceChildEventContent{
-					Via:   []string{user.bridge.AS.HomeserverDomain},
-					Order: " 0000",
-				})
-				if err != nil {
-					user.log.Errorfln("Failed to add space room %s to parent space %s: %v", resp.RoomID, parent, err)
-				}
+	if err != nil {
+		user.log.Errorln("Failed to auto-create space room:", err)
+	} else {
+		*ptr = resp.RoomID
+		user.Update()
+		user.ensureInvited(nil, *ptr, false)
+
+		if parent != "" {
+			_, err = user.bridge.Bot.SendStateEvent(parent, event.StateSpaceChild, resp.RoomID.String(), &event.SpaceChildEventContent{
+				Via:   []string{user.bridge.AS.HomeserverDomain},
+				Order: " 0000",
+			})
+			if err != nil {
+				user.log.Errorfln("Failed to add space room %s to parent space %s: %v", resp.RoomID, parent, err)
 			}
 		}
-	} else if !*checked && !user.bridge.StateStore.IsInRoom(*ptr, user.MXID) {
-		user.ensureInvited(nil, *ptr, false)
 	}
-	*checked = true
-
 	return *ptr
 }
 
 func (user *User) GetSpaceRoom() id.RoomID {
-	return user.getSpaceRoom(&user.SpaceRoom, &user.spaceMembershipChecked, "Discord", "Your Discord bridged chats", "")
+	return user.getSpaceRoom(&user.SpaceRoom, "Discord", "Your Discord bridged chats", "")
 }
 
 func (user *User) GetDMSpaceRoom() id.RoomID {
-	return user.getSpaceRoom(&user.DMSpaceRoom, &user.dmSpaceMembershipChecked, "Direct Messages", "Your Discord direct messages", user.GetSpaceRoom())
+	return user.getSpaceRoom(&user.DMSpaceRoom, "Direct Messages", "Your Discord direct messages", user.GetSpaceRoom())
 }
 
 func (user *User) tryAutomaticDoublePuppeting() {

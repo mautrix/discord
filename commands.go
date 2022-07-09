@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/skip2/go-qrcode"
@@ -46,6 +47,7 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdReconnect,
 		cmdDisconnect,
 		cmdGuilds,
+		cmdRejoinSpace,
 		cmdDeleteAllPortals,
 	)
 }
@@ -218,6 +220,37 @@ func fnReconnect(ce *WrappedCommandEvent) {
 		ce.Reply("Error while reconnecting: %v", err)
 	} else {
 		ce.Reply("Successfully reconnected")
+	}
+}
+
+var cmdRejoinSpace = &commands.FullHandler{
+	Func: wrapCommand(fnRejoinSpace),
+	Name: "rejoin-space",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionUnclassified,
+		Description: "Ask the bridge for an invite to a space you left",
+		Args:        "<_guild ID_/main/dms>",
+	},
+	RequiresLogin: true,
+}
+
+func fnRejoinSpace(ce *WrappedCommandEvent) {
+	if len(ce.Args) == 0 {
+		ce.Reply("**Usage**: `$cmdprefix rejoin-space <guild ID/main/dms>`")
+		return
+	}
+	user := ce.User
+	if ce.Args[0] == "main" {
+		user.ensureInvited(nil, user.GetSpaceRoom(), false)
+		ce.Reply("Invited you to your main space ([link](%s))", user.GetSpaceRoom().URI(ce.Bridge.AS.HomeserverDomain).MatrixToURL())
+	} else if ce.Args[0] == "dms" {
+		user.ensureInvited(nil, user.GetDMSpaceRoom(), false)
+		ce.Reply("Invited you to your DM space ([link](%s))", user.GetDMSpaceRoom().URI(ce.Bridge.AS.HomeserverDomain).MatrixToURL())
+	} else if _, err := strconv.Atoi(ce.Args[0]); err == nil {
+		ce.Reply("Rejoining guild spaces is not yet implemented")
+	} else {
+		ce.Reply("**Usage**: `$cmdprefix rejoin-space <guild ID/main/dms>`")
+		return
 	}
 }
 

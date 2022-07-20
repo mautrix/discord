@@ -126,7 +126,7 @@ func (guild *Guild) getBridgeInfo() (string, event.BridgeEventContent) {
 		BridgeBot: guild.bridge.Bot.UserID,
 		Creator:   guild.bridge.Bot.UserID,
 		Protocol: event.BridgeInfoSection{
-			ID:          "discord",
+			ID:          "discordgo",
 			DisplayName: "Discord",
 			AvatarURL:   guild.bridge.Config.AppService.Bot.ParsedAvatar.CUString(),
 			ExternalURL: "https://discord.com/",

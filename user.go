@@ -19,6 +19,7 @@ import (
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/bridgeconfig"
+	"maunium.net/go/mautrix/bridge/status"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
@@ -215,22 +216,22 @@ func (br *DiscordBridge) startUsers() {
 	usersWithToken := br.getAllUsersWithToken()
 	for _, u := range usersWithToken {
 		go func(user *User) {
-			user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnecting})
+			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnecting})
 			err := user.Connect()
 			if err != nil {
 				user.log.Errorfln("Error connecting: %v", err)
 				if closeErr := (&websocket.CloseError{}); errors.As(err, &closeErr) && closeErr.Code == 4004 {
-					user.BridgeState.Send(bridge.State{StateEvent: bridge.StateBadCredentials, Message: err.Error()})
+					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Message: err.Error()})
 					user.DiscordToken = ""
 					user.Update()
 				} else {
-					user.BridgeState.Send(bridge.State{StateEvent: bridge.StateUnknownError, Message: err.Error()})
+					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateUnknownError, Message: err.Error()})
 				}
 			}
 		}(u)
 	}
 	if len(usersWithToken) == 0 {
-		br.SendGlobalBridgeState(bridge.State{StateEvent: bridge.StateUnconfigured}.Fill(nil))
+		br.SendGlobalBridgeState(status.BridgeState{StateEvent: status.StateUnconfigured}.Fill(nil))
 	}
 
 	br.Log.Debugln("Starting custom puppets")
@@ -530,7 +531,7 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.DiscordID = r.User.ID
 		user.Update()
 	}
-	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateBackfilling})
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBackfilling})
 
 	updateTS := time.Now()
 	portalsInSpace := make(map[string]bool)
@@ -558,7 +559,7 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.Update()
 	}
 
-	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnected})
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 }
 
 func (user *User) addPrivateChannelToSpace(portal *Portal) bool {
@@ -706,14 +707,14 @@ func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
 	user.log.Debugln("Connected to discord")
 
 	user.tryAutomaticDoublePuppeting()
-	if user.BridgeState.GetPrev().StateEvent == bridge.StateTransientDisconnect {
-		user.BridgeState.Send(bridge.State{StateEvent: bridge.StateConnected})
+	if user.BridgeState.GetPrev().StateEvent == status.StateTransientDisconnect {
+		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 	}
 }
 
 func (user *User) disconnectedHandler(_ *discordgo.Session, d *discordgo.Disconnect) {
 	user.log.Debugln("Disconnected from discord")
-	user.BridgeState.Send(bridge.State{StateEvent: bridge.StateTransientDisconnect})
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect})
 }
 
 func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {

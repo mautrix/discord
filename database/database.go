@@ -5,6 +5,7 @@ import (
 
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+	"maunium.net/go/maulogger/v2"
 
 	"maunium.net/go/mautrix/util/dbutil"
 
@@ -25,44 +26,44 @@ type Database struct {
 	Role     *RoleQuery
 }
 
-func New(baseDB *dbutil.Database) *Database {
+func New(baseDB *dbutil.Database, log maulogger.Logger) *Database {
 	db := &Database{Database: baseDB}
 	db.UpgradeTable = upgrades.Table
 	db.User = &UserQuery{
 		db:  db,
-		log: db.Log.Sub("User"),
+		log: log.Sub("User"),
 	}
 	db.Portal = &PortalQuery{
 		db:  db,
-		log: db.Log.Sub("Portal"),
+		log: log.Sub("Portal"),
 	}
 	db.Puppet = &PuppetQuery{
 		db:  db,
-		log: db.Log.Sub("Puppet"),
+		log: log.Sub("Puppet"),
 	}
 	db.Message = &MessageQuery{
 		db:  db,
-		log: db.Log.Sub("Message"),
+		log: log.Sub("Message"),
 	}
 	db.Thread = &ThreadQuery{
 		db:  db,
-		log: db.Log.Sub("Thread"),
+		log: log.Sub("Thread"),
 	}
 	db.Reaction = &ReactionQuery{
 		db:  db,
-		log: db.Log.Sub("Reaction"),
+		log: log.Sub("Reaction"),
 	}
 	db.Emoji = &EmojiQuery{
 		db:  db,
-		log: db.Log.Sub("Emoji"),
+		log: log.Sub("Emoji"),
 	}
 	db.Guild = &GuildQuery{
 		db:  db,
-		log: db.Log.Sub("Guild"),
+		log: log.Sub("Guild"),
 	}
 	db.Role = &RoleQuery{
 		db:  db,
-		log: db.Log.Sub("Role"),
+		log: log.Sub("Role"),
 	}
 	return db
 }

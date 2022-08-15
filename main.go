@@ -88,7 +88,7 @@ func (br *DiscordBridge) Init() {
 	br.CommandProcessor = commands.NewProcessor(&br.Bridge)
 	br.RegisterCommands()
 
-	br.DB = database.New(br.Bridge.DB)
+	br.DB = database.New(br.Bridge.DB, br.Log.Sub("Database"))
 	discordLog = br.Log.Sub("Discord")
 }
 

@@ -27,7 +27,6 @@ func (up UserPortal) Scan(l log.Logger, row dbutil.Scannable) *UserPortal {
 	if err != nil {
 		l.Errorln("Error scanning user portal:", err)
 		panic(err)
-		return nil
 	}
 	up.Timestamp = time.UnixMilli(ts)
 	return &up
@@ -49,7 +48,6 @@ func (u *User) GetPortals() []UserPortal {
 	if err != nil {
 		u.log.Errorln("Failed to get portals:", err)
 		panic(err)
-		return nil
 	}
 	return u.scanUserPortals(rows)
 }

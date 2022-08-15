@@ -644,7 +644,6 @@ func (user *User) handleGuildRoles(guildID string, newRoles []*discordgo.Role) {
 	if err != nil {
 		user.log.Errorln("Failed to start transaction for guild role sync:", err)
 		panic(err)
-		return
 	}
 	for _, role := range newRoles {
 		dbRole, changed := user.discordRoleToDB(guildID, role, existingRoleMap[role.ID])

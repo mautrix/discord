@@ -128,9 +128,9 @@ type astDiscordCustomEmoji struct {
 
 func (n *astDiscordCustomEmoji) String() string {
 	if n.animated {
-		return fmt.Sprintf("<a%s%s>", n.name, n.id)
+		return fmt.Sprintf("<a%s%d>", n.name, n.id)
 	}
-	return fmt.Sprintf("<%s%s>", n.name, n.id)
+	return fmt.Sprintf("<%s%d>", n.name, n.id)
 }
 
 type discordTagParser struct{}

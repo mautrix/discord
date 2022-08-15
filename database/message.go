@@ -33,7 +33,6 @@ func (mq *MessageQuery) scanAll(rows *sql.Rows, err error) []*Message {
 	if err != nil {
 		mq.log.Warnfln("Failed to query many messages: %v", err)
 		panic(err)
-		return nil
 	} else if rows == nil {
 		return nil
 	}

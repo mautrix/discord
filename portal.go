@@ -1034,6 +1034,7 @@ func (portal *Portal) sendStatusEvent(evtID id.EventID, err error) {
 		content.Reason, content.Status, _, _, content.Message = errorToStatusReason(err)
 		content.Error = err.Error()
 	}
+	content.FillLegacyBooleans()
 	_, err = intent.SendMessageEvent(portal.MXID, event.BeeperMessageStatus, &content)
 	if err != nil {
 		portal.log.Warnln("Failed to send message status event:", err)

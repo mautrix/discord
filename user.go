@@ -541,11 +541,11 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	for _, guild := range r.Guilds {
 		user.handleGuild(guild, updateTS, portalsInSpace[guild.ID])
 	}
-	user.PrunePortalList(updateTS)
 	for i, ch := range r.PrivateChannels {
 		portal := user.GetPortalByMeta(ch)
 		user.handlePrivateChannel(portal, ch, updateTS, i < user.bridge.Config.Bridge.PrivateChannelCreateLimit, portalsInSpace[portal.Key.ChannelID])
 	}
+	user.PrunePortalList(updateTS)
 
 	if r.ReadState.Version > user.ReadStateVersion {
 		// TODO can we figure out which read states are actually new?
@@ -595,7 +595,7 @@ func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, 
 }
 
 func (user *User) addGuildToSpace(guild *Guild, isInSpace bool, timestamp time.Time) bool {
-	if len(guild.MXID) > 0 {
+	if len(guild.MXID) > 0 && !isInSpace {
 		_, err := user.bridge.Bot.SendStateEvent(user.GetSpaceRoom(), event.StateSpaceChild, guild.MXID.String(), &event.SpaceChildEventContent{
 			Via: []string{user.bridge.AS.HomeserverDomain},
 		})

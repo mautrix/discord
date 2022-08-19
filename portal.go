@@ -1781,7 +1781,7 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 	}
 	changed = portal.UpdateTopic(meta.Topic) || changed
 	changed = portal.UpdateParent(meta.ParentID) || changed
-	if portal.MXID != "" && portal.IsInSpace(source) {
+	if portal.MXID != "" && !portal.IsInSpace(source) {
 		changed = portal.updateSpace(source) || changed
 	}
 	if changed {

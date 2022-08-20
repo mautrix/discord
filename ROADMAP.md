@@ -41,6 +41,7 @@
   * [ ] Presence
   * [ ] Typing notifications (currently partial support: DMs work after you type in them)
   * [x] Own read status
+  * [ ] Role permissions
   * [ ] Membership actions
     * [ ] Invite
     * [ ] Join

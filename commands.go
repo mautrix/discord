@@ -114,8 +114,10 @@ func fnLogin(ce *WrappedCommandEvent) {
 	user, err := client.Result()
 	if err != nil || len(user.Token) == 0 {
 		ce.Reply("Error logging in: %v", err)
+		return
 	} else if err = ce.User.Login(user.Token); err != nil {
 		ce.Reply("Error connecting after login: %v", err)
+		return
 	}
 	ce.User.Lock()
 	ce.User.DiscordID = user.UserID

@@ -1008,7 +1008,7 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 	case errors.Is(err, errUnknownEditTarget):
 		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, ""
 	case errors.Is(err, errTargetNotFound):
-		return event.MessageStatusGenericError, event.MessageStatusFail, true, true, ""
+		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, ""
 	default:
 		return event.MessageStatusGenericError, event.MessageStatusRetriable, false, true, ""
 	}

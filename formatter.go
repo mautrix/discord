@@ -91,6 +91,40 @@ func pillConverter(displayname, mxid, eventID string, ctx format.Context) string
 	return displayname
 }
 
+// Discord links start with http:// or https://, contain at least two characters afterwards,
+// don't contain < or whitespace anywhere, and don't end with "'),.:;]
+//
+// Zero-width whitespace is mostly in the Format category and is allowed, except \uFEFF isn't for some reason
+var discordLinkRegex = regexp.MustCompile(`https?://[^<\p{Zs}\x{feff}]*[^"'),.:;\]\p{Zs}\x{feff}]`)
+
+var discordMarkdownEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`_`, `\_`,
+	`*`, `\*`,
+	`~`, `\~`,
+	"`", "\\`",
+	`|`, `\|`,
+	`<`, `\<`,
+)
+
+func escapeDiscordMarkdown(s string) string {
+	submatches := discordLinkRegex.FindAllStringIndex(s, -1)
+	if submatches == nil {
+		return discordMarkdownEscaper.Replace(s)
+	}
+	var builder strings.Builder
+	offset := 0
+	for _, match := range submatches {
+		start := match[0]
+		end := match[1]
+		builder.WriteString(discordMarkdownEscaper.Replace(s[offset:start]))
+		builder.WriteString(s[start:end])
+		offset = end
+	}
+	builder.WriteString(discordMarkdownEscaper.Replace(s[offset:]))
+	return builder.String()
+}
+
 var matrixHTMLParser = &format.HTMLParser{
 	TabsToSpaces:   4,
 	Newline:        "\n",
@@ -102,7 +136,7 @@ var matrixHTMLParser = &format.HTMLParser{
 		return fmt.Sprintf("__%s__", s)
 	},
 	TextConverter: func(s string, context format.Context) string {
-		return discordMarkdownEscaper.Replace(s)
+		return escapeDiscordMarkdown(s)
 	},
 	SpoilerConverter: func(text, reason string, ctx format.Context) string {
 		if reason != "" {
@@ -116,16 +150,6 @@ func init() {
 	matrixHTMLParser.PillConverter = pillConverter
 }
 
-var discordMarkdownEscaper = strings.NewReplacer(
-	`\`, `\\`,
-	`_`, `\_`,
-	`*`, `\*`,
-	`~`, `\~`,
-	"`", "\\`",
-	`|`, `\|`,
-	`<`, `\<`,
-)
-
 func (portal *Portal) parseMatrixHTML(user *User, content *event.MessageEventContent) string {
 	if content.Format == event.FormatHTML && len(content.FormattedBody) > 0 {
 		return matrixHTMLParser.Parse(content.FormattedBody, format.Context{
@@ -133,6 +157,6 @@ func (portal *Portal) parseMatrixHTML(user *User, content *event.MessageEventCon
 			formatterContextPortalKey: portal,
 		})
 	} else {
-		return discordMarkdownEscaper.Replace(content.Body)
+		return escapeDiscordMarkdown(content.Body)
 	}
 }

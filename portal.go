@@ -920,7 +920,7 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 
 func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	switch msg.evt.Type {
-	case event.EventMessage:
+	case event.EventMessage, event.EventSticker:
 		portal.handleMatrixMessage(msg.user, msg.evt)
 	case event.EventRedaction:
 		portal.handleMatrixRedaction(msg.user, msg.evt)
@@ -1184,11 +1184,20 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			}
 		}
 		sendReq.Content = portal.parseMatrixHTML(sender, content)
-	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
+	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo, "": // MsgType is empty when the message is a sticker
 		data, err := portal.downloadMatrixAttachment(content)
 		if err != nil {
 			go portal.sendMessageMetrics(evt, err, "Error downloading media in")
 			return
+		}
+
+		// extract file suffix from mime type
+		mimeParts := strings.Split(content.Info.MimeType, "/")
+
+		if content.MsgType == "" {
+			// the Body doesn’t contain the file name for stickers
+			content.Body = "sticker."
+			content.Body += mimeParts[1]
 		}
 
 		sendReq.Files = []*discordgo.File{{

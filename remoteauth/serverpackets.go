@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 type serverPacket interface {
@@ -53,14 +55,19 @@ func (c *Client) processMessages() {
 			dest = new(serverNonceProof)
 		case "pending_remote_init":
 			dest = new(serverPendingRemoteInit)
-		case "pending_finish":
-			dest = new(serverPendingFinish)
-		case "finish":
-			dest = new(serverFinish)
+		case "pending_ticket":
+			dest = new(serverPendingTicket)
+		case "pending_login":
+			dest = new(serverPendingLogin)
 		case "cancel":
 			dest = new(serverCancel)
 		case "heartbeat_ack":
 			dest = new(serverHeartbeatAck)
+		default:
+			c.Lock()
+			c.err = fmt.Errorf("unknown op %s", raw.OP)
+			c.Unlock()
+			return
 		}
 
 		if err := json.Unmarshal(packet, dest); err != nil {
@@ -182,11 +189,11 @@ func (p *serverPendingRemoteInit) process(client *Client) error {
 // /////////////////////////////////////////////////////////////////////////////
 // PendingFinish
 // /////////////////////////////////////////////////////////////////////////////
-type serverPendingFinish struct {
+type serverPendingTicket struct {
 	EncryptedUserPayload string `json:"encrypted_user_payload"`
 }
 
-func (p *serverPendingFinish) process(client *Client) error {
+func (p *serverPendingTicket) process(client *Client) error {
 	plaintext, err := client.decrypt(p.EncryptedUserPayload)
 	if err != nil {
 		return err
@@ -198,12 +205,21 @@ func (p *serverPendingFinish) process(client *Client) error {
 // /////////////////////////////////////////////////////////////////////////////
 // Finish
 // /////////////////////////////////////////////////////////////////////////////
-type serverFinish struct {
-	EncryptedToken string `json:"encrypted_token"`
+type serverPendingLogin struct {
+	Ticket string `json:"ticket"`
 }
 
-func (f *serverFinish) process(client *Client) error {
-	plaintext, err := client.decrypt(f.EncryptedToken)
+func (p *serverPendingLogin) process(client *Client) error {
+	sess, err := discordgo.New("")
+	if err != nil {
+		return err
+	}
+	encryptedToken, err := sess.RemoteAuthLogin(p.Ticket)
+	if err != nil {
+		return err
+	}
+
+	plaintext, err := client.decrypt(encryptedToken)
 	if err != nil {
 		return err
 	}

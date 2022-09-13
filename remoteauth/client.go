@@ -43,7 +43,7 @@ func New() (*Client, error) {
 	}
 
 	return &Client{
-		URL:        "wss://remote-auth-gateway.discord.gg/?v=1",
+		URL:        "wss://remote-auth-gateway.discord.gg/?v=2",
 		privateKey: privateKey,
 	}, nil
 }

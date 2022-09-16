@@ -1,6 +1,6 @@
 module go.mau.fi/mautrix-discord
 
-go 1.17
+go 1.18
 
 require (
 	github.com/bwmarrin/discordgo v0.26.1
@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.8.0
 	github.com/yuin/goldmark v1.4.13
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.12.1-0.20220915095708-8ea9d809d8cd
+	maunium.net/go/mautrix v0.12.1
 )
 
 require (

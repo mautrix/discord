@@ -45,7 +45,7 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 
 	r.HandleFunc("/disconnect", p.disconnect).Methods(http.MethodPost)
 	r.HandleFunc("/ping", p.ping).Methods(http.MethodGet)
-	r.HandleFunc("/login", p.login).Methods(http.MethodGet)
+	r.HandleFunc("/login/qr", p.login).Methods(http.MethodGet)
 	r.HandleFunc("/logout", p.logout).Methods(http.MethodPost)
 	r.HandleFunc("/reconnect", p.reconnect).Methods(http.MethodPost)
 

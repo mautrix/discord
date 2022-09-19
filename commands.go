@@ -42,7 +42,8 @@ type WrappedCommandEvent struct {
 func (br *DiscordBridge) RegisterCommands() {
 	proc := br.CommandProcessor.(*commands.Processor)
 	proc.AddHandlers(
-		cmdLogin,
+		cmdLoginToken,
+		cmdLoginQR,
 		cmdLogout,
 		cmdReconnect,
 		cmdDisconnect,
@@ -64,16 +65,40 @@ func wrapCommand(handler func(*WrappedCommandEvent)) func(*commands.Event) {
 	}
 }
 
-var cmdLogin = &commands.FullHandler{
-	Func: wrapCommand(fnLogin),
-	Name: "login",
+var cmdLoginToken = &commands.FullHandler{
+	Func: wrapCommand(fnLoginToken),
+	Name: "login-token",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionAuth,
+		Description: "Link the bridge to your Discord account by extracting the access token manually.",
+	},
+}
+
+func fnLoginToken(ce *WrappedCommandEvent) {
+	ce.MarkRead()
+	defer ce.Redact()
+	if ce.User.IsLoggedIn() {
+		ce.Reply("You're already logged in")
+		return
+	}
+	if err := ce.User.Login(ce.Args[0]); err != nil {
+		ce.Reply("Error connecting to Discord: %v", err)
+		return
+	}
+	ce.Reply("Successfully logged in as %s#%s", ce.User.Session.State.User.Username, ce.User.Session.State.User.Discriminator)
+}
+
+var cmdLoginQR = &commands.FullHandler{
+	Func:    wrapCommand(fnLoginQR),
+	Name:    "login-qr",
+	Aliases: []string{"login"},
 	Help: commands.HelpMeta{
 		Section:     commands.HelpSectionAuth,
 		Description: "Link the bridge to your Discord account by scanning a QR code.",
 	},
 }
 
-func fnLogin(ce *WrappedCommandEvent) {
+func fnLoginQR(ce *WrappedCommandEvent) {
 	if ce.User.IsLoggedIn() {
 		ce.Reply("You're already logged in")
 		return

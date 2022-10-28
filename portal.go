@@ -59,6 +59,14 @@ type Portal struct {
 	currentlyTypingLock sync.Mutex
 }
 
+var _ bridge.Portal = (*Portal)(nil)
+var _ bridge.ReadReceiptHandlingPortal = (*Portal)(nil)
+var _ bridge.MembershipHandlingPortal = (*Portal)(nil)
+var _ bridge.TypingPortal = (*Portal)(nil)
+
+//var _ bridge.MetaHandlingPortal = (*Portal)(nil)
+//var _ bridge.DisappearingPortal = (*Portal)(nil)
+
 func (portal *Portal) IsEncrypted() bool {
 	return portal.Encrypted
 }
@@ -73,8 +81,6 @@ func (portal *Portal) ReceiveMatrixEvent(user bridge.User, evt *event.Event) {
 		portal.matrixMessages <- portalMatrixMessage{user: user.(*User), evt: evt}
 	}
 }
-
-var _ bridge.Portal = (*Portal)(nil)
 
 var (
 	portalCreationDummyEvent = event.Type{Type: "fi.mau.dummy.portal_created", Class: event.MessageEventType}
@@ -714,6 +720,48 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	}
 }
 
+const JoinThreadReaction = "join thread"
+
+func (portal *Portal) sendThreadCreationNotice(thread *Thread) {
+	thread.creationNoticeLock.Lock()
+	defer thread.creationNoticeLock.Unlock()
+	if thread.CreationNoticeMXID != "" {
+		return
+	}
+	creationNotice := "Thread created. React to this message with \"join thread\" to join the thread on Discord."
+	if portal.bridge.Config.Bridge.AutojoinThreadOnOpen {
+		creationNotice = "Thread created. Opening this thread will auto-join you to it on Discord."
+	}
+	resp, err := portal.sendMatrixMessage(portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
+		Body:      creationNotice,
+		MsgType:   event.MsgNotice,
+		RelatesTo: (&event.RelatesTo{}).SetThread(thread.RootMXID, thread.RootMXID),
+	}, nil, time.Now().UnixMilli())
+	if err != nil {
+		portal.log.Errorfln("Failed to send thread creation notice: %v", err)
+		return
+	}
+	portal.bridge.threadsLock.Lock()
+	thread.CreationNoticeMXID = resp.EventID
+	portal.bridge.threadsByCreationNoticeMXID[resp.EventID] = thread
+	portal.bridge.threadsLock.Unlock()
+	thread.Update()
+	portal.log.Debugfln("Sent notice %s about thread for %s being created", thread.CreationNoticeMXID, thread.ID)
+
+	resp, err = portal.MainIntent().SendMessageEvent(portal.MXID, event.EventReaction, &event.ReactionEventContent{
+		RelatesTo: event.RelatesTo{
+			Type:    event.RelAnnotation,
+			EventID: thread.CreationNoticeMXID,
+			Key:     JoinThreadReaction,
+		},
+	})
+	if err != nil {
+		portal.log.Errorfln("Failed to send prefilled reaction to thread creation notice: %v", err)
+	} else {
+		portal.log.Debugfln("Sent prefilled reaction %s to thread creation notice %s", resp.EventID, thread.CreationNoticeMXID)
+	}
+}
+
 func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Message) {
 	if portal.MXID == "" {
 		portal.log.Warnln("handle message called without a valid portal")
@@ -728,13 +776,11 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	}
 
 	if msg.Flags == discordgo.MessageFlagsHasThread {
-		portal.bridge.GetThreadByID(msg.ID, existing[0])
+		thread := portal.bridge.GetThreadByID(msg.ID, existing[0])
 		portal.log.Debugfln("Marked %s as a thread root", msg.ID)
-		// TODO make autojoining configurable
-		//err := user.Session.ThreadJoinWithLocation(msg.ID, discordgo.ThreadJoinLocationContextMenu)
-		//if err != nil {
-		//	user.log.Warnfln("Error autojoining thread %s@%s: %v", msg.ChannelID, portal.Key.ChannelID, err)
-		//}
+		if thread.CreationNoticeMXID == "" {
+			portal.sendThreadCreationNotice(thread)
+		}
 	}
 
 	// There's a few scenarios where the author is nil but I haven't figured
@@ -1322,6 +1368,16 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 		return
 	}
 
+	if reaction.RelatesTo.Key == JoinThreadReaction {
+		thread := portal.bridge.GetThreadByRootOrCreationNoticeMXID(reaction.RelatesTo.EventID)
+		if thread == nil {
+			go portal.sendMessageMetrics(evt, errTargetNotFound, "Ignoring thread join")
+			return
+		}
+		thread.Join(sender)
+		return
+	}
+
 	msg := portal.bridge.DB.Message.GetByMXID(portal.Key, reaction.RelatesTo.EventID)
 	if msg == nil {
 		go portal.sendMessageMetrics(evt, errTargetNotFound, "Ignoring")
@@ -1479,14 +1535,31 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 	go portal.sendMessageMetrics(evt, errTargetNotFound, "Ignoring")
 }
 
-func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.EventID, receiptTimestamp time.Time) {
+func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.EventID, receipt event.ReadReceipt) {
 	sender := brUser.(*User)
 	if sender.Session == nil {
 		return
 	}
+	var thread *Thread
+	discordThreadID := ""
+	if receipt.ThreadID != "" && receipt.ThreadID != event.ReadReceiptThreadMain {
+		thread = portal.bridge.GetThreadByRootMXID(receipt.ThreadID)
+		if thread != nil {
+			discordThreadID = thread.ID
+		}
+	}
+	if thread != nil {
+		if portal.bridge.Config.Bridge.AutojoinThreadOnOpen {
+			thread.Join(sender)
+		}
+		if eventID == thread.CreationNoticeMXID {
+			portal.log.Debugfln("Dropping Matrix read receipt from %s for thread creation notice %s of %s", sender.MXID, thread.CreationNoticeMXID, thread.ID)
+			return
+		}
+	}
 	msg := portal.bridge.DB.Message.GetByMXID(portal.Key, eventID)
 	if msg == nil {
-		msg = portal.bridge.DB.Message.GetClosestBefore(portal.Key, receiptTimestamp)
+		msg = portal.bridge.DB.Message.GetClosestBefore(portal.Key, discordThreadID, receipt.Timestamp)
 		if msg == nil {
 			portal.log.Debugfln("Dropping Matrix read receipt from %s for %s: no messages found", sender.MXID, eventID)
 			return
@@ -1494,13 +1567,17 @@ func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.Eve
 			portal.log.Debugfln("Matrix read receipt target %s from %s not found, using closest message %s", eventID, sender.MXID, msg.MXID)
 		}
 	}
+	if receipt.ThreadID != "" && msg.ThreadID != discordThreadID {
+		portal.log.Debugfln("Dropping Matrix read receipt from %s for %s in unexpected thread (receipt: %s, message: %s)", receipt.ThreadID, msg.ThreadID)
+		return
+	}
 	resp, err := sender.Session.ChannelMessageAckNoToken(msg.DiscordProtoChannelID(), msg.DiscordID)
 	if err != nil {
 		portal.log.Warnfln("Failed to handle read receipt for %s/%s from %s: %v", msg.MXID, msg.DiscordID, sender.MXID, err)
 	} else if resp.Token != nil {
 		portal.log.Debugfln("Marked %s/%s as read by %s (and got unexpected non-nil token %s)", msg.MXID, msg.DiscordID, sender.MXID, *resp.Token)
 	} else {
-		portal.log.Debugfln("Marked %s/%s as read by %s", msg.MXID, msg.DiscordID, sender.MXID)
+		portal.log.Debugfln("Marked %s/%s in %s as read by %s", msg.MXID, msg.DiscordID, msg.DiscordProtoChannelID(), sender.MXID)
 	}
 }
 

@@ -59,9 +59,10 @@ type DiscordBridge struct {
 	portalsByID   map[database.PortalKey]*Portal
 	portalsLock   sync.Mutex
 
-	threadsByID       map[string]*Thread
-	threadsByRootMXID map[id.EventID]*Thread
-	threadsLock       sync.Mutex
+	threadsByID                 map[string]*Thread
+	threadsByRootMXID           map[id.EventID]*Thread
+	threadsByCreationNoticeMXID map[id.EventID]*Thread
+	threadsLock                 sync.Mutex
 
 	guildsByMXID map[id.RoomID]*Guild
 	guildsByID   map[string]*Guild
@@ -153,8 +154,9 @@ func main() {
 		portalsByMXID: make(map[id.RoomID]*Portal),
 		portalsByID:   make(map[database.PortalKey]*Portal),
 
-		threadsByID:       make(map[string]*Thread),
-		threadsByRootMXID: make(map[id.EventID]*Thread),
+		threadsByID:                 make(map[string]*Thread),
+		threadsByRootMXID:           make(map[id.EventID]*Thread),
+		threadsByCreationNoticeMXID: make(map[id.EventID]*Thread),
 
 		guildsByID:   make(map[string]*Guild),
 		guildsByMXID: make(map[id.RoomID]*Guild),

@@ -1,4 +1,4 @@
--- v0 -> v8: Latest revision
+-- v0 -> v9: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -49,6 +49,7 @@ CREATE TABLE thread (
     parent_chan_id TEXT NOT NULL,
     root_msg_dcid  TEXT NOT NULL,
     root_msg_mxid  TEXT NOT NULL,
+    creation_notice_mxid TEXT NOT NULL,
     -- This is also not accessed by the bridge.
     receiver   TEXT NOT NULL DEFAULT '',
 
@@ -98,9 +99,9 @@ CREATE TABLE message (
     dc_edit_index    INTEGER,
     dc_chan_id       TEXT,
     dc_chan_receiver TEXT,
-    dc_sender        TEXT NOT NULL,
+    dc_sender        TEXT   NOT NULL,
     timestamp        BIGINT NOT NULL,
-    dc_thread_id     TEXT,
+    dc_thread_id     TEXT   NOT NULL,
 
     mxid TEXT NOT NULL UNIQUE,
 
@@ -114,9 +115,9 @@ CREATE TABLE reaction (
     dc_msg_id        TEXT,
     dc_sender        TEXT,
     dc_emoji_name    TEXT,
-    dc_thread_id     TEXT,
+    dc_thread_id     TEXT NOT NULL,
 
-    dc_first_attachment_id TEXT NOT NULL,
+    dc_first_attachment_id TEXT    NOT NULL,
     _dc_first_edit_index   INTEGER NOT NULL DEFAULT 0,
 
     mxid TEXT NOT NULL UNIQUE,

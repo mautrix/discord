@@ -41,6 +41,7 @@ type BridgeConfig struct {
 	MessageStatusEvents         bool `yaml:"message_status_events"`
 	MessageErrorNotices         bool `yaml:"message_error_notices"`
 	RestrictedRooms             bool `yaml:"restricted_rooms"`
+	AutojoinThreadOnOpen        bool `yaml:"autojoin_thread_on_open"`
 	SyncDirectChatList          bool `yaml:"sync_direct_chat_list"`
 	ResendBridgeInfo            bool `yaml:"resend_bridge_info"`
 	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`

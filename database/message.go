@@ -60,9 +60,9 @@ func (mq *MessageQuery) GetLastByDiscordID(key PortalKey, discordID string) *Mes
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
 }
 
-func (mq *MessageQuery) GetClosestBefore(key PortalKey, ts time.Time) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND timestamp<=$3 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
-	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, ts.UnixMilli()))
+func (mq *MessageQuery) GetClosestBefore(key PortalKey, threadID string, ts time.Time) *Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 AND timestamp<=$4 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
+	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID, ts.UnixMilli()))
 }
 
 func (mq *MessageQuery) GetLastInThread(key PortalKey, threadID string) *Message {
@@ -115,9 +115,8 @@ func (m *Message) DiscordProtoChannelID() string {
 
 func (m *Message) Scan(row dbutil.Scannable) *Message {
 	var ts int64
-	var threadID sql.NullString
 
-	err := row.Scan(&m.DiscordID, &m.AttachmentID, &m.EditIndex, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &threadID, &m.MXID)
+	err := row.Scan(&m.DiscordID, &m.AttachmentID, &m.EditIndex, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &m.ThreadID, &m.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			m.log.Errorln("Database scan failed:", err)
@@ -130,7 +129,6 @@ func (m *Message) Scan(row dbutil.Scannable) *Message {
 	if ts != 0 {
 		m.Timestamp = time.UnixMilli(ts)
 	}
-	m.ThreadID = threadID.String
 
 	return m
 }
@@ -181,7 +179,7 @@ func (m *Message) MassInsert(msgs []MessagePart) {
 func (m *Message) Insert() {
 	_, err := m.db.Exec(messageInsertQuery,
 		m.DiscordID, m.AttachmentID, m.EditIndex, m.Channel.ChannelID, m.Channel.Receiver, m.SenderID,
-		m.Timestamp.UnixMilli(), strPtr(m.ThreadID), m.MXID)
+		m.Timestamp.UnixMilli(), m.ThreadID, m.MXID)
 
 	if err != nil {
 		m.log.Warnfln("Failed to insert %s@%s: %v", m.DiscordID, m.Channel, err)

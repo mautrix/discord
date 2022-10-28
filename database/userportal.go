@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	UserPortalTypeDM    = "dm"
-	UserPortalTypeGuild = "guild"
+	UserPortalTypeDM     = "dm"
+	UserPortalTypeGuild  = "guild"
+	UserPortalTypeThread = "thread"
 )
 
 type UserPortal struct {
@@ -62,6 +63,16 @@ func (u *User) IsInSpace(discordID string) (isIn bool) {
 	return
 }
 
+func (u *User) IsInPortal(discordID string) (isIn bool) {
+	query := `SELECT EXISTS(SELECT 1 FROM user_portal WHERE user_mxid=$1 AND discord_id=$2)`
+	err := u.db.QueryRow(query, u.MXID, discordID).Scan(&isIn)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		u.log.Warnfln("Failed to scan in_space for %s/%s: %v", u.MXID, discordID, err)
+		panic(err)
+	}
+	return
+}
+
 func (u *User) MarkInPortal(portal UserPortal) {
 	query := `
 		INSERT INTO user_portal (discord_id, type, user_mxid, timestamp, in_space)
@@ -88,8 +99,8 @@ func (u *User) MarkNotInPortal(discordID string) {
 func (u *User) PrunePortalList(beforeTS time.Time) []UserPortal {
 	query := `
 		DELETE FROM user_portal
-			WHERE user_mxid=$1 AND timestamp<$2
-			RETURNING discord_id, type, timestamp, in_space
+		WHERE user_mxid=$1 AND timestamp<$2 AND type IN ('dm', 'guild')
+		RETURNING discord_id, type, timestamp, in_space
 	`
 	rows, err := u.db.Query(query, u.MXID, beforeTS.UnixMilli())
 	if err != nil {

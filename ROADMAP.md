@@ -30,7 +30,7 @@
     * [x] Media/files
     * [x] Replies
     * [x] Threads
-      * [ ] Auto-joining threads
+      * [x] Auto-joining threads when opening
       * [ ] Backfilling threads after joining
     * [x] Custom emojis
   * [x] Message deletions
@@ -59,9 +59,9 @@
     * [ ] Display name
     * [ ] Avatar
 * Misc
-  * [ ] Login methods
+  * [x] Login methods
     * [x] QR scan from mobile
-    * [ ] Manually providing access token
+    * [x] Manually providing access token
   * [ ] Automatic portal creation
     * [ ] After login
     * [x] When receiving DM

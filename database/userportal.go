@@ -33,7 +33,7 @@ func (up UserPortal) Scan(l log.Logger, row dbutil.Scannable) *UserPortal {
 	return &up
 }
 
-func (u *User) scanUserPortals(rows *sql.Rows) []UserPortal {
+func (u *User) scanUserPortals(rows dbutil.Rows) []UserPortal {
 	var ups []UserPortal
 	for rows.Next() {
 		up := UserPortal{}.Scan(u.log, rows)

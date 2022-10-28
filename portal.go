@@ -1174,7 +1174,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 
 	switch content.MsgType {
 	case event.MsgText, event.MsgEmote, event.MsgNotice:
-		if replyToMXID := content.GetReplyTo(); replyToMXID != "" {
+		if replyToMXID := content.RelatesTo.GetNonFallbackReplyTo(); replyToMXID != "" {
 			replyTo := portal.bridge.DB.Message.GetByMXID(portal.Key, replyToMXID)
 			if replyTo != nil && replyTo.ThreadID == threadID {
 				sendReq.Reference = &discordgo.MessageReference{

@@ -29,7 +29,7 @@ func (mq *MessageQuery) New() *Message {
 	}
 }
 
-func (mq *MessageQuery) scanAll(rows *sql.Rows, err error) []*Message {
+func (mq *MessageQuery) scanAll(rows dbutil.Rows, err error) []*Message {
 	if err != nil {
 		mq.log.Warnfln("Failed to query many messages: %v", err)
 		panic(err)

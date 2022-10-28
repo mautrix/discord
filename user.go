@@ -707,6 +707,7 @@ func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
 	user.log.Debugln("Connected to discord")
 
 	user.tryAutomaticDoublePuppeting()
+	// FIXME this check can fail if the previous event didn't get sent before reconnecting
 	if user.BridgeState.GetPrev().StateEvent == status.StateTransientDisconnect {
 		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 	}

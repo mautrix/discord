@@ -83,8 +83,7 @@ type Reaction struct {
 }
 
 func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
-	var threadID sql.NullString
-	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &threadID, &r.MXID)
+	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &r.ThreadID, &r.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			r.log.Errorln("Database scan failed:", err)
@@ -92,7 +91,6 @@ func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
 		}
 		return nil
 	}
-	r.ThreadID = threadID.String
 
 	return r
 }
@@ -110,7 +108,7 @@ func (r *Reaction) Insert() {
 		INSERT INTO reaction (dc_msg_id, dc_first_attachment_id, dc_sender, dc_emoji_name, dc_chan_id, dc_chan_receiver, dc_thread_id, mxid)
 		VALUES($1, $2, $3, $4, $5, $6, $7, $8)
 	`
-	_, err := r.db.Exec(query, r.MessageID, r.FirstAttachmentID, r.Sender, r.EmojiName, r.Channel.ChannelID, r.Channel.Receiver, strPtr(r.ThreadID), r.MXID)
+	_, err := r.db.Exec(query, r.MessageID, r.FirstAttachmentID, r.Sender, r.EmojiName, r.Channel.ChannelID, r.Channel.Receiver, r.ThreadID, r.MXID)
 	if err != nil {
 		r.log.Warnfln("Failed to insert reaction for %s@%s: %v", r.MessageID, r.Channel, err)
 		panic(err)

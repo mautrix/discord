@@ -75,6 +75,10 @@ var cmdLoginToken = &commands.FullHandler{
 }
 
 func fnLoginToken(ce *WrappedCommandEvent) {
+	if len(ce.Args) == 0 {
+		ce.Reply("**Usage**: `$cmdprefix login-token <token>`")
+		return
+	}
 	ce.MarkRead()
 	defer ce.Redact()
 	if ce.User.IsLoggedIn() {

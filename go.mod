@@ -10,9 +10,9 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.8.1
-	github.com/yuin/goldmark v1.5.2
+	github.com/yuin/goldmark v1.5.3
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.12.3-0.20221104105050-0b958ab2a7b6
+	maunium.net/go/mautrix v0.12.4-0.20221122192554-26c9ef6e7157
 )
 
 require (
@@ -25,9 +25,9 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	golang.org/x/crypto v0.1.0 // indirect
-	golang.org/x/net v0.1.0 // indirect
-	golang.org/x/sys v0.1.0 // indirect
+	golang.org/x/crypto v0.2.0 // indirect
+	golang.org/x/net v0.2.0 // indirect
+	golang.org/x/sys v0.2.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	maunium.net/go/mauflag v1.0.0 // indirect
 )

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -207,45 +206,14 @@ func (p *ProvisioningAPI) ping(w http.ResponseWriter, r *http.Request) {
 
 func (p *ProvisioningAPI) logout(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
-	force := strings.ToLower(r.URL.Query().Get("force")) != "false"
-
-	if !user.IsLoggedIn() {
-		jsonResponse(w, http.StatusNotFound, Error{
-			Error:   "You're not logged in",
-			ErrCode: "not logged in",
-		})
-
-		return
+	var msg string
+	if user.DiscordID != "" {
+		msg = "Logged out successfully."
+	} else {
+		msg = "User wasn't logged in."
 	}
-
-	if user.Session == nil {
-		if force {
-			jsonResponse(w, http.StatusOK, Response{true, "Logged out successfully."})
-		} else {
-			jsonResponse(w, http.StatusNotFound, Error{
-				Error:   "You're not logged in",
-				ErrCode: "not logged in",
-			})
-		}
-
-		return
-	}
-
-	err := user.Logout()
-	if err != nil {
-		user.log.Warnln("Error while logging out:", err)
-
-		if !force {
-			jsonResponse(w, http.StatusInternalServerError, Error{
-				Error:   fmt.Sprintf("Unknown error while logging out: %v", err),
-				ErrCode: err.Error(),
-			})
-
-			return
-		}
-	}
-
-	jsonResponse(w, http.StatusOK, Response{true, "Logged out successfully."})
+	user.Logout()
+	jsonResponse(w, http.StatusOK, Response{true, msg})
 }
 
 func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {

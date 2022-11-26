@@ -417,32 +417,30 @@ func (user *User) IsLoggedIn() bool {
 	return user.DiscordToken != ""
 }
 
-func (user *User) Logout() error {
+func (user *User) Logout() {
 	user.Lock()
 	defer user.Unlock()
 
-	if user.Session == nil {
-		return ErrNotLoggedIn
-	}
-
-	puppet := user.bridge.GetPuppetByID(user.DiscordID)
-	if puppet.CustomMXID != "" {
-		err := puppet.SwitchCustomMXID("", "")
-		if err != nil {
-			user.log.Warnln("Failed to logout-matrix while logging out of Discord:", err)
+	if user.DiscordID != "" {
+		puppet := user.bridge.GetPuppetByID(user.DiscordID)
+		if puppet.CustomMXID != "" {
+			err := puppet.SwitchCustomMXID("", "")
+			if err != nil {
+				user.log.Warnln("Failed to logout-matrix while logging out of Discord:", err)
+			}
 		}
 	}
 
-	if err := user.Session.Close(); err != nil {
-		return err
+	if user.Session != nil {
+		if err := user.Session.Close(); err != nil {
+			user.log.Warnln("Error closing session:", err)
+		}
 	}
 
 	user.Session = nil
 	user.DiscordID = ""
 	user.DiscordToken = ""
 	user.Update()
-
-	return nil
 }
 
 func (user *User) Connected() bool {

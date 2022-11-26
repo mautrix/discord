@@ -201,15 +201,15 @@ var cmdLogout = &commands.FullHandler{
 		Section:     commands.HelpSectionAuth,
 		Description: "Forget the stored Discord auth token.",
 	},
-	RequiresLogin: true,
 }
 
 func fnLogout(ce *WrappedCommandEvent) {
-	err := ce.User.Logout()
-	if err != nil {
-		ce.Reply("Error logging out: %v", err)
-	} else {
+	wasLoggedIn := ce.User.DiscordID != ""
+	ce.User.Logout()
+	if wasLoggedIn {
 		ce.Reply("Logged out successfully.")
+	} else {
+		ce.Reply("You weren't logged in, but data was re-cleared just to be safe.")
 	}
 }
 

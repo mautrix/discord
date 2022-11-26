@@ -438,7 +438,7 @@ func (user *User) Logout() error {
 	}
 
 	user.Session = nil
-
+	user.DiscordID = ""
 	user.DiscordToken = ""
 	user.Update()
 

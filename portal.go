@@ -544,6 +544,8 @@ func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.Inte
 			content.Info.Height = DiscordStickerSize
 		}
 		evtType = event.EventSticker
+	} else if typeName == "sticker" {
+		evtType = event.EventSticker
 	}
 
 	resp, err := portal.sendMatrixMessage(intent, evtType, content, nil, ts.UnixMilli())

@@ -440,6 +440,7 @@ func (user *User) Logout() {
 	user.Session = nil
 	user.DiscordID = ""
 	user.DiscordToken = ""
+	user.ReadStateVersion = 0
 	user.Update()
 }
 

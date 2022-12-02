@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.8.1
 	github.com/yuin/goldmark v1.5.3
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.12.4-0.20221123200106-2ea51bee6cff
+	maunium.net/go/mautrix v0.12.4-0.20221202220300-b00e31daa1d3
 )
 
 require (

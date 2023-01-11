@@ -1,5 +1,5 @@
 config.yaml
 discord
 logs/
-mautrix-discord.db
 registration.yaml
+*.db*

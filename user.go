@@ -686,7 +686,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 	if len(meta.Channels) > 0 {
 		for _, ch := range meta.Channels {
 			portal := user.GetPortalByMeta(ch)
-			if (guild.AutoBridgeChannels && channelIsBridgeable(ch)) && portal.MXID == "" {
+			if guild.AutoBridgeChannels && portal.MXID == "" && user.channelIsBridgeable(ch) {
 				err := portal.CreateMatrixRoom(user, ch)
 				if err != nil {
 					user.log.Errorfln("Failed to create portal for guild channel %s/%s in initial sync: %v", guild.ID, ch.ID, err)
@@ -744,11 +744,13 @@ func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.Channe
 	}
 	if c.GuildID == "" {
 		user.handlePrivateChannel(portal, c.Channel, time.Now(), true, user.IsInSpace(portal.Key.String()))
-	} else {
+	} else if user.channelIsBridgeable(c.Channel) {
 		err := portal.CreateMatrixRoom(user, c.Channel)
 		if err != nil {
 			user.log.Errorfln("Error creating Matrix room for %s on channel create event: %v", c.ID, err)
 		}
+	} else {
+		user.log.Debugfln("Got channel create event for %s, but it's not bridgeable, ignoring", c.ID)
 	}
 }
 
@@ -1019,7 +1021,7 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	user.addGuildToSpace(guild, false, time.Now())
 	for _, ch := range meta.Channels {
 		portal := user.GetPortalByMeta(ch)
-		if (everything && channelIsBridgeable(ch)) || ch.Type == discordgo.ChannelTypeGuildCategory {
+		if (everything && user.channelIsBridgeable(ch)) || ch.Type == discordgo.ChannelTypeGuildCategory {
 			err = portal.CreateMatrixRoom(user, ch)
 			if err != nil {
 				user.log.Warnfln("Error creating room for guild channel %s: %v", ch.ID, err)

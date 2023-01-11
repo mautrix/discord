@@ -530,6 +530,7 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.DiscordID = r.User.ID
 		user.Update()
 	}
+	user.tryAutomaticDoublePuppeting()
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBackfilling})
 
 	updateTS := time.Now()
@@ -705,7 +706,6 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
 	user.log.Debugln("Connected to discord")
 
-	user.tryAutomaticDoublePuppeting()
 	// FIXME this check can fail if the previous event didn't get sent before reconnecting
 	if user.BridgeState.GetPrev().StateEvent == status.StateTransientDisconnect {
 		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})

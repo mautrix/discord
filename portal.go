@@ -1086,7 +1086,6 @@ func (portal *Portal) sendStatusEvent(evtID id.EventID, err error) {
 		content.Reason, content.Status, _, _, content.Message = errorToStatusReason(err)
 		content.Error = err.Error()
 	}
-	content.FillLegacyBooleans()
 	_, err = intent.SendMessageEvent(portal.MXID, event.BeeperMessageStatus, &content)
 	if err != nil {
 		portal.log.Warnln("Failed to send message status event:", err)
@@ -1300,6 +1299,14 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 	if portal.MXID == "" {
 		return
 	}
+	intent := portal.MainIntent()
+	if portal.bridge.SpecVersions.UnstableFeatures["com.beeper.room_yeeting"] {
+		err := intent.BeeperDeleteRoom(portal.MXID)
+		if err == nil || errors.Is(err, mautrix.MNotFound) {
+			return
+		}
+		portal.log.Warnfln("Failed to delete %s using hungryserv yeet endpoint, falling back to normal behavior: %v", portal.MXID, err)
+	}
 
 	if portal.IsPrivateChat() {
 		_, err := portal.MainIntent().LeaveRoom(portal.MXID)
@@ -1309,7 +1316,6 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 		return
 	}
 
-	intent := portal.MainIntent()
 	members, err := intent.JoinedMembers(portal.MXID)
 	if err != nil {
 		portal.log.Errorln("Failed to get portal members for cleanup:", err)

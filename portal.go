@@ -1322,7 +1322,7 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 		}
 
 		puppet := portal.bridge.GetPuppetByMXID(member)
-		if portal != nil {
+		if puppet != nil {
 			_, err = puppet.DefaultIntent().LeaveRoom(portal.MXID)
 			if err != nil {
 				portal.log.Errorln("Error leaving as puppet while cleaning up portal:", err)

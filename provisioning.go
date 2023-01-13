@@ -44,7 +44,7 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 
 	r.HandleFunc("/disconnect", p.disconnect).Methods(http.MethodPost)
 	r.HandleFunc("/ping", p.ping).Methods(http.MethodGet)
-	r.HandleFunc("/login/qr", p.login).Methods(http.MethodGet)
+	r.HandleFunc("/login/qr", p.qrLogin).Methods(http.MethodGet)
 	r.HandleFunc("/logout", p.logout).Methods(http.MethodPost)
 	r.HandleFunc("/reconnect", p.reconnect).Methods(http.MethodPost)
 
@@ -59,7 +59,7 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 func jsonResponse(w http.ResponseWriter, status int, response interface{}) {
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // Response structs
@@ -216,7 +216,7 @@ func (p *ProvisioningAPI) logout(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, Response{true, msg})
 }
 
-func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
+func (p *ProvisioningAPI) qrLogin(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	user := p.bridge.GetUserByMXID(id.UserID(userID))
 
@@ -226,10 +226,12 @@ func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log := p.log.Sub("QRLogin").Sub(user.MXID.String())
+
 	defer func() {
 		err := c.Close()
 		if err != nil {
-			user.log.Debugln("Error closing websocket:", err)
+			log.Debugln("Error closing websocket:", err)
 		}
 	}()
 
@@ -245,41 +247,44 @@ func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.SetCloseHandler(func(code int, text string) error {
-		user.log.Debugfln("Login websocket closed (%d), cancelling login", code)
-
+		log.Debugfln("Login websocket closed (%d), cancelling login", code)
 		cancel()
-
 		return nil
 	})
 
 	if user.IsLoggedIn() {
-		c.WriteJSON(Error{
+		_ = c.WriteJSON(Error{
 			Error:   "You're already logged into Discord",
 			ErrCode: "already logged in",
 		})
-
 		return
 	}
 
 	client, err := remoteauth.New()
 	if err != nil {
-		user.log.Errorf("Failed to log in from provisioning API:", err)
-
-		c.WriteJSON(Error{
-			Error:   "Failed to connect to Discord",
+		log.Errorln("Failed to prepare login:", err)
+		_ = c.WriteJSON(Error{
+			Error:   "Failed to prepare login",
 			ErrCode: "connection error",
 		})
+		return
 	}
 
 	qrChan := make(chan string)
 	doneChan := make(chan struct{})
 
-	user.log.Debugln("Started login via provisioning API")
+	log.Debugln("Started login via provisioning API")
 
 	err = client.Dial(ctx, qrChan, doneChan)
 	if err != nil {
+		log.Errorln("Failed to connect to Discord login websocket:", err)
 		close(qrChan)
 		close(doneChan)
+		_ = c.WriteJSON(Error{
+			Error:   "Failed to prepare login",
+			ErrCode: "connection error",
+		})
+		return
 	}
 
 	for {
@@ -288,47 +293,59 @@ func (p *ProvisioningAPI) login(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				continue
 			}
-			c.WriteJSON(map[string]interface{}{
+			err = c.WriteJSON(map[string]interface{}{
 				"code":    qrCode,
 				"timeout": 120, // TODO: move this to the library or something
 			})
-		case <-doneChan:
-			discordUser, err := client.Result()
 			if err != nil {
-				c.WriteJSON(Error{
-					Error:   "Failed to connect to Discord",
-					ErrCode: "connection error",
+				log.Errorln("Failed to write QR code to websocket:", err)
+			}
+		case <-doneChan:
+			var discordUser remoteauth.User
+			discordUser, err = client.Result()
+			if err != nil {
+				log.Errorln("Discord login websocket returned error:", err)
+				_ = c.WriteJSON(Error{
+					Error:   "Failed to log in",
+					ErrCode: "login fail",
 				})
-
-				p.log.Errorfln("failed to login via qrcode:", err)
-
 				return
 			}
 
+			log.Infofln("Logged in as %s#%s (%s)", discordUser.Username, discordUser.Discriminator, discordUser.UserID)
 			user.DiscordID = discordUser.UserID
 			user.Update()
 
-			if err := user.Login(discordUser.Token); err != nil {
-				c.WriteJSON(Error{
-					Error:   "Failed to connect to Discord",
-					ErrCode: "connection error",
+			if err = user.Login(discordUser.Token); err != nil {
+				log.Errorln("Failed to connect after logging in:", err)
+				_ = c.WriteJSON(Error{
+					Error:   "Failed to connect to Discord after logging in",
+					ErrCode: "connect fail",
 				})
-
-				p.log.Errorfln("failed to login via qrcode:", err)
-
 				return
 			}
 
-			c.WriteJSON(map[string]interface{}{
-				"success": true,
-				"id":      user.DiscordID,
+			err = c.WriteJSON(respLogin{
+				Success:       true,
+				ID:            user.DiscordID,
+				Username:      discordUser.Username,
+				Discriminator: discordUser.Discriminator,
 			})
-
+			if err != nil {
+				log.Errorln("Failed to write login success to websocket:", err)
+			}
 			return
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+type respLogin struct {
+	Success       bool   `json:"success"`
+	ID            string `json:"id"`
+	Username      string `json:"username"`
+	Discriminator string `json:"discriminator"`
 }
 
 func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {

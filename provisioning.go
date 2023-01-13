@@ -171,37 +171,34 @@ func (p *ProvisioningAPI) disconnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type respPing struct {
+	Discord struct {
+		ID        string `json:"id,omitempty"`
+		LoggedIn  bool   `json:"logged_in"`
+		Connected bool   `json:"connected"`
+		Conn      struct {
+			LastHeartbeatAck  int64 `json:"last_heartbeat_ack,omitempty"`
+			LastHeartbeatSent int64 `json:"last_heartbeat_sent,omitempty"`
+		} `json:"conn"`
+	}
+	MXID           id.UserID `json:"mxid"`
+	ManagementRoom id.RoomID `json:"management_room"`
+}
+
 func (p *ProvisioningAPI) ping(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 
-	discord := map[string]interface{}{
-		"logged_in": user.IsLoggedIn(),
-		"connected": user.Connected(),
-		"conn":      nil,
+	resp := respPing{
+		MXID:           user.MXID,
+		ManagementRoom: user.ManagementRoom,
 	}
-
-	user.Lock()
-	if user.DiscordID != "" {
-		discord["id"] = user.DiscordID
-	}
-
+	resp.Discord.LoggedIn = user.IsLoggedIn()
+	resp.Discord.Connected = user.Connected()
+	resp.Discord.ID = user.DiscordID
 	if user.Session != nil {
-		user.Session.Lock()
-		discord["conn"] = map[string]interface{}{
-			"last_heartbeat_ack":  user.Session.LastHeartbeatAck,
-			"last_heartbeat_sent": user.Session.LastHeartbeatSent,
-		}
-		user.Session.Unlock()
+		resp.Discord.Conn.LastHeartbeatAck = user.Session.LastHeartbeatAck.UnixMilli()
+		resp.Discord.Conn.LastHeartbeatSent = user.Session.LastHeartbeatSent.UnixMilli()
 	}
-
-	resp := map[string]interface{}{
-		"discord":         discord,
-		"management_room": user.ManagementRoom,
-		"mxid":            user.MXID,
-	}
-
-	user.Unlock()
-
 	jsonResponse(w, http.StatusOK, resp)
 }
 

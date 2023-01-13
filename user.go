@@ -1033,41 +1033,25 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 }
 
 func (user *User) unbridgeGuild(guildID string) error {
-	//user.guildsLock.Lock()
-	//defer user.guildsLock.Unlock()
-	//
-	//guild, exists := user.guilds[guildID]
-	//if !exists {
-	//	return fmt.Errorf("guildID not found")
-	//}
-	//
-	//if !guild.Bridge {
-	//	return fmt.Errorf("guild not bridged")
-	//}
-	//
-	//// First update the guild so we don't have any other go routines recreating
-	//// channels we're about to destroy.
-	//guild.Bridge = false
-	//guild.Upsert()
-	//
-	//// Now run through the channels in the guild and remove any portals we
-	//// have for them.
-	//channels, err := user.Session.GuildChannels(guildID)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//for _, channel := range channels {
-	//	if channelIsBridgeable(channel) {
-	//		key := database.PortalKey{
-	//			ChannelID: channel.ID,
-	//			Receiver:  user.DiscordID,
-	//		}
-	//
-	//		portal := user.bridge.GetPortalByID(key)
-	//		portal.leave(user)
-	//	}
-	//}
-
-	return errors.New("unbridging is not currently supported")
+	if user.PermissionLevel < bridgeconfig.PermissionLevelAdmin {
+		return errors.New("only bridge admins can unbridge guilds")
+	}
+	guild := user.bridge.GetGuildByID(guildID, false)
+	if guild == nil {
+		return errors.New("guild not found")
+	}
+	guild.roomCreateLock.Lock()
+	defer guild.roomCreateLock.Unlock()
+	if !guild.AutoBridgeChannels && guild.MXID == "" {
+		return errors.New("that guild is not bridged")
+	}
+	guild.AutoBridgeChannels = false
+	guild.Update()
+	for _, portal := range user.bridge.GetAllPortalsInGuild(guild.ID) {
+		portal.cleanup(false)
+		portal.RemoveMXID()
+	}
+	guild.cleanup()
+	guild.RemoveMXID()
+	return nil
 }

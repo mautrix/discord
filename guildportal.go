@@ -17,6 +17,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -284,4 +285,33 @@ func (guild *Guild) UpdateAvatar(iconID string) bool {
 		}
 	}
 	return true
+}
+
+func (guild *Guild) cleanup() {
+	if guild.MXID == "" {
+		return
+	}
+	intent := guild.bridge.Bot
+	if guild.bridge.SpecVersions.UnstableFeatures["com.beeper.room_yeeting"] {
+		err := intent.BeeperDeleteRoom(guild.MXID)
+		if err == nil || errors.Is(err, mautrix.MNotFound) {
+			return
+		}
+		guild.log.Warnfln("Failed to delete %s using hungryserv yeet endpoint, falling back to normal behavior: %v", guild.MXID, err)
+	}
+	guild.bridge.cleanupRoom(intent, guild.MXID, false, guild.log)
+}
+
+func (guild *Guild) RemoveMXID() {
+	guild.bridge.guildsLock.Lock()
+	defer guild.bridge.guildsLock.Unlock()
+	if guild.MXID == "" {
+		return
+	}
+	delete(guild.bridge.guildsByMXID, guild.MXID)
+	guild.MXID = ""
+	guild.AvatarSet = false
+	guild.NameSet = false
+	guild.AutoBridgeChannels = false
+	guild.Update()
 }

@@ -56,6 +56,10 @@ func (pq *PortalQuery) GetAll() []*Portal {
 	return pq.getAll(portalSelect)
 }
 
+func (pq *PortalQuery) GetAllInGuild(guildID string) []*Portal {
+	return pq.getAll(portalSelect+" WHERE dc_guild_id=$1", guildID)
+}
+
 func (pq *PortalQuery) GetByID(key PortalKey) *Portal {
 	return pq.get(portalSelect+" WHERE dcid=$1 AND (receiver=$2 OR receiver='')", key.ChannelID, key.Receiver)
 }

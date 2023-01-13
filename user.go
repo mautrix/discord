@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -47,7 +48,8 @@ type User struct {
 
 	Session *discordgo.Session
 
-	BridgeState *bridge.BridgeStateQueue
+	BridgeState     *bridge.BridgeStateQueue
+	wasDisconnected atomic.Bool
 
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
@@ -530,8 +532,8 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.DiscordID = r.User.ID
 		user.Update()
 	}
-	user.tryAutomaticDoublePuppeting()
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBackfilling})
+	user.tryAutomaticDoublePuppeting()
 
 	updateTS := time.Now()
 	portalsInSpace := make(map[string]bool)
@@ -705,15 +707,14 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 
 func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
 	user.log.Debugln("Connected to discord")
-
-	// FIXME this check can fail if the previous event didn't get sent before reconnecting
-	if user.BridgeState.GetPrev().StateEvent == status.StateTransientDisconnect {
+	if user.wasDisconnected.Swap(false) {
 		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 	}
 }
 
 func (user *User) disconnectedHandler(_ *discordgo.Session, d *discordgo.Disconnect) {
 	user.log.Debugln("Disconnected from discord")
+	user.wasDisconnected.Store(true)
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect})
 }
 

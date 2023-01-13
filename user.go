@@ -223,11 +223,10 @@ func (br *DiscordBridge) startUsers() {
 			if err != nil {
 				user.log.Errorfln("Error connecting: %v", err)
 				if closeErr := (&websocket.CloseError{}); errors.As(err, &closeErr) && closeErr.Code == 4004 {
-					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Message: err.Error()})
-					user.DiscordToken = ""
-					user.Update()
+					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004"})
+					go user.Logout()
 				} else {
-					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateUnknownError, Message: err.Error()})
+					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateUnknownError, Error: "dc-unknown-websocket-error", Message: err.Error()})
 				}
 			}
 		}(u)
@@ -477,6 +476,7 @@ func (user *User) Connect() error {
 	user.Session.AddHandler(user.readyHandler)
 	user.Session.AddHandler(user.connectedHandler)
 	user.Session.AddHandler(user.disconnectedHandler)
+	user.Session.AddHandler(user.invalidAuthHandler)
 
 	user.Session.AddHandler(user.guildCreateHandler)
 	user.Session.AddHandler(user.guildDeleteHandler)
@@ -705,17 +705,23 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 	user.addGuildToSpace(guild, isInSpace, timestamp)
 }
 
-func (user *User) connectedHandler(_ *discordgo.Session, c *discordgo.Connect) {
-	user.log.Debugln("Connected to discord")
+func (user *User) connectedHandler(_ *discordgo.Session, _ *discordgo.Connect) {
+	user.log.Debugln("Connected to Discord")
 	if user.wasDisconnected.Swap(false) {
 		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 	}
 }
 
-func (user *User) disconnectedHandler(_ *discordgo.Session, d *discordgo.Disconnect) {
-	user.log.Debugln("Disconnected from discord")
+func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconnect) {
+	user.log.Debugln("Disconnected from Discord")
 	user.wasDisconnected.Store(true)
-	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect})
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-transient-disconnect"})
+}
+
+func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidAuth) {
+	user.log.Debugln("Got logged out from Discord")
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004"})
+	go user.Logout()
 }
 
 func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {

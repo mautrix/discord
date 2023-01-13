@@ -223,8 +223,7 @@ func (br *DiscordBridge) startUsers() {
 			if err != nil {
 				user.log.Errorfln("Error connecting: %v", err)
 				if closeErr := (&websocket.CloseError{}); errors.As(err, &closeErr) && closeErr.Code == 4004 {
-					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004"})
-					go user.Logout()
+					user.invalidAuthHandler(nil, nil)
 				} else {
 					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateUnknownError, Error: "dc-unknown-websocket-error", Message: err.Error()})
 				}
@@ -715,12 +714,12 @@ func (user *User) connectedHandler(_ *discordgo.Session, _ *discordgo.Connect) {
 func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconnect) {
 	user.log.Debugln("Disconnected from Discord")
 	user.wasDisconnected.Store(true)
-	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-transient-disconnect"})
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-transient-disconnect", Message: "Temporarily disconnected from Discord, trying to reconnect"})
 }
 
 func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidAuth) {
 	user.log.Debugln("Got logged out from Discord")
-	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004"})
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004", Message: "Discord access token is no longer valid, please log in again"})
 	go user.Logout()
 }
 

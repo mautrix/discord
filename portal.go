@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -253,7 +254,17 @@ func (portal *Portal) MainIntent() *appservice.IntentAPI {
 	return portal.bridge.Bot
 }
 
-func (portal *Portal) getBridgeInfo() (string, event.BridgeEventContent) {
+type CustomBridgeInfoContent struct {
+	event.BridgeEventContent
+	RoomType string `json:"com.beeper.room_type,omitempty"`
+}
+
+func init() {
+	event.TypeMap[event.StateBridge] = reflect.TypeOf(CustomBridgeInfoContent{})
+	event.TypeMap[event.StateHalfShotBridge] = reflect.TypeOf(CustomBridgeInfoContent{})
+}
+
+func (portal *Portal) getBridgeInfo() (string, CustomBridgeInfoContent) {
 	bridgeInfo := event.BridgeEventContent{
 		BridgeBot: portal.bridge.Bot.UserID,
 		Creator:   portal.MainIntent().UserID,
@@ -284,7 +295,11 @@ func (portal *Portal) getBridgeInfo() (string, event.BridgeEventContent) {
 		bridgeInfoStateKey = fmt.Sprintf("fi.mau.discord://discord/%s/%s", portal.GuildID, portal.Key.ChannelID)
 		bridgeInfo.Channel.ExternalURL = fmt.Sprintf("https://discord.com/channels/%s/%s", portal.GuildID, portal.Key.ChannelID)
 	}
-	return bridgeInfoStateKey, bridgeInfo
+	var roomType string
+	if portal.Type == discordgo.ChannelTypeDM || portal.Type == discordgo.ChannelTypeGroupDM {
+		roomType = "dm"
+	}
+	return bridgeInfoStateKey, CustomBridgeInfoContent{bridgeInfo, roomType}
 }
 
 func (portal *Portal) UpdateBridgeInfo() {

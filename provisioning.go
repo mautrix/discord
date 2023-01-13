@@ -42,17 +42,17 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 
 	r.Use(p.authMiddleware)
 
-	r.HandleFunc("/disconnect", p.disconnect).Methods(http.MethodPost)
-	r.HandleFunc("/ping", p.ping).Methods(http.MethodGet)
-	r.HandleFunc("/login/qr", p.qrLogin).Methods(http.MethodGet)
-	r.HandleFunc("/login/token", p.tokenLogin).Methods(http.MethodPost)
-	r.HandleFunc("/logout", p.logout).Methods(http.MethodPost)
-	r.HandleFunc("/reconnect", p.reconnect).Methods(http.MethodPost)
+	r.HandleFunc("/v1/disconnect", p.disconnect).Methods(http.MethodPost)
+	r.HandleFunc("/v1/ping", p.ping).Methods(http.MethodGet)
+	r.HandleFunc("/v1/login/qr", p.qrLogin).Methods(http.MethodGet)
+	r.HandleFunc("/v1/login/token", p.tokenLogin).Methods(http.MethodPost)
+	r.HandleFunc("/v1/logout", p.logout).Methods(http.MethodPost)
+	r.HandleFunc("/v1/reconnect", p.reconnect).Methods(http.MethodPost)
 
-	r.HandleFunc("/guilds", p.guildsList).Methods(http.MethodGet)
-	r.HandleFunc("/guilds/{guildID}/bridge", p.guildsBridge).Methods(http.MethodPost)
-	r.HandleFunc("/guilds/{guildID}/unbridge", p.guildsUnbridge).Methods(http.MethodPost)
-	r.HandleFunc("/guilds/{guildID}/joinentire", p.guildsJoinEntire).Methods(http.MethodPost)
+	r.HandleFunc("/v1/guilds", p.guildsList).Methods(http.MethodGet)
+	r.HandleFunc("/v1/guilds/{guildID}/bridge", p.guildsBridge).Methods(http.MethodPost)
+	r.HandleFunc("/v1/guilds/{guildID}/unbridge", p.guildsUnbridge).Methods(http.MethodPost)
+	r.HandleFunc("/v1/guilds/{guildID}/joinentire", p.guildsJoinEntire).Methods(http.MethodPost)
 
 	return p
 }

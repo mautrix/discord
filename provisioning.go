@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	log "maunium.net/go/maulogger/v2"
 
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/id"
 
@@ -22,6 +23,21 @@ import (
 
 const (
 	SecWebSocketProtocol = "com.gitlab.beeper.discord"
+)
+
+const (
+	ErrCodeNotConnected          = "FI.MAU.DISCORD.NOT_CONNECTED"
+	ErrCodeAlreadyLoggedIn       = "FI.MAU.DISCORD.ALREADY_LOGGED_IN"
+	ErrCodeAlreadyConnected      = "FI.MAU.DISCORD.ALREADY_CONNECTED"
+	ErrCodeConnectFailed         = "FI.MAU.DISCORD.CONNECT_FAILED"
+	ErrCodeDisconnectFailed      = "FI.MAU.DISCORD.DISCONNECT_FAILED"
+	ErrCodeGuildBridgeFailed     = "M_UNKNOWN"
+	ErrCodeGuildUnbridgeFailed   = "M_UNKNOWN"
+	ErrCodeGuildNotBridged       = "FI.MAU.DISCORD.GUILD_NOT_BRIDGED"
+	ErrCodeLoginPrepareFailed    = "FI.MAU.DISCORD.LOGIN_PREPARE_FAILED"
+	ErrCodeLoginConnectionFailed = "FI.MAU.DISCORD.LOGIN_CONN_FAILED"
+	ErrCodeLoginFailed           = "FI.MAU.DISCORD.LOGIN_FAILED"
+	ErrCodePostLoginConnFailed   = "FI.MAU.DISCORD.POST_LOGIN_CONNECTION_FAILED"
 )
 
 type ProvisioningAPI struct {
@@ -117,9 +133,9 @@ func (p *ProvisioningAPI) authMiddleware(h http.Handler) http.Handler {
 		}
 
 		if auth != p.bridge.Config.Bridge.Provisioning.SharedSecret {
-			jsonResponse(w, http.StatusForbidden, map[string]interface{}{
+			jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{
 				"error":   "Invalid auth token",
-				"errcode": "M_FORBIDDEN",
+				"errcode": mautrix.MUnknownToken.ErrCode,
 			})
 
 			return
@@ -152,16 +168,16 @@ func (p *ProvisioningAPI) disconnect(w http.ResponseWriter, r *http.Request) {
 	if !user.Connected() {
 		jsonResponse(w, http.StatusConflict, Error{
 			Error:   "You're not connected to discord",
-			ErrCode: "not connected",
+			ErrCode: ErrCodeNotConnected,
 		})
-
 		return
 	}
 
 	if err := user.Disconnect(); err != nil {
+		p.log.Errorfln("Failed to disconnect %s: %v", user.MXID, err)
 		jsonResponse(w, http.StatusInternalServerError, Error{
 			Error:   "Failed to disconnect from discord",
-			ErrCode: "failed to disconnect",
+			ErrCode: ErrCodeDisconnectFailed,
 		})
 	} else {
 		jsonResponse(w, http.StatusOK, Response{
@@ -253,7 +269,7 @@ func (p *ProvisioningAPI) qrLogin(w http.ResponseWriter, r *http.Request) {
 	if user.IsLoggedIn() {
 		_ = c.WriteJSON(Error{
 			Error:   "You're already logged into Discord",
-			ErrCode: "already logged in",
+			ErrCode: ErrCodeAlreadyLoggedIn,
 		})
 		return
 	}
@@ -263,7 +279,7 @@ func (p *ProvisioningAPI) qrLogin(w http.ResponseWriter, r *http.Request) {
 		log.Errorln("Failed to prepare login:", err)
 		_ = c.WriteJSON(Error{
 			Error:   "Failed to prepare login",
-			ErrCode: "connection error",
+			ErrCode: ErrCodeLoginPrepareFailed,
 		})
 		return
 	}
@@ -279,8 +295,8 @@ func (p *ProvisioningAPI) qrLogin(w http.ResponseWriter, r *http.Request) {
 		close(qrChan)
 		close(doneChan)
 		_ = c.WriteJSON(Error{
-			Error:   "Failed to prepare login",
-			ErrCode: "connection error",
+			Error:   "Failed to connect to Discord login websocket",
+			ErrCode: ErrCodeLoginConnectionFailed,
 		})
 		return
 	}
@@ -305,7 +321,7 @@ func (p *ProvisioningAPI) qrLogin(w http.ResponseWriter, r *http.Request) {
 				log.Errorln("Discord login websocket returned error:", err)
 				_ = c.WriteJSON(Error{
 					Error:   "Failed to log in",
-					ErrCode: "login fail",
+					ErrCode: ErrCodeLoginFailed,
 				})
 				return
 			}
@@ -318,7 +334,7 @@ func (p *ProvisioningAPI) qrLogin(w http.ResponseWriter, r *http.Request) {
 				log.Errorln("Failed to connect after logging in:", err)
 				_ = c.WriteJSON(Error{
 					Error:   "Failed to connect to Discord after logging in",
-					ErrCode: "connect fail",
+					ErrCode: ErrCodePostLoginConnFailed,
 				})
 				return
 			}
@@ -357,7 +373,7 @@ func (p *ProvisioningAPI) tokenLogin(w http.ResponseWriter, r *http.Request) {
 	if user.IsLoggedIn() {
 		jsonResponse(w, http.StatusConflict, Error{
 			Error:   "You're already logged into Discord",
-			ErrCode: "already logged in",
+			ErrCode: ErrCodeAlreadyLoggedIn,
 		})
 		return
 	}
@@ -366,7 +382,7 @@ func (p *ProvisioningAPI) tokenLogin(w http.ResponseWriter, r *http.Request) {
 		log.Errorln("Failed to parse login request:", err)
 		jsonResponse(w, http.StatusBadRequest, Error{
 			Error:   "Failed to parse request body",
-			ErrCode: "bad request",
+			ErrCode: mautrix.MBadJSON.ErrCode,
 		})
 		return
 	}
@@ -374,7 +390,7 @@ func (p *ProvisioningAPI) tokenLogin(w http.ResponseWriter, r *http.Request) {
 		log.Errorln("Failed to connect with provided token:", err)
 		jsonResponse(w, http.StatusUnauthorized, Error{
 			Error:   "Failed to connect to Discord",
-			ErrCode: "connect fail",
+			ErrCode: ErrCodePostLoginConnFailed,
 		})
 		return
 	}
@@ -393,7 +409,7 @@ func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {
 	if user.Connected() {
 		jsonResponse(w, http.StatusConflict, Error{
 			Error:   "You're already connected to discord",
-			ErrCode: "already connected",
+			ErrCode: ErrCodeAlreadyConnected,
 		})
 
 		return
@@ -402,7 +418,7 @@ func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {
 	if err := user.Connect(); err != nil {
 		jsonResponse(w, http.StatusInternalServerError, Error{
 			Error:   "Failed to connect to discord",
-			ErrCode: "failed to connect",
+			ErrCode: ErrCodeConnectFailed,
 		})
 	} else {
 		jsonResponse(w, http.StatusOK, Response{
@@ -464,7 +480,7 @@ func (p *ProvisioningAPI) guildsBridge(w http.ResponseWriter, r *http.Request) {
 		p.log.Errorln("Failed to parse bridge request:", err)
 		jsonResponse(w, http.StatusBadRequest, Error{
 			Error:   "Failed to parse request body",
-			ErrCode: "bad request",
+			ErrCode: mautrix.MBadJSON.ErrCode,
 		})
 		return
 	}
@@ -473,7 +489,7 @@ func (p *ProvisioningAPI) guildsBridge(w http.ResponseWriter, r *http.Request) {
 	if guild == nil {
 		jsonResponse(w, http.StatusNotFound, Error{
 			Error:   "Guild not found",
-			ErrCode: "M_NOT_FOUND",
+			ErrCode: mautrix.MNotFound.ErrCode,
 		})
 		return
 	}
@@ -482,7 +498,7 @@ func (p *ProvisioningAPI) guildsBridge(w http.ResponseWriter, r *http.Request) {
 		p.log.Errorfln("Error bridging %s: %v", guildID, err)
 		jsonResponse(w, http.StatusInternalServerError, Error{
 			Error:   "Internal error while trying to bridge guild",
-			ErrCode: "guild bridge failed",
+			ErrCode: ErrCodeGuildBridgeFailed,
 		})
 	} else if alreadyExists {
 		jsonResponse(w, http.StatusOK, respBridgeGuild{
@@ -503,23 +519,23 @@ func (p *ProvisioningAPI) guildsUnbridge(w http.ResponseWriter, r *http.Request)
 	if user.PermissionLevel < bridgeconfig.PermissionLevelAdmin {
 		jsonResponse(w, http.StatusForbidden, Error{
 			Error:   "Only bridge admins can unbridge guilds",
-			ErrCode: "M_FORBIDDEN",
+			ErrCode: mautrix.MForbidden.ErrCode,
 		})
 	} else if guild := user.bridge.GetGuildByID(guildID, false); guild == nil {
 		jsonResponse(w, http.StatusNotFound, Error{
 			Error:   "Guild not found",
-			ErrCode: "M_NOT_FOUND",
+			ErrCode: mautrix.MNotFound.ErrCode,
 		})
 	} else if !guild.AutoBridgeChannels && guild.MXID == "" {
 		jsonResponse(w, http.StatusNotFound, Error{
 			Error:   "That guild is not bridged",
-			ErrCode: "not bridged",
+			ErrCode: ErrCodeGuildNotBridged,
 		})
 	} else if err := user.unbridgeGuild(guildID); err != nil {
 		p.log.Errorfln("Error unbridging %s: %v", guildID, err)
 		jsonResponse(w, http.StatusInternalServerError, Error{
 			Error:   "Internal error while trying to unbridge guild",
-			ErrCode: "guild unbridge failed",
+			ErrCode: ErrCodeGuildUnbridgeFailed,
 		})
 	} else {
 		w.WriteHeader(http.StatusNoContent)

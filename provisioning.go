@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	log "maunium.net/go/maulogger/v2"
 
+	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/remoteauth"
@@ -50,9 +51,8 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 	r.HandleFunc("/v1/reconnect", p.reconnect).Methods(http.MethodPost)
 
 	r.HandleFunc("/v1/guilds", p.guildsList).Methods(http.MethodGet)
-	r.HandleFunc("/v1/guilds/{guildID}/bridge", p.guildsBridge).Methods(http.MethodPost)
-	r.HandleFunc("/v1/guilds/{guildID}/unbridge", p.guildsUnbridge).Methods(http.MethodPost)
-	r.HandleFunc("/v1/guilds/{guildID}/joinentire", p.guildsJoinEntire).Methods(http.MethodPost)
+	r.HandleFunc("/v1/guilds/{guildID}", p.guildsBridge).Methods(http.MethodPost)
+	r.HandleFunc("/v1/guilds/{guildID}", p.guildsUnbridge).Methods(http.MethodDelete)
 
 	return p
 }
@@ -415,68 +415,116 @@ func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type guildEntry struct {
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	AvatarURL  id.ContentURI `json:"avatar_url"`
+	MXID       id.RoomID     `json:"mxid"`
+	AutoBridge bool          `json:"auto_bridge_channels"`
+}
+
+type respGuildsList struct {
+	Guilds []guildEntry `json:"guilds"`
+}
+
 func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
 
-	var data []map[string]interface{}
+	var resp respGuildsList
+	resp.Guilds = []guildEntry{}
 	for _, userGuild := range user.GetPortals() {
 		guild := p.bridge.GetGuildByID(userGuild.DiscordID, false)
 		if guild == nil {
 			continue
 		}
-		data = append(data, map[string]interface{}{
-			"name": guild.Name,
-			"id":   guild.ID,
-			"mxid": guild.MXID,
+		resp.Guilds = append(resp.Guilds, guildEntry{
+			ID:         guild.ID,
+			Name:       guild.PlainName,
+			AvatarURL:  guild.AvatarURL,
+			MXID:       guild.MXID,
+			AutoBridge: guild.AutoBridgeChannels,
 		})
 	}
 
-	jsonResponse(w, http.StatusOK, data)
+	jsonResponse(w, http.StatusOK, resp)
+}
+
+type reqBridgeGuild struct {
+	AutoCreateChannels bool `json:"auto_create_channels"`
+}
+
+type respBridgeGuild struct {
+	Success bool      `json:"success"`
+	MXID    id.RoomID `json:"mxid"`
 }
 
 func (p *ProvisioningAPI) guildsBridge(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
+	guildID := mux.Vars(r)["guildID"]
 
-	guildID, _ := mux.Vars(r)["guildID"]
+	var body reqBridgeGuild
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		p.log.Errorln("Failed to parse bridge request:", err)
+		jsonResponse(w, http.StatusBadRequest, Error{
+			Error:   "Failed to parse request body",
+			ErrCode: "bad request",
+		})
+		return
+	}
 
-	if err := user.bridgeGuild(guildID, false); err != nil {
+	guild := user.bridge.GetGuildByID(guildID, false)
+	if guild == nil {
 		jsonResponse(w, http.StatusNotFound, Error{
-			Error:   err.Error(),
+			Error:   "Guild not found",
 			ErrCode: "M_NOT_FOUND",
 		})
+		return
+	}
+	alreadyExists := guild.MXID == ""
+	if err := user.bridgeGuild(guildID, body.AutoCreateChannels); err != nil {
+		p.log.Errorfln("Error bridging %s: %v", guildID, err)
+		jsonResponse(w, http.StatusInternalServerError, Error{
+			Error:   "Internal error while trying to bridge guild",
+			ErrCode: "guild bridge failed",
+		})
+	} else if alreadyExists {
+		jsonResponse(w, http.StatusOK, respBridgeGuild{
+			Success: true,
+			MXID:    guild.MXID,
+		})
 	} else {
-		w.WriteHeader(http.StatusCreated)
+		jsonResponse(w, http.StatusCreated, respBridgeGuild{
+			Success: true,
+			MXID:    guild.MXID,
+		})
 	}
 }
 
 func (p *ProvisioningAPI) guildsUnbridge(w http.ResponseWriter, r *http.Request) {
+	guildID := mux.Vars(r)["guildID"]
 	user := r.Context().Value("user").(*User)
-
-	guildID, _ := mux.Vars(r)["guildID"]
-
-	if err := user.unbridgeGuild(guildID); err != nil {
+	if user.PermissionLevel < bridgeconfig.PermissionLevelAdmin {
+		jsonResponse(w, http.StatusForbidden, Error{
+			Error:   "Only bridge admins can unbridge guilds",
+			ErrCode: "M_FORBIDDEN",
+		})
+	} else if guild := user.bridge.GetGuildByID(guildID, false); guild == nil {
 		jsonResponse(w, http.StatusNotFound, Error{
-			Error:   err.Error(),
+			Error:   "Guild not found",
 			ErrCode: "M_NOT_FOUND",
 		})
-
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (p *ProvisioningAPI) guildsJoinEntire(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user").(*User)
-
-	guildID, _ := mux.Vars(r)["guildID"]
-
-	if err := user.bridgeGuild(guildID, true); err != nil {
+	} else if !guild.AutoBridgeChannels && guild.MXID == "" {
 		jsonResponse(w, http.StatusNotFound, Error{
-			Error:   err.Error(),
-			ErrCode: "M_NOT_FOUND",
+			Error:   "That guild is not bridged",
+			ErrCode: "not bridged",
+		})
+	} else if err := user.unbridgeGuild(guildID); err != nil {
+		p.log.Errorfln("Error unbridging %s: %v", guildID, err)
+		jsonResponse(w, http.StatusInternalServerError, Error{
+			Error:   "Internal error while trying to unbridge guild",
+			ErrCode: "guild unbridge failed",
 		})
 	} else {
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

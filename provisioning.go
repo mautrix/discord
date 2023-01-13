@@ -45,6 +45,7 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 	r.HandleFunc("/disconnect", p.disconnect).Methods(http.MethodPost)
 	r.HandleFunc("/ping", p.ping).Methods(http.MethodGet)
 	r.HandleFunc("/login/qr", p.qrLogin).Methods(http.MethodGet)
+	r.HandleFunc("/login/token", p.tokenLogin).Methods(http.MethodPost)
 	r.HandleFunc("/logout", p.logout).Methods(http.MethodPost)
 	r.HandleFunc("/reconnect", p.reconnect).Methods(http.MethodPost)
 
@@ -346,6 +347,47 @@ type respLogin struct {
 	ID            string `json:"id"`
 	Username      string `json:"username"`
 	Discriminator string `json:"discriminator"`
+}
+
+type reqTokenLogin struct {
+	Token string `json:"token"`
+}
+
+func (p *ProvisioningAPI) tokenLogin(w http.ResponseWriter, r *http.Request) {
+	userID := r.URL.Query().Get("user_id")
+	user := p.bridge.GetUserByMXID(id.UserID(userID))
+	log := p.log.Sub("TokenLogin").Sub(user.MXID.String())
+	if user.IsLoggedIn() {
+		jsonResponse(w, http.StatusConflict, Error{
+			Error:   "You're already logged into Discord",
+			ErrCode: "already logged in",
+		})
+		return
+	}
+	var body reqTokenLogin
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		log.Errorln("Failed to parse login request:", err)
+		jsonResponse(w, http.StatusBadRequest, Error{
+			Error:   "Failed to parse request body",
+			ErrCode: "bad request",
+		})
+		return
+	}
+	if err := user.Login(body.Token); err != nil {
+		log.Errorln("Failed to connect with provided token:", err)
+		jsonResponse(w, http.StatusUnauthorized, Error{
+			Error:   "Failed to connect to Discord",
+			ErrCode: "connect fail",
+		})
+		return
+	}
+	log.Infoln("Successfully logged in")
+	jsonResponse(w, http.StatusOK, respLogin{
+		Success:       true,
+		ID:            user.DiscordID,
+		Username:      user.Session.State.User.Username,
+		Discriminator: user.Session.State.User.Discriminator,
+	})
 }
 
 func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {

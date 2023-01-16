@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -49,8 +48,9 @@ type User struct {
 	Session *discordgo.Session
 
 	BridgeState     *bridge.BridgeStateQueue
-	wasDisconnected atomic.Bool
-	wasLoggedOut    atomic.Bool
+	bridgeStateLock sync.Mutex
+	wasDisconnected bool
+	wasLoggedOut    bool
 
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
@@ -406,7 +406,9 @@ func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) 
 }
 
 func (user *User) Login(token string) error {
-	user.wasLoggedOut.Store(false)
+	user.bridgeStateLock.Lock()
+	user.wasLoggedOut = false
+	user.bridgeStateLock.Unlock()
 	user.DiscordToken = token
 	user.Update()
 	return user.Connect()
@@ -528,7 +530,9 @@ func (user *User) bridgeMessage(guildID string) bool {
 
 func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	user.log.Debugln("Discord connection ready")
-	user.wasLoggedOut.Store(false)
+	user.bridgeStateLock.Lock()
+	user.wasLoggedOut = false
+	user.bridgeStateLock.Unlock()
 
 	if user.DiscordID != r.User.ID {
 		user.DiscordID = r.User.ID
@@ -708,25 +712,32 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 }
 
 func (user *User) connectedHandler(_ *discordgo.Session, _ *discordgo.Connect) {
+	user.bridgeStateLock.Lock()
+	defer user.bridgeStateLock.Unlock()
 	user.log.Debugln("Connected to Discord")
-	if user.wasDisconnected.Swap(false) {
+	if user.wasDisconnected {
+		user.wasDisconnected = false
 		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 	}
 }
 
 func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconnect) {
-	if user.wasLoggedOut.Load() {
+	user.bridgeStateLock.Lock()
+	defer user.bridgeStateLock.Unlock()
+	if user.wasLoggedOut {
 		user.log.Debugln("Disconnected from Discord (not updating bridge state as user was just logged out)")
 		return
 	}
 	user.log.Debugln("Disconnected from Discord")
-	user.wasDisconnected.Store(true)
+	user.wasDisconnected = true
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-transient-disconnect", Message: "Temporarily disconnected from Discord, trying to reconnect"})
 }
 
 func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidAuth) {
+	user.bridgeStateLock.Lock()
+	defer user.bridgeStateLock.Unlock()
 	user.log.Debugln("Got logged out from Discord")
-	user.wasLoggedOut.Store(true)
+	user.wasLoggedOut = true
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004", Message: "Discord access token is no longer valid, please log in again"})
 	go user.Logout()
 }

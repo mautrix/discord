@@ -119,6 +119,7 @@ func (puppet *Puppet) tryRelogin(cause error, action string) bool {
 	}
 	puppet.log.Infofln("Successfully relogined after '%v' while %s", cause, action)
 	puppet.AccessToken = accessToken
+	puppet.Update()
 	return true
 }
 

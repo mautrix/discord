@@ -22,6 +22,7 @@ import (
 	"maunium.net/go/mautrix/bridge/status"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/pushrules"
 
 	"go.mau.fi/mautrix-discord/database"
 )
@@ -392,17 +393,35 @@ func (user *User) ViewingChannel(portal *Portal) bool {
 	return false
 }
 
+func (user *User) mutePortal(intent *appservice.IntentAPI, portal *Portal, unmute bool) {
+	if len(portal.MXID) == 0 || !user.bridge.Config.Bridge.MuteChannelsOnCreate {
+		return
+	}
+	var err error
+	if unmute {
+		user.log.Debugfln("Unmuting portal %s", portal.MXID)
+		err = intent.DeletePushRule("global", pushrules.RoomRule, string(portal.MXID))
+	} else {
+		user.log.Debugfln("Muting portal %s", portal.MXID)
+		err = intent.PutPushRule("global", pushrules.RoomRule, string(portal.MXID), &mautrix.ReqPutPushRule{
+			Actions: []pushrules.PushActionType{pushrules.ActionDontNotify},
+		})
+	}
+	if err != nil && !errors.Is(err, mautrix.MNotFound) {
+		user.log.Warnfln("Failed to update push rule for %s through double puppet: %v", portal.MXID, err)
+	}
+}
+
 func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) {
-	doublePuppet := portal.bridge.GetPuppetByCustomMXID(user.MXID)
-	if doublePuppet == nil {
+	doublePuppetIntent := portal.bridge.GetPuppetByCustomMXID(user.MXID).CustomIntent()
+	if doublePuppetIntent == nil || portal.MXID == "" {
 		return
 	}
 
-	if doublePuppet == nil || doublePuppet.CustomIntent() == nil || portal.MXID == "" {
-		return
+	// TODO sync mute status properly
+	if portal.GuildID != "" && user.bridge.Config.Bridge.MuteChannelsOnCreate {
+		go user.mutePortal(doublePuppetIntent, portal, false)
 	}
-
-	// TODO sync mute status
 }
 
 func (user *User) Login(token string) error {

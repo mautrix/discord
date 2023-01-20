@@ -178,6 +178,9 @@ func (puppet *Puppet) IntentFor(portal *Portal) *appservice.IntentAPI {
 }
 
 func (puppet *Puppet) CustomIntent() *appservice.IntentAPI {
+	if puppet == nil {
+		return nil
+	}
 	return puppet.customIntent
 }
 

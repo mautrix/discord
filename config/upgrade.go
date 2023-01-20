@@ -37,6 +37,7 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Bool, "bridge", "message_error_notices")
 	helper.Copy(up.Bool, "bridge", "restricted_rooms")
 	helper.Copy(up.Bool, "bridge", "autojoin_thread_on_open")
+	helper.Copy(up.Bool, "bridge", "mute_channels_on_create")
 	helper.Copy(up.Bool, "bridge", "sync_direct_chat_list")
 	helper.Copy(up.Bool, "bridge", "resend_bridge_info")
 	helper.Copy(up.Bool, "bridge", "delete_portal_on_channel_delete")

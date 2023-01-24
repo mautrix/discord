@@ -219,18 +219,7 @@ func (br *DiscordBridge) startUsers() {
 
 	usersWithToken := br.getAllUsersWithToken()
 	for _, u := range usersWithToken {
-		go func(user *User) {
-			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnecting})
-			err := user.Connect()
-			if err != nil {
-				user.log.Errorfln("Error connecting: %v", err)
-				if closeErr := (&websocket.CloseError{}); errors.As(err, &closeErr) && closeErr.Code == 4004 {
-					user.invalidAuthHandler(nil, nil)
-				} else {
-					user.BridgeState.Send(status.BridgeState{StateEvent: status.StateUnknownError, Error: "dc-unknown-websocket-error", Message: err.Error()})
-				}
-			}
-		}(u)
+		go u.startupTryConnect(0)
 	}
 	if len(usersWithToken) == 0 {
 		br.SendGlobalBridgeState(status.BridgeState{StateEvent: status.StateUnconfigured}.Fill(nil))
@@ -245,6 +234,26 @@ func (br *DiscordBridge) startUsers() {
 				puppet.log.Errorln("Failed to start custom puppet:", err)
 			}
 		}(customPuppet)
+	}
+}
+
+func (user *User) startupTryConnect(retryCount int) {
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnecting})
+	err := user.Connect()
+	if err != nil {
+		user.log.Errorfln("Error connecting: %v", err)
+		closeErr := &websocket.CloseError{}
+		if errors.As(err, &closeErr) && closeErr.Code == 4004 {
+			user.invalidAuthHandler(nil, nil)
+		} else if retryCount < 6 {
+			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-unknown-websocket-error", Message: err.Error()})
+			retryInSeconds := 2 << retryCount
+			user.log.Debugfln("Retrying connection in %d seconds", retryInSeconds)
+			time.Sleep(time.Duration(retryInSeconds) * time.Second)
+			user.startupTryConnect(retryCount + 1)
+		} else {
+			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateUnknownError, Error: "dc-unknown-websocket-error", Message: err.Error()})
+		}
 	}
 }
 

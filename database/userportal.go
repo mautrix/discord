@@ -96,6 +96,16 @@ func (u *User) MarkNotInPortal(discordID string) {
 	}
 }
 
+func (u *User) PortalHasOtherUsers(discordID string) (hasOtherUsers bool) {
+	query := `SELECT COUNT(*) > 0 FROM user_portal WHERE user_mxid<>$1 AND discord_id=$2`
+	err := u.db.QueryRow(query, u.MXID, discordID).Scan(&hasOtherUsers)
+	if err != nil {
+		u.log.Errorfln("Failed to check if %s has users other than %s: %v", discordID, u.MXID, err)
+		panic(err)
+	}
+	return
+}
+
 func (u *User) PrunePortalList(beforeTS time.Time) []UserPortal {
 	query := `
 		DELETE FROM user_portal

@@ -46,6 +46,7 @@ type BridgeConfig struct {
 	SyncDirectChatList          bool `yaml:"sync_direct_chat_list"`
 	ResendBridgeInfo            bool `yaml:"resend_bridge_info"`
 	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`
+	DeleteGuildOnLeave          bool `yaml:"delete_guild_on_leave"`
 	FederateRooms               bool `yaml:"federate_rooms"`
 
 	DoublePuppetServerMap      map[string]string `yaml:"double_puppet_server_map"`

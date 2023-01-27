@@ -128,6 +128,9 @@ bridge:
     # Should the bridge attempt to completely delete portal rooms when a channel is deleted on Discord?
     # If true, the bridge will try to kick Matrix users from the room. Otherwise, the bridge only makes ghosts leave.
     delete_portal_on_channel_delete: false
+    # Should the bridge delete all portal rooms when you leave a guild on Discord?
+    # This only applies if the guild has no other Matrix users on this bridge instance.
+    delete_guild_on_leave: true
     # Whether or not created rooms should have federation enabled.
     # If false, created portal rooms will never be federated.
     federate_rooms: true

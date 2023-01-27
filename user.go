@@ -780,7 +780,12 @@ func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDel
 	if guild == nil || guild.MXID == "" {
 		return
 	}
-	// TODO clean up?
+	if user.bridge.Config.Bridge.DeleteGuildOnLeave && !user.PortalHasOtherUsers(g.ID) {
+		err := user.unbridgeGuild(g.ID)
+		if err != nil {
+			user.log.Warnfln("Failed to unbridge guild that was deleted: %v", err)
+		}
+	}
 }
 
 func (user *User) guildUpdateHandler(_ *discordgo.Session, g *discordgo.GuildUpdate) {
@@ -1086,8 +1091,8 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 }
 
 func (user *User) unbridgeGuild(guildID string) error {
-	if user.PermissionLevel < bridgeconfig.PermissionLevelAdmin {
-		return errors.New("only bridge admins can unbridge guilds")
+	if user.PermissionLevel < bridgeconfig.PermissionLevelAdmin && user.PortalHasOtherUsers(guildID) {
+		return errors.New("only bridge admins can unbridge guilds with other users")
 	}
 	guild := user.bridge.GetGuildByID(guildID, false)
 	if guild == nil {

@@ -642,29 +642,12 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, att 
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
 	if portal.MXID == "" {
 		portal.log.Warnln("handle message called without a valid portal")
-
 		return
 	}
 
-	// Handle room name changes
-	if msg.Type == discordgo.MessageTypeChannelNameChange {
-		//channel, err := user.Session.Channel(msg.ChannelID)
-		//if err != nil {
-		//	portal.log.Errorf("Failed to find the channel for portal %s", portal.Key)
-		//	return
-		//}
-		//
-		//name, err := portal.bridge.Config.Bridge.FormatChannelname(channel, user.Session)
-		//if err != nil {
-		//	portal.log.Errorf("Failed to format name for portal %s", portal.Key)
-		//	return
-		//}
-		//
-		//portal.Name = name
-		//portal.Update()
-		//
-		//portal.MainIntent().SetRoomName(portal.MXID, name)
-
+	switch msg.Type {
+	case discordgo.MessageTypeChannelNameChange, discordgo.MessageTypeChannelIconChange, discordgo.MessageTypeChannelPinnedMessage:
+		// These are handled via channel updates
 		return
 	}
 
@@ -735,7 +718,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 	}
 	if len(parts) == 0 {
-		portal.log.Warnfln("Unhandled message %s", msg.ID)
+		portal.log.Warnfln("Unhandled message %s (type %d)", msg.ID, msg.Type)
 	} else {
 		portal.markMessageHandled(msg.ID, 0, msg.Author.ID, ts, threadID, parts)
 	}

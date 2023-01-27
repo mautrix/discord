@@ -307,20 +307,33 @@ var cmdGuilds = &commands.FullHandler{
 	RequiresLogin: true,
 }
 
+const smallGuildsHelp = "**Usage**: `$cmdprefix guilds <help/status/bridge/unbridge> [guild ID] [--entire]`"
+
+const fullGuildsHelp = smallGuildsHelp + `
+
+* **help** - View this help message.
+* **status** - View the list of guilds and their bridging status.
+* **bridge <_guild ID_> [--entire]** - Enable bridging for a guild. The --entire flag auto-creates portals for all channels.
+* **unbridge <_guild ID_>** - Unbridge a guild and delete all channel portal rooms.`
+
 func fnGuilds(ce *WrappedCommandEvent) {
 	if len(ce.Args) == 0 {
-		ce.Reply("**Usage**: `$cmdprefix guilds <status/bridge/unbridge> [guild ID] [--entire]`")
+		ce.Reply(fullGuildsHelp)
 		return
 	}
 	subcommand := strings.ToLower(ce.Args[0])
 	ce.Args = ce.Args[1:]
 	switch subcommand {
-	case "status":
+	case "status", "list":
 		fnListGuilds(ce)
 	case "bridge":
 		fnBridgeGuild(ce)
-	case "unbridge":
+	case "unbridge", "delete":
 		fnUnbridgeGuild(ce)
+	case "help":
+		ce.Reply(fullGuildsHelp)
+	default:
+		ce.Reply("Unknown subcommand `%s`\n\n"+smallGuildsHelp, subcommand)
 	}
 }
 

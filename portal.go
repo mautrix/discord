@@ -1517,8 +1517,18 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 			Key:     matrixReaction,
 		},
 	}
+	extraContent := map[string]any{}
+	if reaction.Emoji.ID != "" {
+		extraContent["fi.mau.discord.reaction"] = map[string]any{
+			"id":   reaction.Emoji.ID,
+			"name": reaction.Emoji.Name,
+		}
+	}
 
-	resp, err := intent.SendMessageEvent(portal.MXID, event.EventReaction, &content)
+	resp, err := intent.SendMessageEvent(portal.MXID, event.EventReaction, &event.Content{
+		Parsed: &content,
+		Raw:    extraContent,
+	})
 	if err != nil {
 		portal.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
 		return

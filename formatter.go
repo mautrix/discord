@@ -22,21 +22,26 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
-	"maunium.net/go/mautrix/id"
+	"github.com/yuin/goldmark/parser"
 
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/format/mdext"
+	"maunium.net/go/mautrix/id"
 )
 
-var discordExtensions = goldmark.WithExtensions(mdext.EscapeHTML, mdext.SimpleSpoiler, mdext.DiscordUnderline)
+var discordExtensions = goldmark.WithExtensions(mdext.SimpleSpoiler, mdext.DiscordUnderline)
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
 
 func (portal *Portal) renderDiscordMarkdown(text string) event.MessageEventContent {
 	text = escapeFixer.ReplaceAllStringFunc(text, func(s string) string {
 		return s[:2] + `\` + s[2:]
 	})
+
 	mdRenderer := goldmark.New(
+		goldmark.WithParser(mdext.ParserWithoutFeatures(
+			parser.NewListParser(), parser.NewListItemParser(), parser.NewHTMLBlockParser(), parser.NewRawHTMLParser(),
+		)),
 		format.Extensions, format.HTMLOptions, discordExtensions,
 		goldmark.WithExtensions(&DiscordTag{portal}),
 	)

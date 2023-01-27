@@ -50,7 +50,7 @@ func pillConverter(displayname, mxid, eventID string, ctx format.Context) string
 	if len(mxid) == 0 {
 		return displayname
 	}
-	user := ctx[formatterContextUserKey].(*User)
+	user := ctx.ReturnData[formatterContextUserKey].(*User)
 	if mxid[0] == '#' {
 		alias, err := user.bridge.Bot.ResolveAlias(id.RoomAlias(mxid))
 		if err != nil {
@@ -129,13 +129,17 @@ var matrixHTMLParser = &format.HTMLParser{
 	TabsToSpaces:   4,
 	Newline:        "\n",
 	HorizontalLine: "\n---\n",
-	ItalicConverter: func(s string, context format.Context) string {
+	ItalicConverter: func(s string, ctx format.Context) string {
 		return fmt.Sprintf("*%s*", s)
 	},
-	UnderlineConverter: func(s string, context format.Context) string {
+	UnderlineConverter: func(s string, ctx format.Context) string {
 		return fmt.Sprintf("__%s__", s)
 	},
-	TextConverter: func(s string, context format.Context) string {
+	TextConverter: func(s string, ctx format.Context) string {
+		if ctx.TagStack.Has("pre") || ctx.TagStack.Has("code") {
+			// If we're in a code block, don't escape markdown
+			return s
+		}
 		return escapeDiscordMarkdown(s)
 	},
 	SpoilerConverter: func(text, reason string, ctx format.Context) string {
@@ -152,10 +156,10 @@ func init() {
 
 func (portal *Portal) parseMatrixHTML(user *User, content *event.MessageEventContent) string {
 	if content.Format == event.FormatHTML && len(content.FormattedBody) > 0 {
-		return matrixHTMLParser.Parse(content.FormattedBody, format.Context{
-			formatterContextUserKey:   user,
-			formatterContextPortalKey: portal,
-		})
+		ctx := format.NewContext()
+		ctx.ReturnData[formatterContextUserKey] = user
+		ctx.ReturnData[formatterContextPortalKey] = portal
+		return matrixHTMLParser.Parse(content.FormattedBody, ctx)
 	} else {
 		return escapeDiscordMarkdown(content.Body)
 	}

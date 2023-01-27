@@ -125,6 +125,9 @@ bridge:
     # Set this to true to tell the bridge to re-send m.bridge events to all rooms on the next run.
     # This field will automatically be changed back to false after it, except if the config file is not writable.
     resend_bridge_info: false
+    # Should incoming custom emoji reactions be bridged as mxc:// URIs?
+    # If set to false, custom emoji reactions will be bridged as the shortcode instead, and the image won't be available.
+    custom_emoji_reactions: true
     # Should the bridge attempt to completely delete portal rooms when a channel is deleted on Discord?
     # If true, the bridge will try to kick Matrix users from the room. Otherwise, the bridge only makes ghosts leave.
     delete_portal_on_channel_delete: false

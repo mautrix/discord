@@ -1522,6 +1522,10 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		extraContent["fi.mau.discord.reaction"] = map[string]any{
 			"id":   reaction.Emoji.ID,
 			"name": reaction.Emoji.Name,
+			"mxc":  matrixReaction,
+		}
+		if !portal.bridge.Config.Bridge.CustomEmojiReactions {
+			content.RelatesTo.Key = fmt.Sprintf(":%s:", reaction.Emoji.Name)
 		}
 	}
 

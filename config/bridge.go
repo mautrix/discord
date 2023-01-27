@@ -45,6 +45,7 @@ type BridgeConfig struct {
 	MuteChannelsOnCreate        bool `yaml:"mute_channels_on_create"`
 	SyncDirectChatList          bool `yaml:"sync_direct_chat_list"`
 	ResendBridgeInfo            bool `yaml:"resend_bridge_info"`
+	CustomEmojiReactions        bool `yaml:"custom_emoji_reactions"`
 	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`
 	DeleteGuildOnLeave          bool `yaml:"delete_guild_on_leave"`
 	FederateRooms               bool `yaml:"federate_rooms"`

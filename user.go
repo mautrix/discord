@@ -771,16 +771,19 @@ func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidA
 }
 
 func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {
+	user.log.Infoln("Got guild create event for", g.ID)
 	user.handleGuild(g.Guild, time.Now(), false)
 }
 
 func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDelete) {
+	user.log.Infoln("Got guild delete event for", g.ID)
 	user.MarkNotInPortal(g.ID)
 	guild := user.bridge.GetGuildByID(g.ID, false)
 	if guild == nil || guild.MXID == "" {
 		return
 	}
 	if user.bridge.Config.Bridge.DeleteGuildOnLeave && !user.PortalHasOtherUsers(g.ID) {
+		user.log.Debugfln("No other users in %s, cleaning up all portals", g.ID)
 		err := user.unbridgeGuild(g.ID)
 		if err != nil {
 			user.log.Warnfln("Failed to unbridge guild that was deleted: %v", err)
@@ -789,13 +792,16 @@ func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDel
 }
 
 func (user *User) guildUpdateHandler(_ *discordgo.Session, g *discordgo.GuildUpdate) {
+	user.log.Debugln("Got guild update event for", g.ID)
 	user.handleGuild(g.Guild, time.Now(), user.IsInSpace(g.ID))
 }
 
 func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.ChannelCreate) {
 	if !user.bridgeMessage(c.GuildID) {
+		user.log.Debugfln("Ignoring channel create event in unbridged guild %s/%s", c.GuildID, c.ID)
 		return
 	}
+	user.log.Infofln("Got channel create event for %s/%s", c.GuildID, c.ID)
 	portal := user.GetPortalByMeta(c.Channel)
 	if portal.MXID != "" {
 		return
@@ -818,7 +824,7 @@ func (user *User) channelDeleteHandler(_ *discordgo.Session, c *discordgo.Channe
 		user.log.Debugfln("Ignoring delete of unknown channel %s/%s", c.GuildID, c.ID)
 		return
 	}
-	user.log.Infofln("Got delete notification for %s/%s, cleaning up portal", c.GuildID, c.ID)
+	user.log.Infofln("Got channel delete event for %s/%s, cleaning up portal", c.GuildID, c.ID)
 	portal.Delete()
 	portal.cleanup(!user.bridge.Config.Bridge.DeletePortalOnChannelDelete)
 	if c.GuildID == "" {

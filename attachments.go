@@ -7,18 +7,19 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"maunium.net/go/mautrix/crypto/attachment"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
+	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
-	"maunium.net/go/mautrix/id"
+
+	"go.mau.fi/mautrix-discord/database"
 )
 
-func (portal *Portal) downloadDiscordAttachment(url string) ([]byte, error) {
+func downloadDiscordAttachment(url string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -68,48 +69,67 @@ func (portal *Portal) downloadMatrixAttachment(content *event.MessageEventConten
 	return data, nil
 }
 
-func (portal *Portal) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, content *event.MessageEventContent) error {
-	content.Info.Size = len(data)
-	if content.Info.Width == 0 && content.Info.Height == 0 && strings.HasPrefix(content.Info.MimeType, "image/") {
+func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, url string, encrypt bool, attachmentID, mime string) (*database.File, error) {
+	dbFile := br.DB.File.New()
+	dbFile.Timestamp = time.Now()
+	dbFile.URL = url
+	dbFile.ID = attachmentID
+	dbFile.Size = len(data)
+	if strings.HasPrefix(mime, "image/") {
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
-		content.Info.Width = cfg.Width
-		content.Info.Height = cfg.Height
+		dbFile.Width = cfg.Width
+		dbFile.Height = cfg.Height
 	}
 
-	uploadMime := content.Info.MimeType
-	var file *attachment.EncryptedFile
-	if portal.Encrypted {
-		file = attachment.NewEncryptedFile()
-		file.EncryptInPlace(data)
+	uploadMime := mime
+	if encrypt {
+		dbFile.Encrypted = true
+		dbFile.DecryptionInfo = attachment.NewEncryptedFile()
+		dbFile.DecryptionInfo.EncryptInPlace(data)
 		uploadMime = "application/octet-stream"
 	}
 	req := mautrix.ReqUploadMedia{
 		ContentBytes: data,
 		ContentType:  uploadMime,
 	}
-	var mxc id.ContentURI
-	if portal.bridge.Config.Homeserver.AsyncMedia {
-		uploaded, err := intent.UnstableUploadAsync(req)
+	if br.Config.Homeserver.AsyncMedia {
+		resp, err := intent.UnstableCreateMXC()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		mxc = uploaded.ContentURI
+		dbFile.MXC = resp.ContentURI
+		req.UnstableMXC = resp.ContentURI
+		req.UploadURL = resp.UploadURL
+		go func() {
+			_, err = intent.UploadMedia(req)
+			if err != nil {
+				br.Log.Errorfln("Failed to upload %s: %v", req.UnstableMXC, err)
+				dbFile.Delete()
+			}
+		}()
 	} else {
 		uploaded, err := intent.UploadMedia(req)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		mxc = uploaded.ContentURI
+		dbFile.MXC = uploaded.ContentURI
 	}
+	dbFile.Insert(nil)
+	return dbFile, nil
+}
 
-	if file != nil {
-		content.File = &event.EncryptedFileInfo{
-			EncryptedFile: *file,
-			URL:           mxc.CUString(),
+func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, attachmentID, mime string) (*database.File, error) {
+	dbFile := br.DB.File.Get(url, encrypt)
+	if dbFile == nil {
+		data, err := downloadDiscordAttachment(url)
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		content.URL = mxc.CUString()
-	}
 
-	return nil
+		dbFile, err = br.uploadMatrixAttachment(intent, data, url, encrypt, attachmentID, mime)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return dbFile, nil
 }

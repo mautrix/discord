@@ -1,4 +1,4 @@
--- v0 -> v10: Latest revision
+-- v0 -> v11: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -149,4 +149,22 @@ CREATE TABLE role (
 
     PRIMARY KEY (dc_guild_id, dcid),
     CONSTRAINT role_guild_fkey FOREIGN KEY (dc_guild_id) REFERENCES guild (dcid) ON DELETE CASCADE
+);
+
+CREATE TABLE discord_file (
+    url       TEXT,
+    encrypted BOOLEAN,
+
+    id  TEXT,
+    mxc TEXT NOT NULL,
+
+    size   BIGINT NOT NULL,
+    width  INTEGER,
+    height INTEGER,
+
+    decryption_info jsonb,
+
+    timestamp BIGINT NOT NULL,
+
+    PRIMARY KEY (url, encrypted)
 );

@@ -24,6 +24,7 @@ type Database struct {
 	Emoji    *EmojiQuery
 	Guild    *GuildQuery
 	Role     *RoleQuery
+	File     *FileQuery
 }
 
 func New(baseDB *dbutil.Database, log maulogger.Logger) *Database {
@@ -64,6 +65,10 @@ func New(baseDB *dbutil.Database, log maulogger.Logger) *Database {
 	db.Role = &RoleQuery{
 		db:  db,
 		log: log.Sub("Role"),
+	}
+	db.File = &FileQuery{
+		db:  db,
+		log: log.Sub("File"),
 	}
 	return db
 }

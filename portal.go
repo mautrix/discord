@@ -523,31 +523,46 @@ func (portal *Portal) markMessageHandled(discordID string, editIndex int, author
 	msg.MassInsert(parts)
 }
 
-func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridgeErr error) {
+func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridgeErr error) id.EventID {
 	content := &event.MessageEventContent{
 		Body:    fmt.Sprintf("Failed to bridge media: %v", bridgeErr),
 		MsgType: event.MsgNotice,
 	}
 
-	_, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, 0)
+	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, 0)
 	if err != nil {
 		portal.log.Warnfln("Failed to send media error message to matrix: %v", err)
+		return ""
 	}
+	return resp.EventID
 }
 
 const DiscordStickerSize = 160
 
 func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.IntentAPI, id, url string, content *event.MessageEventContent, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
-	data, err := portal.downloadDiscordAttachment(url)
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, id, content.Info.MimeType)
 	if err != nil {
-		portal.sendMediaFailedMessage(intent, err)
+		errorEventID := portal.sendMediaFailedMessage(intent, err)
+		if errorEventID != "" {
+			return &database.MessagePart{
+				AttachmentID: id,
+				MXID:         errorEventID,
+			}
+		}
 		return nil
 	}
-
-	err = portal.uploadMatrixAttachment(intent, data, content)
-	if err != nil {
-		portal.sendMediaFailedMessage(intent, err)
-		return nil
+	content.Info.Size = dbFile.Size
+	if content.Info.Width == 0 && content.Info.Height == 0 {
+		content.Info.Width = dbFile.Width
+		content.Info.Height = dbFile.Height
+	}
+	if dbFile.DecryptionInfo != nil {
+		content.File = &event.EncryptedFileInfo{
+			EncryptedFile: *dbFile.DecryptionInfo,
+			URL:           dbFile.MXC.CUString(),
+		}
+	} else {
+		content.URL = dbFile.MXC.CUString()
 	}
 
 	evtType := event.EventMessage

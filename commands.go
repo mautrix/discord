@@ -17,11 +17,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/skip2/go-qrcode"
 
 	"maunium.net/go/mautrix"
@@ -142,7 +146,13 @@ func fnLoginQR(ce *WrappedCommandEvent) {
 
 	user, err := client.Result()
 	if err != nil || len(user.Token) == 0 {
-		ce.Reply("Error logging in: %v", err)
+		if restErr := (&discordgo.RESTError{}); errors.As(err, &restErr) &&
+			restErr.Response.StatusCode == http.StatusBadRequest &&
+			bytes.Contains(restErr.ResponseBody, []byte("captcha-required")) {
+			ce.Reply("Error logging in: %v\n\nCAPTCHAs are currently not supported - use token login instead", err)
+		} else {
+			ce.Reply("Error logging in: %v", err)
+		}
 		return
 	} else if err = ce.User.Login(user.Token); err != nil {
 		ce.Reply("Error connecting after login: %v", err)

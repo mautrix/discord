@@ -103,19 +103,20 @@ func (f *File) Insert(txn dbutil.Execable) {
 	if txn == nil {
 		txn = f.db
 	}
-	var err error
-	var decryptionInfo []byte
+	var decryptionInfoStr sql.NullString
 	if f.DecryptionInfo != nil {
-		decryptionInfo, err = json.Marshal(f.DecryptionInfo)
+		decryptionInfo, err := json.Marshal(f.DecryptionInfo)
 		if err != nil {
 			f.log.Warnfln("Failed to marshal decryption info of %v: %v", f.MXC, err)
 			panic(err)
 		}
+		decryptionInfoStr.Valid = true
+		decryptionInfoStr.String = string(decryptionInfo)
 	}
-	_, err = txn.Exec(fileInsert,
+	_, err := txn.Exec(fileInsert,
 		f.URL, f.Encrypted, strPtr(f.ID), f.MXC.String(), f.Size,
 		positiveIntToNullInt32(f.Width), positiveIntToNullInt32(f.Height), f.MimeType,
-		string(decryptionInfo), f.Timestamp.UnixMilli(),
+		decryptionInfoStr, f.Timestamp.UnixMilli(),
 	)
 	if err != nil {
 		f.log.Warnfln("Failed to insert copied file %v: %v", f.MXC, err)

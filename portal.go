@@ -525,13 +525,15 @@ func (portal *Portal) markMessageHandled(discordID string, editIndex int, author
 	msg.MassInsert(parts)
 }
 
-func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridgeErr error) id.EventID {
-	content := &event.MessageEventContent{
+func (portal *Portal) createMediaFailedMessage(bridgeErr error) *event.MessageEventContent {
+	return &event.MessageEventContent{
 		Body:    fmt.Sprintf("Failed to bridge media: %v", bridgeErr),
 		MsgType: event.MsgNotice,
 	}
+}
 
-	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, content, nil, 0)
+func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridgeErr error) id.EventID {
+	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, portal.createMediaFailedMessage(bridgeErr), nil, 0)
 	if err != nil {
 		portal.log.Warnfln("Failed to send media error message to matrix: %v", err)
 		return ""
@@ -656,6 +658,114 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, att 
 	return portal.handleDiscordFile("attachment", intent, att.ID, att.URL, content, ts, threadRelation)
 }
 
+type BeeperLinkPreview struct {
+	mautrix.RespPreviewURL
+	MatchedURL      string                   `json:"matched_url"`
+	ImageEncryption *event.EncryptedFileInfo `json:"beeper:image:encryption,omitempty"`
+}
+
+func (portal *Portal) convertDiscordLinkEmbedsToBeeper(intent *appservice.IntentAPI, embeds []*discordgo.MessageEmbed) (previews []BeeperLinkPreview) {
+	previews = []BeeperLinkPreview{}
+	for _, embed := range embeds {
+		if embed.Type != discordgo.EmbedTypeLink {
+			continue
+		}
+		var preview BeeperLinkPreview
+		preview.MatchedURL = embed.URL
+		preview.Title = embed.Title
+		preview.Description = embed.Description
+		if embed.Image != nil {
+			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.URL, portal.Encrypted, "", "")
+			if err != nil {
+				portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
+			} else {
+				preview.ImageWidth = embed.Image.Width
+				preview.ImageHeight = embed.Image.Height
+				preview.ImageSize = dbFile.Size
+				preview.ImageType = dbFile.MimeType
+				if dbFile.Encrypted {
+					preview.ImageEncryption = &event.EncryptedFileInfo{
+						EncryptedFile: *dbFile.DecryptionInfo,
+						URL:           dbFile.MXC.CUString(),
+					}
+				} else {
+					preview.ImageURL = dbFile.MXC.CUString()
+				}
+			}
+		}
+		previews = append(previews, preview)
+	}
+	return
+}
+
+type ConvertedMessage struct {
+	Content *event.MessageEventContent
+	Extra   map[string]any
+}
+
+func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) ConvertedMessage {
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.URL, portal.Encrypted, "", "")
+	if err != nil {
+		return ConvertedMessage{Content: portal.createMediaFailedMessage(err)}
+	}
+
+	content := &event.MessageEventContent{
+		MsgType: event.MsgVideo,
+		Body:    embed.URL,
+		Info: &event.FileInfo{
+			Width:    embed.Video.Width,
+			Height:   embed.Video.Height,
+			MimeType: dbFile.MimeType,
+
+			Size: dbFile.Size,
+		},
+	}
+	if content.Info.Width == 0 && content.Info.Height == 0 {
+		content.Info.Width = dbFile.Width
+		content.Info.Height = dbFile.Height
+	}
+	if dbFile.DecryptionInfo != nil {
+		content.File = &event.EncryptedFileInfo{
+			EncryptedFile: *dbFile.DecryptionInfo,
+			URL:           dbFile.MXC.CUString(),
+		}
+	} else {
+		content.URL = dbFile.MXC.CUString()
+	}
+	extra := map[string]any{}
+	if embed.Type == discordgo.EmbedTypeGifv {
+		extra["info"] = map[string]any{
+			"fi.mau.discord.gifv":  true,
+			"fi.mau.loop":          true,
+			"fi.mau.autoplay":      true,
+			"fi.mau.hide_controls": true,
+			"fi.mau.no_audio":      true,
+		}
+	}
+	return ConvertedMessage{Content: content, Extra: extra}
+}
+
+func (portal *Portal) handleDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
+	content := portal.convertDiscordVideoEmbed(intent, embed)
+	content.Content.RelatesTo = threadRelation
+
+	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, content.Content, content.Extra, ts.UnixMilli())
+	if err != nil {
+		portal.log.Warnfln("Failed to send embed #%d of message %s to Matrix: %v", index+1, msgID, err)
+		return nil
+	}
+
+	// Update the fallback reply event for the next attachment
+	if threadRelation != nil {
+		threadRelation.InReplyTo.EventID = resp.EventID
+	}
+
+	return &database.MessagePart{
+		AttachmentID: fmt.Sprintf("%s-e%d", msgID, index+1),
+		MXID:         resp.EventID,
+	}
+}
+
 const (
 	embedHTMLWrapper         = `<blockquote class="discord-embed">%s</blockquote>`
 	embedHTMLWrapperColor    = `<blockquote class="discord-embed" background-color="#%06X">%s</blockquote>`
@@ -677,7 +787,7 @@ const (
 	embedFooterDateSeparator = ` • `
 )
 
-func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
+func (portal *Portal) handleDiscordRichEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
 	var htmlParts []string
 	if embed.Author != nil {
 		var authorHTML string
@@ -805,6 +915,10 @@ func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *di
 	}
 }
 
+func isPlainGifMessage(msg *discordgo.Message) bool {
+	return len(msg.Embeds) == 1 && msg.Embeds[0].Video != nil && msg.Embeds[0].URL == msg.Content
+}
+
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
 	if portal.MXID == "" {
 		portal.log.Warnln("handle message called without a valid portal")
@@ -843,9 +957,13 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 
 	var parts []database.MessagePart
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	if msg.Content != "" {
+	if msg.Content != "" && !isPlainGifMessage(msg) {
 		content := portal.renderDiscordMarkdown(msg.Content)
 		content.RelatesTo = threadRelation.Copy()
+
+		extraContent := map[string]any{
+			"com.beeper.linkpreviews": portal.convertDiscordLinkEmbedsToBeeper(intent, msg.Embeds),
+		}
 
 		if msg.MessageReference != nil {
 			//key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
@@ -858,7 +976,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			}
 		}
 
-		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, ts.UnixMilli())
+		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, extraContent, ts.UnixMilli())
 		if err != nil {
 			portal.log.Warnfln("Failed to send message %s to matrix: %v", msg.ID, err)
 			return
@@ -884,7 +1002,15 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 	}
 	for i, embed := range msg.Embeds {
-		part := portal.handleDiscordEmbed(intent, embed, msg.ID, i, ts, threadRelation)
+		var part *database.MessagePart
+		switch {
+		case embed.Video != nil: // gif/video embeds (hopefully no rich content)
+			part = portal.handleDiscordVideoEmbed(intent, embed, msg.ID, i, ts, threadRelation)
+		case embed.Type == discordgo.EmbedTypeLink:
+			// skip link previews, these are handled earlier
+		default: // rich embeds
+			part = portal.handleDiscordRichEmbed(intent, embed, msg.ID, i, ts, threadRelation)
+		}
 		if part != nil {
 			parts = append(parts, *part)
 		}
@@ -941,7 +1067,6 @@ func (portal *Portal) sendThreadCreationNotice(thread *Thread) {
 func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Message) {
 	if portal.MXID == "" {
 		portal.log.Warnln("handle message called without a valid portal")
-
 		return
 	}
 
@@ -959,21 +1084,12 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		}
 	}
 
-	// There's a few scenarios where the author is nil but I haven't figured
-	// them all out yet.
 	if msg.Author == nil {
-		// If the server has to lookup opengraph previews it'll send the
-		// message through without the preview and then add the preview later
-		// via a message update. However, when it does this there is no author
-		// as it's just the server, so for the moment we'll ignore this to
-		// avoid a crash.
 		if len(msg.Embeds) > 0 {
 			portal.log.Debugln("ignoring update for opengraph attachment")
 
 			return
 		}
-
-		//portal.log.Errorfln("author is nil: %#v", msg)
 		return
 	}
 

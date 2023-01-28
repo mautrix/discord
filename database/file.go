@@ -60,8 +60,7 @@ type File struct {
 }
 
 func (f *File) Scan(row dbutil.Scannable) *File {
-	var fileID sql.NullString
-	var decryptionInfo []byte
+	var fileID, decryptionInfo sql.NullString
 	var width, height sql.NullInt32
 	var timestamp int64
 	var mxc string
@@ -82,8 +81,8 @@ func (f *File) Scan(row dbutil.Scannable) *File {
 		f.log.Errorfln("Failed to parse content URI %s: %v", mxc, err)
 		panic(err)
 	}
-	if decryptionInfo != nil {
-		err = json.Unmarshal(decryptionInfo, &f.DecryptionInfo)
+	if decryptionInfo.Valid {
+		err = json.Unmarshal([]byte(decryptionInfo.String), &f.DecryptionInfo)
 		if err != nil {
 			f.log.Errorfln("Failed to unmarshal decryption info of %v: %v", f.MXC, err)
 			panic(err)
@@ -116,7 +115,7 @@ func (f *File) Insert(txn dbutil.Execable) {
 	_, err = txn.Exec(fileInsert,
 		f.URL, f.Encrypted, strPtr(f.ID), f.MXC.String(), f.Size,
 		positiveIntToNullInt32(f.Width), positiveIntToNullInt32(f.Height), f.MimeType,
-		decryptionInfo, f.Timestamp.UnixMilli(),
+		string(decryptionInfo), f.Timestamp.UnixMilli(),
 	)
 	if err != nil {
 		f.log.Warnfln("Failed to insert copied file %v: %v", f.MXC, err)

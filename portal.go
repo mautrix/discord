@@ -671,10 +671,35 @@ type BeeperLinkPreview struct {
 	ImageEncryption *event.EncryptedFileInfo `json:"beeper:image:encryption,omitempty"`
 }
 
+func (portal *Portal) convertDiscordLinkEmbedImage(intent *appservice.IntentAPI, url string, width, height int, preview *BeeperLinkPreview) {
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, "", "")
+	if err != nil {
+		portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
+	} else {
+		if width != 0 || height != 0 {
+			preview.ImageWidth = width
+			preview.ImageHeight = height
+		} else {
+			preview.ImageWidth = dbFile.Width
+			preview.ImageHeight = dbFile.Height
+		}
+		preview.ImageSize = dbFile.Size
+		preview.ImageType = dbFile.MimeType
+		if dbFile.Encrypted {
+			preview.ImageEncryption = &event.EncryptedFileInfo{
+				EncryptedFile: *dbFile.DecryptionInfo,
+				URL:           dbFile.MXC.CUString(),
+			}
+		} else {
+			preview.ImageURL = dbFile.MXC.CUString()
+		}
+	}
+}
+
 func (portal *Portal) convertDiscordLinkEmbedsToBeeper(intent *appservice.IntentAPI, embeds []*discordgo.MessageEmbed) (previews []BeeperLinkPreview) {
 	previews = []BeeperLinkPreview{}
 	for _, embed := range embeds {
-		if embed.Type != discordgo.EmbedTypeLink {
+		if embed.Type != discordgo.EmbedTypeLink && embed.Type != discordgo.EmbedTypeArticle {
 			continue
 		}
 		var preview BeeperLinkPreview
@@ -682,23 +707,9 @@ func (portal *Portal) convertDiscordLinkEmbedsToBeeper(intent *appservice.Intent
 		preview.Title = embed.Title
 		preview.Description = embed.Description
 		if embed.Image != nil {
-			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.URL, portal.Encrypted, "", "")
-			if err != nil {
-				portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
-			} else {
-				preview.ImageWidth = embed.Image.Width
-				preview.ImageHeight = embed.Image.Height
-				preview.ImageSize = dbFile.Size
-				preview.ImageType = dbFile.MimeType
-				if dbFile.Encrypted {
-					preview.ImageEncryption = &event.EncryptedFileInfo{
-						EncryptedFile: *dbFile.DecryptionInfo,
-						URL:           dbFile.MXC.CUString(),
-					}
-				} else {
-					preview.ImageURL = dbFile.MXC.CUString()
-				}
-			}
+			portal.convertDiscordLinkEmbedImage(intent, embed.Image.URL, embed.Image.Width, embed.Image.Height, &preview)
+		} else if embed.Thumbnail != nil {
+			portal.convertDiscordLinkEmbedImage(intent, embed.Thumbnail.URL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
 		}
 		previews = append(previews, preview)
 	}
@@ -1015,7 +1026,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		switch {
 		case embed.Video != nil: // gif/video embeds (hopefully no rich content)
 			part = portal.handleDiscordVideoEmbed(intent, embed, msg.ID, i, ts, threadRelation)
-		case embed.Type == discordgo.EmbedTypeLink:
+		case embed.Type == discordgo.EmbedTypeLink, embed.Type == discordgo.EmbedTypeArticle:
 			// skip link previews, these are handled earlier
 		default: // rich embeds
 			part = portal.handleDiscordRichEmbed(intent, embed, msg.ID, i, ts, threadRelation)

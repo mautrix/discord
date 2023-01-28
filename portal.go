@@ -14,6 +14,7 @@ import (
 	"maunium.net/go/mautrix/bridge/status"
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/format"
+	"maunium.net/go/mautrix/util"
 	"maunium.net/go/mautrix/util/variationselector"
 
 	"github.com/bwmarrin/discordgo"
@@ -58,9 +59,13 @@ type Portal struct {
 	discordMessages chan portalDiscordMessage
 	matrixMessages  chan portalMatrixMessage
 
+	recentMessages *util.RingBuffer[string, *discordgo.Message]
+
 	currentlyTyping     []id.UserID
 	currentlyTypingLock sync.Mutex
 }
+
+const recentMessageBufferSize = 32
 
 var _ bridge.Portal = (*Portal)(nil)
 var _ bridge.ReadReceiptHandlingPortal = (*Portal)(nil)
@@ -226,6 +231,8 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 
 		discordMessages: make(chan portalDiscordMessage, br.Config.Bridge.PortalMessageBuffer),
 		matrixMessages:  make(chan portalMatrixMessage, br.Config.Bridge.PortalMessageBuffer),
+
+		recentMessages: util.NewRingBuffer[string, *discordgo.Message](recentMessageBufferSize),
 	}
 
 	go portal.messageLoop()
@@ -931,6 +938,8 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		return
 	}
 
+	portal.recentMessages.Push(msg.ID, msg)
+
 	// Handle normal message
 	existing := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.ID)
 	if existing != nil {
@@ -1085,12 +1094,25 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	}
 
 	if msg.Author == nil {
-		if len(msg.Embeds) > 0 {
-			portal.log.Debugln("ignoring update for opengraph attachment")
-
+		creationMessage, ok := portal.recentMessages.Get(msg.ID)
+		if !ok {
+			portal.log.Debugfln("Dropping edit with no author of non-recent message %s", msg.ID)
 			return
 		}
-		return
+		portal.log.Debugfln("Found original message %s in cache for edit without author", msg.ID)
+		if len(msg.Embeds) > 0 {
+			creationMessage.Embeds = msg.Embeds
+		}
+		if len(msg.Attachments) > 0 {
+			creationMessage.Attachments = msg.Attachments
+		}
+		if len(msg.Components) > 0 {
+			creationMessage.Components = msg.Components
+		}
+		// TODO are there other fields that need copying?
+		msg = creationMessage
+	} else {
+		portal.recentMessages.Replace(msg.ID, msg)
 	}
 
 	intent := portal.bridge.GetPuppetByID(msg.Author.ID).IntentFor(portal)
@@ -1123,7 +1145,18 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		portal.log.Debugfln("Dropping non-text edit to %s (message on matrix: %t, text on discord: %t)", msg.ID, existing[0].AttachmentID == "", len(msg.Content) > 0)
 		return
 	}
-	content := portal.renderDiscordMarkdown(msg.Content)
+	var content event.MessageEventContent
+	var extraContent map[string]any
+	if isPlainGifMessage(msg) {
+		converted := portal.convertDiscordVideoEmbed(intent, msg.Embeds[0])
+		content = *converted.Content
+		extraContent = converted.Extra
+	} else {
+		content = portal.renderDiscordMarkdown(msg.Content)
+		extraContent = map[string]any{
+			"com.beeper.linkpreviews": portal.convertDiscordLinkEmbedsToBeeper(intent, msg.Embeds),
+		}
+	}
 	content.SetEdit(existing[0].MXID)
 
 	var editTS int64
@@ -1131,7 +1164,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		editTS = msg.EditedTimestamp.UnixMilli()
 	}
 	// TODO figure out some way to deduplicate outgoing edits
-	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, editTS)
+	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, extraContent, editTS)
 	if err != nil {
 		portal.log.Warnfln("Failed to send message %s to matrix: %v", msg.ID, err)
 		return

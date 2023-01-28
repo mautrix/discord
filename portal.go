@@ -1169,6 +1169,12 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		}
 	}
 	content.SetEdit(existing[0].MXID)
+	extraContentCopy := map[string]any{}
+	for key, value := range extraContent {
+		extraContentCopy[key] = value
+	}
+	extraContentCopy["m.new_content"] = extraContent
+	extraContent = extraContentCopy
 
 	var editTS int64
 	if msg.EditedTimestamp != nil {

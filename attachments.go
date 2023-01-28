@@ -41,6 +41,27 @@ func downloadDiscordAttachment(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+func uploadDiscordAttachment(url string, data []byte) error {
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	for key, value := range discordgo.DroidFetchHeaders {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode > 300 {
+		respData, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, respData)
+	}
+	return nil
+}
+
 func (portal *Portal) downloadMatrixAttachment(content *event.MessageEventContent) ([]byte, error) {
 	var file *event.EncryptedFileInfo
 	rawMXC := content.URL

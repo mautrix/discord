@@ -3,11 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -55,6 +58,8 @@ type User struct {
 
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
+
+	nextDiscordUploadID atomic.Int32
 }
 
 func (user *User) GetRemoteID() string {
@@ -193,6 +198,7 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 		markedOpened:    make(map[string]time.Time),
 		PermissionLevel: br.Config.Bridge.Permissions.Get(dbUser.MXID),
 	}
+	user.nextDiscordUploadID.Store(rand.Int31n(100))
 	user.BridgeState = br.NewBridgeStateQueue(user, user.log)
 	return user
 }
@@ -431,6 +437,11 @@ func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) 
 	if portal.GuildID != "" && user.bridge.Config.Bridge.MuteChannelsOnCreate {
 		go user.mutePortal(doublePuppetIntent, portal, false)
 	}
+}
+
+func (user *User) NextDiscordUploadID() string {
+	val := user.nextDiscordUploadID.Add(2)
+	return strconv.Itoa(int(val))
 }
 
 func (user *User) Login(token string) error {

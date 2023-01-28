@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"html"
@@ -1513,9 +1512,11 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 
 	var sendReq discordgo.MessageSend
 
+	var description string
 	if evt.Type == event.EventSticker {
 		content.MsgType = event.MsgImage
 		if mimeData := mimetype.Lookup(content.Info.MimeType); mimeData != nil {
+			description = content.Body
 			content.Body = "sticker" + mimeData.Extension()
 		}
 	}
@@ -1539,14 +1540,33 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			return
 		}
 
-		sendReq.Files = []*discordgo.File{{
-			Name:        content.Body,
-			ContentType: content.Info.MimeType,
-			Reader:      bytes.NewReader(data),
-		}}
+		att := &discordgo.MessageAttachment{
+			ID:          "0",
+			Filename:    content.Body,
+			Description: description,
+		}
+		sendReq.Attachments = []*discordgo.MessageAttachment{att}
 		if content.FileName != "" && content.FileName != content.Body {
-			sendReq.Files[0].Name = content.FileName
+			att.Filename = content.FileName
 			sendReq.Content = portal.parseMatrixHTML(sender, content)
+		}
+		prep, err := sender.Session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
+			Files: []*discordgo.FilePrepare{{
+				Size: len(data),
+				Name: att.Filename,
+				ID:   sender.NextDiscordUploadID(),
+			}},
+		})
+		if err != nil {
+			go portal.sendMessageMetrics(evt, err, "Error preparing to reupload media in")
+			return
+		}
+		prepared := prep.Attachments[0]
+		att.UploadedFilename = prepared.UploadFilename
+		err = uploadDiscordAttachment(prepared.UploadURL, data)
+		if err != nil {
+			go portal.sendMessageMetrics(evt, err, "Error reuploading media in")
+			return
 		}
 	default:
 		go portal.sendMessageMetrics(evt, fmt.Errorf("%w %q", errUnknownMsgType, content.MsgType), "Ignoring")

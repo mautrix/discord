@@ -1,4 +1,4 @@
--- v0 -> v11: Latest revision
+-- v0 -> v12: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -158,9 +158,10 @@ CREATE TABLE discord_file (
     id  TEXT,
     mxc TEXT NOT NULL,
 
-    size   BIGINT NOT NULL,
-    width  INTEGER,
-    height INTEGER,
+    size      BIGINT NOT NULL,
+    width     INTEGER,
+    height    INTEGER,
+    mime_type TEXT NOT NULL,
 
     decryption_info jsonb,
 

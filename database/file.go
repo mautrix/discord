@@ -20,10 +20,10 @@ type FileQuery struct {
 
 // language=postgresql
 const (
-	fileSelect = "SELECT url, encrypted, id, mxc, size, width, height, decryption_info, timestamp FROM discord_file"
+	fileSelect = "SELECT url, encrypted, id, mxc, size, width, height, mime_type, decryption_info, timestamp FROM discord_file"
 	fileInsert = `
-		INSERT INTO discord_file (url, encrypted, id, mxc, size, width, height, decryption_info, timestamp)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO discord_file (url, encrypted, id, mxc, size, width, height, mime_type, decryption_info, timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 )
 
@@ -49,9 +49,10 @@ type File struct {
 	ID  string
 	MXC id.ContentURI
 
-	Size   int
-	Width  int
-	Height int
+	Size     int
+	Width    int
+	Height   int
+	MimeType string
 
 	DecryptionInfo *attachment.EncryptedFile
 
@@ -64,7 +65,7 @@ func (f *File) Scan(row dbutil.Scannable) *File {
 	var width, height sql.NullInt32
 	var timestamp int64
 	var mxc string
-	err := row.Scan(&f.URL, &f.Encrypted, &fileID, &mxc, &f.Size, &width, &height, &decryptionInfo, &timestamp)
+	err := row.Scan(&f.URL, &f.Encrypted, &fileID, &mxc, &f.Size, &width, &height, &f.MimeType, &decryptionInfo, &timestamp)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			f.log.Errorln("Database scan failed:", err)
@@ -114,7 +115,7 @@ func (f *File) Insert(txn dbutil.Execable) {
 	}
 	_, err = txn.Exec(fileInsert,
 		f.URL, f.Encrypted, strPtr(f.ID), f.MXC.String(), f.Size,
-		positiveIntToNullInt32(f.Width), positiveIntToNullInt32(f.Height),
+		positiveIntToNullInt32(f.Width), positiveIntToNullInt32(f.Height), f.MimeType,
 		decryptionInfo, f.Timestamp.UnixMilli(),
 	)
 	if err != nil {

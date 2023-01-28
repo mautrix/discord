@@ -76,8 +76,9 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 	dbFile.URL = url
 	dbFile.ID = attachmentID
 	dbFile.Size = len(data)
+	dbFile.MimeType = mimetype.Detect(data).String()
 	if mime == "" {
-		mime = mimetype.Detect(data).String()
+		mime = dbFile.MimeType
 	}
 	if strings.HasPrefix(mime, "image/") {
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))

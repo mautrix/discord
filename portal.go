@@ -687,8 +687,9 @@ func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *di
 		authorHTML = fmt.Sprintf(embedHTMLAuthorPlain, authorNameHTML)
 		if embed.Author.ProxyIconURL != "" {
 			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Author.ProxyIconURL, false, "", "")
-			// TODO log error
-			if err == nil {
+			if err != nil {
+				portal.log.Warnfln("Failed to reupload author icon in embed #%d of message %s: %v", index+1, msgID, err)
+			} else {
 				authorHTML = fmt.Sprintf(embedHTMLAuthorWithImage, dbFile.MXC, authorNameHTML)
 			}
 		}
@@ -738,8 +739,9 @@ func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *di
 	if embed.Timestamp != "" {
 		formattedTime := embed.Timestamp
 		parsedTS, err := time.Parse(time.RFC3339, embed.Timestamp)
-		// TODO log error?
-		if err == nil {
+		if err != nil {
+			portal.log.Warnfln("Failed to parse timestamp in embed #%d of message %s: %v", index+1, msgID, err)
+		} else {
 			formattedTime = parsedTS.Format(discordTimestampStyle('F').Format())
 		}
 		embedDateHTML = fmt.Sprintf(embedHTMLDate, embed.Timestamp, formattedTime)
@@ -753,8 +755,9 @@ func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *di
 		footerHTML = fmt.Sprintf(embedHTMLFooterPlain, html.EscapeString(embed.Footer.Text), datePart)
 		if embed.Footer.ProxyIconURL != "" {
 			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Footer.ProxyIconURL, false, "", "")
-			// TODO log error
-			if err == nil {
+			if err != nil {
+				portal.log.Warnfln("Failed to reupload footer icon in embed #%d of message %s: %v", index+1, msgID, err)
+			} else {
 				footerHTML = fmt.Sprintf(embedHTMLFooterWithImage, dbFile.MXC, html.EscapeString(embed.Footer.Text), datePart)
 			}
 		}

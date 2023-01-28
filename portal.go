@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"html"
 	"reflect"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"maunium.net/go/mautrix/bridge/status"
 	"maunium.net/go/mautrix/crypto/attachment"
+	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/util/variationselector"
 
 	"github.com/bwmarrin/discordgo"
@@ -654,6 +656,139 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, att 
 	return portal.handleDiscordFile("attachment", intent, att.ID, att.URL, content, ts, threadRelation)
 }
 
+const (
+	embedHTMLWrapper         = `<blockquote class="discord-embed">%s</blockquote>`
+	embedHTMLWrapperColor    = `<blockquote class="discord-embed" background-color="#%06X">%s</blockquote>`
+	embedHTMLAuthorWithImage = `<p class="discord-embed-author"><img data-mx-emoticon width="24" height="24" src="%s" title="Author icon" alt="Author icon">&nbsp;<span>%s</span></p>`
+	embedHTMLAuthorPlain     = `<p class="discord-embed-author"><span>%s</span></p>`
+	embedHTMLAuthorLink      = `<a href="%s">%s</a>`
+	embedHTMLTitleWithLink   = `<p class="discord-embed-title"><a href="%s"><strong>%s</strong></a></p>`
+	embedHTMLTitlePlain      = `<p class="discord-embed-title"><strong>%s</strong></p>`
+	embedHTMLDescription     = `<p class="discord-embed-description">%s</p>`
+	embedHTMLFieldName       = `<th>%s</th>`
+	embedHTMLFieldValue      = `<td>%s</td>`
+	embedHTMLFields          = `<table class="discord-embed-fields"><tr>%s</tr><tr>%s</tr></table>`
+	embedHTMLLinearField     = `<p class="discord-embed-field" x-inline="%s"><strong>%s</strong><br><span>%s</span></p>`
+	embedHTMLFooterWithImage = `<p class="discord-embed-footer"><sub><img data-mx-emoticon width="20" height="20" src="%s" title="Footer icon" alt="Footer icon">&nbsp;<span>%s</span>%s</sub></p>`
+	embedHTMLFooterPlain     = `<p class="discord-embed-footer"><sub><span>%s</span>%s</sub></p>`
+	embedHTMLFooterOnlyDate  = `<p class="discord-embed-footer"><sub>%s</sub></p>`
+	embedHTMLDate            = `<time datetime="%s">%s</time>`
+	embedFooterDateSeparator = ` • `
+)
+
+func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
+	var htmlParts []string
+	if embed.Author != nil {
+		var authorHTML string
+		authorNameHTML := html.EscapeString(embed.Author.Name)
+		if embed.Author.URL != "" {
+			authorNameHTML = fmt.Sprintf(embedHTMLAuthorLink, embed.Author.URL, authorNameHTML)
+		}
+		authorHTML = fmt.Sprintf(embedHTMLAuthorPlain, authorNameHTML)
+		if embed.Author.ProxyIconURL != "" {
+			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Author.ProxyIconURL, false, "", "")
+			// TODO log error
+			if err == nil {
+				authorHTML = fmt.Sprintf(embedHTMLAuthorWithImage, dbFile.MXC, authorNameHTML)
+			}
+		}
+		htmlParts = append(htmlParts, authorHTML)
+	}
+	if embed.Title != "" {
+		var titleHTML string
+		baseTitleHTML := portal.renderDiscordMarkdownOnlyHTML(embed.Title)
+		if embed.URL != "" {
+			titleHTML = fmt.Sprintf(embedHTMLTitleWithLink, html.EscapeString(embed.URL), baseTitleHTML)
+		} else {
+			titleHTML = fmt.Sprintf(embedHTMLTitlePlain, baseTitleHTML)
+		}
+		htmlParts = append(htmlParts, titleHTML)
+	}
+	if embed.Description != "" {
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, portal.renderDiscordMarkdownOnlyHTML(embed.Description)))
+	}
+	for i := 0; i < len(embed.Fields); i++ {
+		item := embed.Fields[i]
+		if portal.bridge.Config.Bridge.EmbedFieldsAsTables {
+			splitItems := []*discordgo.MessageEmbedField{item}
+			if item.Inline && len(embed.Fields) > i+1 && embed.Fields[i+1].Inline {
+				splitItems = append(splitItems, embed.Fields[i+1])
+				i++
+				if len(embed.Fields) > i+1 && embed.Fields[i+1].Inline {
+					splitItems = append(splitItems, embed.Fields[i+1])
+					i++
+				}
+			}
+			headerParts := make([]string, len(splitItems))
+			contentParts := make([]string, len(splitItems))
+			for j, splitItem := range splitItems {
+				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, portal.renderDiscordMarkdownOnlyHTML(splitItem.Name))
+				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, portal.renderDiscordMarkdownOnlyHTML(splitItem.Value))
+			}
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFields, strings.Join(headerParts, ""), strings.Join(contentParts, "")))
+		} else {
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLLinearField,
+				strconv.FormatBool(item.Inline),
+				portal.renderDiscordMarkdownOnlyHTML(item.Name),
+				portal.renderDiscordMarkdownOnlyHTML(item.Value),
+			))
+		}
+	}
+	var embedDateHTML string
+	if embed.Timestamp != "" {
+		formattedTime := embed.Timestamp
+		parsedTS, err := time.Parse(time.RFC3339, embed.Timestamp)
+		// TODO log error?
+		if err == nil {
+			formattedTime = parsedTS.Format(discordTimestampStyle('F').Format())
+		}
+		embedDateHTML = fmt.Sprintf(embedHTMLDate, embed.Timestamp, formattedTime)
+	}
+	if embed.Footer != nil {
+		var footerHTML string
+		var datePart string
+		if embedDateHTML != "" {
+			datePart = embedFooterDateSeparator + embedDateHTML
+		}
+		footerHTML = fmt.Sprintf(embedHTMLFooterPlain, html.EscapeString(embed.Footer.Text), datePart)
+		if embed.Footer.ProxyIconURL != "" {
+			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Footer.ProxyIconURL, false, "", "")
+			// TODO log error
+			if err == nil {
+				footerHTML = fmt.Sprintf(embedHTMLFooterWithImage, dbFile.MXC, html.EscapeString(embed.Footer.Text), datePart)
+			}
+		}
+		htmlParts = append(htmlParts, footerHTML)
+	} else if embed.Timestamp != "" {
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFooterOnlyDate, embedDateHTML))
+	}
+
+	compiledHTML := strings.Join(htmlParts, "")
+	if embed.Color != 0 {
+		compiledHTML = fmt.Sprintf(embedHTMLWrapperColor, embed.Color, compiledHTML)
+	} else {
+		compiledHTML = fmt.Sprintf(embedHTMLWrapper, compiledHTML)
+	}
+	content := format.HTMLToContent(compiledHTML)
+	content.RelatesTo = threadRelation.Copy()
+
+	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, ts.UnixMilli())
+	if err != nil {
+		portal.log.Warnfln("Failed to send embed #%d of message %s to Matrix: %v", index+1, msgID, err)
+		return nil
+	}
+
+	// Update the fallback reply event for the next attachment
+	if threadRelation != nil {
+		threadRelation.InReplyTo.EventID = resp.EventID
+	}
+
+	return &database.MessagePart{
+		AttachmentID: fmt.Sprintf("%s-e%d", msgID, index+1),
+		MXID:         resp.EventID,
+	}
+}
+
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
 	if portal.MXID == "" {
 		portal.log.Warnln("handle message called without a valid portal")
@@ -728,6 +863,12 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	}
 	for _, sticker := range msg.StickerItems {
 		part := portal.handleDiscordSticker(intent, sticker, ts, threadRelation)
+		if part != nil {
+			parts = append(parts, *part)
+		}
+	}
+	for i, embed := range msg.Embeds {
+		part := portal.handleDiscordEmbed(intent, embed, msg.ID, i, ts, threadRelation)
 		if part != nil {
 			parts = append(parts, *part)
 		}

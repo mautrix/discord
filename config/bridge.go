@@ -42,6 +42,7 @@ type BridgeConfig struct {
 	MessageErrorNotices         bool `yaml:"message_error_notices"`
 	RestrictedRooms             bool `yaml:"restricted_rooms"`
 	AutojoinThreadOnOpen        bool `yaml:"autojoin_thread_on_open"`
+	EmbedFieldsAsTables         bool `yaml:"embed_fields_as_tables"`
 	MuteChannelsOnCreate        bool `yaml:"mute_channels_on_create"`
 	SyncDirectChatList          bool `yaml:"sync_direct_chat_list"`
 	ResendBridgeInfo            bool `yaml:"resend_bridge_info"`

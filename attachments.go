@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/gabriel-vasile/mimetype"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -75,6 +76,9 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 	dbFile.URL = url
 	dbFile.ID = attachmentID
 	dbFile.Size = len(data)
+	if mime == "" {
+		mime = mimetype.Detect(data).String()
+	}
 	if strings.HasPrefix(mime, "image/") {
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
 		dbFile.Width = cfg.Width

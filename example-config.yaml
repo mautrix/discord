@@ -115,6 +115,9 @@ bridge:
     # Should the bridge automatically join the user to threads on Discord when the thread is opened on Matrix?
     # This only works with clients that support thread read receipts (MSC3771 added in Matrix v1.4).
     autojoin_thread_on_open: true
+    # Should inline fields in Discord embeds be bridged as HTML tables to Matrix?
+    # Tables aren't supported in all clients, but are the only way to emulate the Discord inline field UI.
+    embed_fields_as_tables: true
     # Should guild channels be muted when the portal is created? This only meant for single-user instances,
     # it won't mute it for all users if there are multiple Matrix users in the same Discord guild.
     mute_channels_on_create: false

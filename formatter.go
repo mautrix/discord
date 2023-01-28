@@ -34,6 +34,10 @@ var discordExtensions = goldmark.WithExtensions(mdext.SimpleSpoiler, mdext.Disco
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
 
 func (portal *Portal) renderDiscordMarkdown(text string) event.MessageEventContent {
+	return format.HTMLToContent(portal.renderDiscordMarkdownOnlyHTML(text))
+}
+
+func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string) string {
 	text = escapeFixer.ReplaceAllStringFunc(text, func(s string) string {
 		return s[:2] + `\` + s[2:]
 	})
@@ -45,7 +49,13 @@ func (portal *Portal) renderDiscordMarkdown(text string) event.MessageEventConte
 		format.Extensions, format.HTMLOptions, discordExtensions,
 		goldmark.WithExtensions(&DiscordTag{portal}),
 	)
-	return format.RenderMarkdownCustom(text, mdRenderer)
+
+	var buf strings.Builder
+	err := mdRenderer.Convert([]byte(text), &buf)
+	if err != nil {
+		panic(fmt.Errorf("markdown parser errored: %w", err))
+	}
+	return format.UnwrapSingleParagraph(buf.String())
 }
 
 const formatterContextUserKey = "fi.mau.discord.user"

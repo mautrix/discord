@@ -11,13 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"maunium.net/go/mautrix/bridge/status"
-	"maunium.net/go/mautrix/crypto/attachment"
-	"maunium.net/go/mautrix/format"
-	"maunium.net/go/mautrix/util"
-	"maunium.net/go/mautrix/util/variationselector"
-
 	"github.com/bwmarrin/discordgo"
+	"github.com/gabriel-vasile/mimetype"
 
 	log "maunium.net/go/maulogger/v2"
 
@@ -25,8 +20,13 @@ import (
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/bridgeconfig"
+	"maunium.net/go/mautrix/bridge/status"
+	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util"
+	"maunium.net/go/mautrix/util/variationselector"
 
 	"go.mau.fi/mautrix-discord/config"
 	"go.mau.fi/mautrix-discord/database"
@@ -1262,7 +1262,7 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 
 func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	switch msg.evt.Type {
-	case event.EventMessage:
+	case event.EventMessage, event.EventSticker:
 		portal.handleMatrixMessage(msg.user, msg.evt)
 	case event.EventRedaction:
 		portal.handleMatrixRedaction(msg.user, msg.evt)
@@ -1435,7 +1435,7 @@ func (portal *Portal) sendStatusEvent(evtID id.EventID, err error) {
 func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part string) {
 	var msgType string
 	switch evt.Type {
-	case event.EventMessage:
+	case event.EventMessage, event.EventSticker:
 		msgType = "message"
 	case event.EventReaction:
 		msgType = "reaction"
@@ -1512,6 +1512,13 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	}
 
 	var sendReq discordgo.MessageSend
+
+	if evt.Type == event.EventSticker {
+		content.MsgType = event.MsgImage
+		if mimeData := mimetype.Lookup(content.Info.MimeType); mimeData != nil {
+			content.Body = "sticker" + mimeData.Extension()
+		}
+	}
 
 	switch content.MsgType {
 	case event.MsgText, event.MsgEmote, event.MsgNotice:

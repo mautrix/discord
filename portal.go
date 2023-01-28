@@ -976,8 +976,8 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 
 	var parts []database.MessagePart
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	if msg.Content != "" && !isPlainGifMessage(msg) {
-		content := portal.renderDiscordMarkdown(msg.Content)
+	if (msg.Content != "" || msg.Interaction != nil) && !isPlainGifMessage(msg) {
+		content := portal.renderDiscordMarkdown(msg.Content, msg.Interaction)
 		content.RelatesTo = threadRelation.Copy()
 
 		extraContent := map[string]any{
@@ -1151,7 +1151,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		deletedAttachment.Delete()
 	}
 
-	if msg.Content == "" || existing[0].AttachmentID != "" {
+	if (msg.Content == "" && msg.Interaction == nil) || existing[0].AttachmentID != "" {
 		portal.log.Debugfln("Dropping non-text edit to %s (message on matrix: %t, text on discord: %t)", msg.ID, existing[0].AttachmentID == "", len(msg.Content) > 0)
 		return
 	}
@@ -1162,7 +1162,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		content = *converted.Content
 		extraContent = converted.Extra
 	} else {
-		content = portal.renderDiscordMarkdown(msg.Content)
+		content = portal.renderDiscordMarkdown(msg.Content, msg.Interaction)
 		extraContent = map[string]any{
 			"com.beeper.linkpreviews": portal.convertDiscordLinkEmbedsToBeeper(intent, msg.Embeds),
 		}

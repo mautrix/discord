@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/parser"
 
@@ -33,7 +34,14 @@ import (
 var discordExtensions = goldmark.WithExtensions(mdext.SimpleSpoiler, mdext.DiscordUnderline)
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
 
-func (portal *Portal) renderDiscordMarkdown(text string) event.MessageEventContent {
+const msgInteractionTemplate = `> <@%s> used /%s
+
+`
+
+func (portal *Portal) renderDiscordMarkdown(text string, interaction *discordgo.MessageInteraction) event.MessageEventContent {
+	if interaction != nil {
+		text = fmt.Sprintf(msgInteractionTemplate, interaction.User.ID, interaction.Name) + text
+	}
 	return format.HTMLToContent(portal.renderDiscordMarkdownOnlyHTML(text))
 }
 

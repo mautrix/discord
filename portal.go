@@ -707,9 +707,9 @@ func (portal *Portal) convertDiscordLinkEmbedsToBeeper(intent *appservice.Intent
 		preview.Title = embed.Title
 		preview.Description = embed.Description
 		if embed.Image != nil {
-			portal.convertDiscordLinkEmbedImage(intent, embed.Image.URL, embed.Image.Width, embed.Image.Height, &preview)
+			portal.convertDiscordLinkEmbedImage(intent, embed.Image.ProxyURL, embed.Image.Width, embed.Image.Height, &preview)
 		} else if embed.Thumbnail != nil {
-			portal.convertDiscordLinkEmbedImage(intent, embed.Thumbnail.URL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
+			portal.convertDiscordLinkEmbedImage(intent, embed.Thumbnail.ProxyURL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
 		}
 		previews = append(previews, preview)
 	}
@@ -722,7 +722,7 @@ type ConvertedMessage struct {
 }
 
 func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) ConvertedMessage {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.URL, portal.Encrypted, "", "")
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, "", "")
 	if err != nil {
 		return ConvertedMessage{Content: portal.createMediaFailedMessage(err)}
 	}
@@ -934,7 +934,7 @@ func (portal *Portal) handleDiscordRichEmbed(intent *appservice.IntentAPI, embed
 }
 
 func isPlainGifMessage(msg *discordgo.Message) bool {
-	return len(msg.Embeds) == 1 && msg.Embeds[0].Video != nil && msg.Embeds[0].URL == msg.Content
+	return len(msg.Embeds) == 1 && msg.Embeds[0].Video != nil && msg.Embeds[0].URL == msg.Content && msg.Embeds[0].Type == discordgo.EmbedTypeGifv
 }
 
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {

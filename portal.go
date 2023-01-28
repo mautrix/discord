@@ -669,6 +669,7 @@ const (
 	embedHTMLFieldValue      = `<td>%s</td>`
 	embedHTMLFields          = `<table class="discord-embed-fields"><tr>%s</tr><tr>%s</tr></table>`
 	embedHTMLLinearField     = `<p class="discord-embed-field" x-inline="%s"><strong>%s</strong><br><span>%s</span></p>`
+	embedHTMLImage           = `<p class="discord-embed-image"><img src="%s" alt="Embed image" title="Embed image"></p>`
 	embedHTMLFooterWithImage = `<p class="discord-embed-footer"><sub><img data-mx-emoticon width="20" height="20" src="%s" title="Footer icon" alt="Footer icon">&nbsp;<span>%s</span>%s</sub></p>`
 	embedHTMLFooterPlain     = `<p class="discord-embed-footer"><sub><span>%s</span>%s</sub></p>`
 	embedHTMLFooterOnlyDate  = `<p class="discord-embed-footer"><sub>%s</sub></p>`
@@ -733,6 +734,14 @@ func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *di
 				portal.renderDiscordMarkdownOnlyHTML(item.Name),
 				portal.renderDiscordMarkdownOnlyHTML(item.Value),
 			))
+		}
+	}
+	if embed.Image != nil {
+		dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.ProxyURL, false, "", "")
+		if err != nil {
+			portal.log.Warnfln("Failed to reupload image in embed #%d of message %s: %v", index+1, msgID, err)
+		} else {
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, dbFile.MXC))
 		}
 	}
 	var embedDateHTML string

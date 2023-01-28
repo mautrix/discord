@@ -763,6 +763,10 @@ func (portal *Portal) handleDiscordEmbed(intent *appservice.IntentAPI, embed *di
 		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFooterOnlyDate, embedDateHTML))
 	}
 
+	if len(htmlParts) == 0 {
+		return nil
+	}
+
 	compiledHTML := strings.Join(htmlParts, "")
 	if embed.Color != 0 {
 		compiledHTML = fmt.Sprintf(embedHTMLWrapperColor, embed.Color, compiledHTML)

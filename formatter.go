@@ -31,12 +31,8 @@ import (
 	"maunium.net/go/mautrix/util/variationselector"
 )
 
-var discordExtensions = goldmark.WithExtensions(mdext.SimpleSpoiler, mdext.DiscordUnderline)
+var discordExtensions = goldmark.WithExtensions(mdext.SimpleSpoiler, mdext.DiscordUnderline, &DiscordEveryone{})
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
-
-func (portal *Portal) renderDiscordMarkdown(text string) event.MessageEventContent {
-	return format.HTMLToContent(portal.renderDiscordMarkdownOnlyHTML(text))
-}
 
 func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string) string {
 	text = escapeFixer.ReplaceAllStringFunc(text, func(s string) string {

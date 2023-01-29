@@ -951,7 +951,12 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 		return nil
 	}
 
-	content := format.HTMLToContent(strings.Join(htmlParts, "\n"))
+	fullHTML := strings.Join(htmlParts, "\n")
+	if !msg.MentionEveryone {
+		fullHTML = strings.ReplaceAll(fullHTML, "@room", "@\u2063ro\u2063om")
+	}
+
+	content := format.HTMLToContent(fullHTML)
 	if relation != nil {
 		content.RelatesTo = relation.Copy()
 	}

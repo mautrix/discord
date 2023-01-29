@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -340,7 +341,7 @@ func fnGuilds(ce *WrappedCommandEvent) {
 }
 
 func fnListGuilds(ce *WrappedCommandEvent) {
-	var output strings.Builder
+	var items []string
 	for _, userGuild := range ce.User.GetPortals() {
 		guild := ce.Bridge.GetGuildByID(userGuild.DiscordID, false)
 		if guild == nil {
@@ -350,12 +351,16 @@ func fnListGuilds(ce *WrappedCommandEvent) {
 		if guild.MXID != "" {
 			status = "bridged"
 		}
-		_, _ = fmt.Fprintf(&output, "* %s (`%s`) - %s\n", guild.Name, guild.ID, status)
+		var avatarHTML string
+		if !guild.AvatarURL.IsEmpty() {
+			avatarHTML = fmt.Sprintf(`<img data-mx-emoticon height="24" width="24" src="%s" alt="" title="Guild avatar"> `, guild.AvatarURL.String())
+		}
+		items = append(items, fmt.Sprintf("<li>%s%s (<code>%s</code>) - %s</li>", avatarHTML, html.EscapeString(guild.Name), guild.ID, status))
 	}
-	if output.Len() == 0 {
+	if len(items) == 0 {
 		ce.Reply("No guilds found")
 	} else {
-		ce.Reply("List of guilds:\n\n%s", output.String())
+		ce.ReplyAdvanced(fmt.Sprintf("<p>List of guilds:</p><ul>%s</ul>", strings.Join(items, "")), false, true)
 	}
 }
 

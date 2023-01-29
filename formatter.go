@@ -1,5 +1,5 @@
 // mautrix-discord - A Matrix-Discord puppeting bridge.
-// Copyright (C) 2022 Tulir Asokan
+// Copyright (C) 2023 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as published by
@@ -22,7 +22,9 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/util"
 
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
@@ -31,8 +33,20 @@ import (
 	"maunium.net/go/mautrix/util/variationselector"
 )
 
-var discordExtensions = goldmark.WithExtensions(mdext.SimpleSpoiler, mdext.DiscordUnderline, &DiscordEveryone{})
+var discordExtensions = goldmark.WithExtensions(extension.Strikethrough, mdext.SimpleSpoiler, mdext.DiscordUnderline, &DiscordEveryone{})
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
+
+// indentableParagraphParser is the default paragraph parser with CanAcceptIndentedLine.
+// Used when disabling CodeBlockParser (as disabling it without a replacement will make indented blocks disappear).
+type indentableParagraphParser struct {
+	parser.BlockParser
+}
+
+var defaultIndentableParagraphParser = &indentableParagraphParser{BlockParser: parser.NewParagraphParser()}
+
+func (b *indentableParagraphParser) CanAcceptIndentedLine() bool {
+	return true
+}
 
 func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string) string {
 	text = escapeFixer.ReplaceAllStringFunc(text, func(s string) string {
@@ -42,8 +56,11 @@ func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string) string {
 	mdRenderer := goldmark.New(
 		goldmark.WithParser(mdext.ParserWithoutFeatures(
 			parser.NewListParser(), parser.NewListItemParser(), parser.NewHTMLBlockParser(), parser.NewRawHTMLParser(),
+			parser.NewSetextHeadingParser(), parser.NewATXHeadingParser(), parser.NewThematicBreakParser(),
+			parser.NewLinkParser(), parser.NewCodeBlockParser(),
 		)),
-		format.Extensions, format.HTMLOptions, discordExtensions,
+		goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(defaultIndentableParagraphParser, 500))),
+		format.HTMLOptions, discordExtensions,
 		goldmark.WithExtensions(&DiscordTag{portal}),
 	)
 

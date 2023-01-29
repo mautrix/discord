@@ -60,6 +60,9 @@ type Portal struct {
 
 	recentMessages *util.RingBuffer[string, *discordgo.Message]
 
+	commands     map[string]*discordgo.ApplicationCommand
+	commandsLock sync.RWMutex
+
 	currentlyTyping     []id.UserID
 	currentlyTypingLock sync.Mutex
 }
@@ -232,6 +235,8 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 		matrixMessages:  make(chan portalMatrixMessage, br.Config.Bridge.PortalMessageBuffer),
 
 		recentMessages: util.NewRingBuffer[string, *discordgo.Message](recentMessageBufferSize),
+
+		commands: make(map[string]*discordgo.ApplicationCommand),
 	}
 
 	go portal.messageLoop()

@@ -54,6 +54,8 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdGuilds,
 		cmdRejoinSpace,
 		cmdDeleteAllPortals,
+		cmdExec,
+		cmdCommands,
 	)
 }
 

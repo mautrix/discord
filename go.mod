@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/bwmarrin/discordgo v0.26.1
 	github.com/gabriel-vasile/mimetype v1.4.1
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/lib/pq v1.10.7
@@ -13,7 +14,7 @@ require (
 	github.com/stretchr/testify v1.8.1
 	github.com/yuin/goldmark v1.5.3
 	maunium.net/go/maulogger/v2 v2.3.2
-	maunium.net/go/mautrix v0.13.1-0.20230128124647-7d98a9f8e3a6
+	maunium.net/go/mautrix v0.13.1-0.20230129104640-4a2a7653e437
 )
 
 require (
@@ -33,4 +34,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20230128134018-766d08cb045e
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20230129113304-139f45f429a0

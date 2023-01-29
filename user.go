@@ -59,6 +59,9 @@ type User struct {
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
 
+	pendingInteractions     map[string]*WrappedCommandEvent
+	pendingInteractionsLock sync.Mutex
+
 	nextDiscordUploadID atomic.Int32
 }
 
@@ -197,6 +200,8 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 
 		markedOpened:    make(map[string]time.Time),
 		PermissionLevel: br.Config.Bridge.Permissions.Get(dbUser.MXID),
+
+		pendingInteractions: make(map[string]*WrappedCommandEvent),
 	}
 	user.nextDiscordUploadID.Store(rand.Int31n(100))
 	user.BridgeState = br.NewBridgeStateQueue(user, user.log)
@@ -539,6 +544,8 @@ func (user *User) Connect() error {
 	user.Session.AddHandler(user.reactionRemoveHandler)
 	user.Session.AddHandler(user.messageAckHandler)
 	user.Session.AddHandler(user.typingStartHandler)
+
+	user.Session.AddHandler(user.interactionSuccessHandler)
 
 	user.Session.Identify.Presence.Status = "online"
 
@@ -960,6 +967,19 @@ func (user *User) typingStartHandler(_ *discordgo.Session, t *discordgo.TypingSt
 	_, err := puppet.IntentFor(portal).UserTyping(portal.MXID, true, 12*time.Second)
 	if err != nil {
 		user.log.Warnfln("Failed to mark %s as typing in %s: %v", puppet.MXID, portal.MXID, err)
+	}
+}
+
+func (user *User) interactionSuccessHandler(_ *discordgo.Session, s *discordgo.InteractionSuccess) {
+	user.pendingInteractionsLock.Lock()
+	defer user.pendingInteractionsLock.Unlock()
+	ce, ok := user.pendingInteractions[s.Nonce]
+	if !ok {
+		user.log.Debugfln("Got interaction success for unknown interaction %s/%s", s.Nonce, s.ID)
+	} else {
+		user.log.Infofln("Got interaction success for pending interaction %s/%s", s.Nonce, s.ID)
+		ce.React("✅")
+		delete(user.pendingInteractions, s.Nonce)
 	}
 }
 

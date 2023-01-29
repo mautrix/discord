@@ -28,6 +28,7 @@ import (
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/format/mdext"
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/variationselector"
 )
 
 var discordExtensions = goldmark.WithExtensions(mdext.SimpleSpoiler, mdext.DiscordUnderline)
@@ -174,8 +175,8 @@ func (portal *Portal) parseMatrixHTML(user *User, content *event.MessageEventCon
 		ctx := format.NewContext()
 		ctx.ReturnData[formatterContextUserKey] = user
 		ctx.ReturnData[formatterContextPortalKey] = portal
-		return matrixHTMLParser.Parse(content.FormattedBody, ctx)
+		return variationselector.Remove(matrixHTMLParser.Parse(content.FormattedBody, ctx))
 	} else {
-		return escapeDiscordMarkdown(content.Body)
+		return variationselector.Remove(escapeDiscordMarkdown(content.Body))
 	}
 }

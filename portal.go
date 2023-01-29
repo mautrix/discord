@@ -993,6 +993,11 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	}
 	portal.log.Debugfln("Starting handling of %s by %s", msg.ID, msg.Author.ID)
 
+	for _, mention := range msg.Mentions {
+		puppet := portal.bridge.GetPuppetByID(mention.ID)
+		puppet.UpdateInfo(nil, mention)
+	}
+
 	puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
 	puppet.UpdateInfo(user, msg.Author)
 	intent := puppet.IntentFor(portal)

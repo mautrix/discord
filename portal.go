@@ -1819,7 +1819,6 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 
 	// Figure out if this is a custom emoji or not.
 	emojiID := reaction.RelatesTo.Key
-	requestEmojiID := emojiID
 	if strings.HasPrefix(emojiID, "mxc://") {
 		uri, _ := id.ParseContentURI(emojiID)
 		emojiFile := portal.bridge.DB.File.GetByMXC(uri)
@@ -1828,11 +1827,9 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 			return
 		}
 
-		emojiID = emojiFile.ID
-		requestEmojiID = fmt.Sprintf("%s:%s", emojiFile.EmojiName, emojiFile.ID)
+		emojiID = fmt.Sprintf("%s:%s", emojiFile.EmojiName, emojiFile.ID)
 	} else {
 		emojiID = variationselector.Remove(emojiID)
-		requestEmojiID = emojiID
 	}
 
 	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, msg.DiscordID, sender.DiscordID, emojiID)
@@ -1842,7 +1839,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 		return
 	}
 
-	err := sender.Session.MessageReactionAdd(msg.DiscordProtoChannelID(), msg.DiscordID, requestEmojiID)
+	err := sender.Session.MessageReactionAdd(msg.DiscordProtoChannelID(), msg.DiscordID, emojiID)
 	go portal.sendMessageMetrics(evt, err, "Error sending")
 	if err == nil {
 		dbReaction := portal.bridge.DB.Reaction.New()
@@ -1869,7 +1866,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 			return
 		}
 		matrixReaction = reactionMXC.String()
-		discordID = reaction.Emoji.ID
+		discordID = fmt.Sprintf("%s:%s", reaction.Emoji.Name, reaction.Emoji.ID)
 	} else {
 		discordID = reaction.Emoji.Name
 		matrixReaction = variationselector.Add(reaction.Emoji.Name)

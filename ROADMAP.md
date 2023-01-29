@@ -11,6 +11,10 @@
     * [x] Unicode emojis
     * [ ] Custom emojis (re-reacting with custom emojis sent from Discord already works)
   * [ ] Executing Discord bot commands
+    * [x] Basic arguments and subcommands
+    * [ ] Subcommand groups
+    * [ ] Mention arguments
+    * [ ] Attachment arguments
   * [ ] Presence
   * [x] Typing notifications
   * [x] Own read status
@@ -35,7 +39,9 @@
       * [ ] Backfilling threads after joining
     * [x] Custom emojis
     * [x] Embeds
+    * [ ] Interactive components
     * [x] Interactions (commands)
+    * [x] @everyone/@here mentions into @room
   * [x] Message deletions
   * [x] Reactions
     * [x] Unicode emojis
@@ -50,11 +56,11 @@
     * [ ] Join
     * [ ] Leave
     * [ ] Kick
-  * [ ] Channel/group DM metadata changes
-    * [ ] Title
-    * [ ] Avatar
-    * [ ] Description
-  * [ ] Initial channel/group DM metadata
+  * [x] Channel/group DM metadata changes
+    * [x] Title
+    * [x] Avatar
+    * [x] Description
+  * [x] Initial channel/group DM metadata
   * [ ] User metadata changes
     * [ ] Display name
     * [ ] Avatar
@@ -65,8 +71,8 @@
   * [x] Login methods
     * [x] QR scan from mobile
     * [x] Manually providing access token
-  * [ ] Automatic portal creation
-    * [ ] After login
+  * [x] Automatic portal creation
+    * [x] After login
     * [x] When receiving DM
   * [ ] Private chat creation by inviting Matrix puppet of Discord user to new room
   * [x] Option to use own Matrix account for messages sent from other Discord clients

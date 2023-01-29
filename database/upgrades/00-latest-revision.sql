@@ -1,4 +1,4 @@
--- v0 -> v12: Latest revision
+-- v0 -> v13: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -126,12 +126,6 @@ CREATE TABLE reaction (
     CONSTRAINT reaction_message_fkey FOREIGN KEY (dc_msg_id, dc_first_attachment_id, _dc_first_edit_index, dc_chan_id, dc_chan_receiver) REFERENCES message (dcid, dc_attachment_id, dc_edit_index, dc_chan_id, dc_chan_receiver) ON DELETE CASCADE
 );
 
-CREATE TABLE emoji (
-    discord_id   TEXT PRIMARY KEY,
-    discord_name TEXT,
-    matrix_url   TEXT
-);
-
 CREATE TABLE role (
     dc_guild_id TEXT,
     dcid        TEXT,
@@ -151,21 +145,20 @@ CREATE TABLE role (
     CONSTRAINT role_guild_fkey FOREIGN KEY (dc_guild_id) REFERENCES guild (dcid) ON DELETE CASCADE
 );
 
-CREATE TABLE discord_file (
+CREATE TABLE new_discord_file (
     url       TEXT,
     encrypted BOOLEAN,
+    mxc       TEXT NOT NULL UNIQUE,
 
-    id  TEXT,
-    mxc TEXT NOT NULL,
+    id         TEXT,
+    emoji_name TEXT,
 
-    size      BIGINT NOT NULL,
-    width     INTEGER,
-    height    INTEGER,
-    mime_type TEXT NOT NULL,
-
+    size            BIGINT NOT NULL,
+    width           INTEGER,
+    height          INTEGER,
+    mime_type       TEXT NOT NULL,
     decryption_info jsonb,
-
-    timestamp BIGINT NOT NULL,
+    timestamp       BIGINT NOT NULL,
 
     PRIMARY KEY (url, encrypted)
 );

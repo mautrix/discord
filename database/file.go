@@ -20,10 +20,10 @@ type FileQuery struct {
 
 // language=postgresql
 const (
-	fileSelect = "SELECT url, encrypted, id, mxc, size, width, height, mime_type, decryption_info, timestamp FROM discord_file"
+	fileSelect = "SELECT url, encrypted, mxc, id, emoji_name, size, width, height, mime_type, decryption_info, timestamp FROM discord_file"
 	fileInsert = `
-		INSERT INTO discord_file (url, encrypted, id, mxc, size, width, height, mime_type, decryption_info, timestamp)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO discord_file (url, encrypted, mxc, id, emoji_name, size, width, height, mime_type, decryption_info, timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 )
 
@@ -39,15 +39,21 @@ func (fq *FileQuery) Get(url string, encrypted bool) *File {
 	return fq.New().Scan(fq.db.QueryRow(query, url, encrypted))
 }
 
+func (fq *FileQuery) GetByMXC(mxc id.ContentURI) *File {
+	query := fileSelect + " WHERE mxc=$1"
+	return fq.New().Scan(fq.db.QueryRow(query, mxc.String()))
+}
+
 type File struct {
 	db  *Database
 	log log.Logger
 
 	URL       string
 	Encrypted bool
+	MXC       id.ContentURI
 
-	ID  string
-	MXC id.ContentURI
+	ID        string
+	EmojiName string
 
 	Size     int
 	Width    int
@@ -55,16 +61,15 @@ type File struct {
 	MimeType string
 
 	DecryptionInfo *attachment.EncryptedFile
-
-	Timestamp time.Time
+	Timestamp      time.Time
 }
 
 func (f *File) Scan(row dbutil.Scannable) *File {
-	var fileID, decryptionInfo sql.NullString
+	var fileID, emojiName, decryptionInfo sql.NullString
 	var width, height sql.NullInt32
 	var timestamp int64
 	var mxc string
-	err := row.Scan(&f.URL, &f.Encrypted, &fileID, &mxc, &f.Size, &width, &height, &f.MimeType, &decryptionInfo, &timestamp)
+	err := row.Scan(&f.URL, &f.Encrypted, &mxc, &fileID, &emojiName, &f.Size, &width, &height, &f.MimeType, &decryptionInfo, &timestamp)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			f.log.Errorln("Database scan failed:", err)
@@ -73,6 +78,7 @@ func (f *File) Scan(row dbutil.Scannable) *File {
 		return nil
 	}
 	f.ID = fileID.String
+	f.EmojiName = emojiName.String
 	f.Timestamp = time.UnixMilli(timestamp)
 	f.Width = int(width.Int32)
 	f.Height = int(height.Int32)
@@ -114,7 +120,7 @@ func (f *File) Insert(txn dbutil.Execable) {
 		decryptionInfoStr.String = string(decryptionInfo)
 	}
 	_, err := txn.Exec(fileInsert,
-		f.URL, f.Encrypted, strPtr(f.ID), f.MXC.String(), f.Size,
+		f.URL, f.Encrypted, f.MXC.String(), strPtr(f.ID), strPtr(f.EmojiName), f.Size,
 		positiveIntToNullInt32(f.Width), positiveIntToNullInt32(f.Height), f.MimeType,
 		decryptionInfoStr, f.Timestamp.UnixMilli(),
 	)

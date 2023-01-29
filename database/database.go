@@ -21,7 +21,6 @@ type Database struct {
 	Message  *MessageQuery
 	Thread   *ThreadQuery
 	Reaction *ReactionQuery
-	Emoji    *EmojiQuery
 	Guild    *GuildQuery
 	Role     *RoleQuery
 	File     *FileQuery
@@ -53,10 +52,6 @@ func New(baseDB *dbutil.Database, log maulogger.Logger) *Database {
 	db.Reaction = &ReactionQuery{
 		db:  db,
 		log: log.Sub("Reaction"),
-	}
-	db.Emoji = &EmojiQuery{
-		db:  db,
-		log: log.Sub("Emoji"),
 	}
 	db.Guild = &GuildQuery{
 		db:  db,

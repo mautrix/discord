@@ -16,6 +16,7 @@ import (
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/database"
 )
@@ -62,7 +63,7 @@ func uploadDiscordAttachment(url string, data []byte) error {
 	return nil
 }
 
-func (portal *Portal) downloadMatrixAttachment(content *event.MessageEventContent) ([]byte, error) {
+func downloadMatrixAttachment(intent *appservice.IntentAPI, content *event.MessageEventContent) ([]byte, error) {
 	var file *event.EncryptedFileInfo
 	rawMXC := content.URL
 
@@ -76,7 +77,7 @@ func (portal *Portal) downloadMatrixAttachment(content *event.MessageEventConten
 		return nil, err
 	}
 
-	data, err := portal.MainIntent().DownloadBytes(mxc)
+	data, err := intent.DownloadBytes(mxc)
 	if err != nil {
 		return nil, err
 	}
@@ -91,23 +92,24 @@ func (portal *Portal) downloadMatrixAttachment(content *event.MessageEventConten
 	return data, nil
 }
 
-func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, url string, encrypt bool, attachmentID, mime string) (*database.File, error) {
+func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, url string, encrypt bool, meta AttachmentMeta) (*database.File, error) {
 	dbFile := br.DB.File.New()
 	dbFile.Timestamp = time.Now()
 	dbFile.URL = url
-	dbFile.ID = attachmentID
+	dbFile.ID = meta.AttachmentID
+	dbFile.EmojiName = meta.EmojiName
 	dbFile.Size = len(data)
 	dbFile.MimeType = mimetype.Detect(data).String()
-	if mime == "" {
-		mime = dbFile.MimeType
+	if meta.MimeType == "" {
+		meta.MimeType = dbFile.MimeType
 	}
-	if strings.HasPrefix(mime, "image/") {
+	if strings.HasPrefix(meta.MimeType, "image/") {
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
 		dbFile.Width = cfg.Width
 		dbFile.Height = cfg.Height
 	}
 
-	uploadMime := mime
+	uploadMime := meta.MimeType
 	if encrypt {
 		dbFile.Encrypted = true
 		dbFile.DecryptionInfo = attachment.NewEncryptedFile()
@@ -140,14 +142,16 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 		}
 		dbFile.MXC = uploaded.ContentURI
 	}
-	// TODO add option to cache encrypted files too?
-	if !dbFile.Encrypted {
-		dbFile.Insert(nil)
-	}
 	return dbFile, nil
 }
 
-func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, attachmentID, mime string) (*database.File, error) {
+type AttachmentMeta struct {
+	AttachmentID string
+	MimeType     string
+	EmojiName    string
+}
+
+func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, meta *AttachmentMeta) (*database.File, error) {
 	dbFile := br.DB.File.Get(url, encrypt)
 	if dbFile == nil {
 		data, err := downloadDiscordAttachment(url)
@@ -155,10 +159,38 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 			return nil, err
 		}
 
-		dbFile, err = br.uploadMatrixAttachment(intent, data, url, encrypt, attachmentID, mime)
+		if meta == nil {
+			meta = &AttachmentMeta{}
+		}
+		dbFile, err = br.uploadMatrixAttachment(intent, data, url, encrypt, *meta)
 		if err != nil {
 			return nil, err
 		}
+		// TODO add option to cache encrypted files too?
+		if !dbFile.Encrypted {
+			dbFile.Insert(nil)
+		}
 	}
 	return dbFile, nil
+}
+
+func (portal *Portal) getEmojiMXCByDiscordID(emojiID, name string, animated bool) id.ContentURI {
+	var url, mimeType string
+	if animated {
+		url = discordgo.EndpointEmojiAnimated(emojiID)
+		mimeType = "image/gif"
+	} else {
+		url = discordgo.EndpointEmoji(emojiID)
+		mimeType = "image/png"
+	}
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(portal.MainIntent(), url, false, &AttachmentMeta{
+		AttachmentID: emojiID,
+		MimeType:     mimeType,
+		EmojiName:    name,
+	})
+	if err != nil {
+		portal.log.Warnfln("Failed to download emoji %s from discord: %v", emojiID, err)
+		return id.ContentURI{}
+	}
+	return dbFile.MXC
 }

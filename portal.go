@@ -555,7 +555,7 @@ func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridg
 const DiscordStickerSize = 160
 
 func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.IntentAPI, id, url string, content *event.MessageEventContent, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, id, content.Info.MimeType)
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, &AttachmentMeta{AttachmentID: id, MimeType: content.Info.MimeType})
 	if err != nil {
 		errorEventID := portal.sendMediaFailedMessage(intent, err)
 		if errorEventID != "" {
@@ -675,7 +675,7 @@ type ConvertedMessage struct {
 }
 
 func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *ConvertedMessage {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, "", "")
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, nil)
 	if err != nil {
 		return &ConvertedMessage{Content: portal.createMediaFailedMessage(err)}
 	}
@@ -768,7 +768,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		}
 		authorHTML = fmt.Sprintf(embedHTMLAuthorPlain, authorNameHTML)
 		if embed.Author.ProxyIconURL != "" {
-			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Author.ProxyIconURL, false, "", "")
+			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Author.ProxyIconURL, false, nil)
 			if err != nil {
 				portal.log.Warnfln("Failed to reupload author icon in embed #%d of message %s: %v", index+1, msgID, err)
 			} else {
@@ -818,7 +818,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		}
 	}
 	if embed.Image != nil {
-		dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.ProxyURL, false, "", "")
+		dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.ProxyURL, false, nil)
 		if err != nil {
 			portal.log.Warnfln("Failed to reupload image in embed #%d of message %s: %v", index+1, msgID, err)
 		} else {
@@ -844,7 +844,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		}
 		footerHTML = fmt.Sprintf(embedHTMLFooterPlain, html.EscapeString(embed.Footer.Text), datePart)
 		if embed.Footer.ProxyIconURL != "" {
-			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Footer.ProxyIconURL, false, "", "")
+			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Footer.ProxyIconURL, false, nil)
 			if err != nil {
 				portal.log.Warnfln("Failed to reupload footer icon in embed #%d of message %s: %v", index+1, msgID, err)
 			} else {
@@ -876,7 +876,7 @@ type BeeperLinkPreview struct {
 }
 
 func (portal *Portal) convertDiscordLinkEmbedImage(intent *appservice.IntentAPI, url string, width, height int, preview *BeeperLinkPreview) {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, "", "")
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, nil)
 	if err != nil {
 		portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
 	} else {
@@ -1576,7 +1576,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}
 		sendReq.Content = portal.parseMatrixHTML(sender, content)
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
-		data, err := portal.downloadMatrixAttachment(content)
+		data, err := downloadMatrixAttachment(portal.MainIntent(), content)
 		if err != nil {
 			go portal.sendMessageMetrics(evt, err, "Error downloading media in")
 			return
@@ -1819,17 +1819,20 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 
 	// Figure out if this is a custom emoji or not.
 	emojiID := reaction.RelatesTo.Key
+	requestEmojiID := emojiID
 	if strings.HasPrefix(emojiID, "mxc://") {
 		uri, _ := id.ParseContentURI(emojiID)
-		emoji := portal.bridge.DB.Emoji.GetByMatrixURL(uri)
-		if emoji == nil {
+		emojiFile := portal.bridge.DB.File.GetByMXC(uri)
+		if emojiFile == nil || emojiFile.ID == "" || emojiFile.EmojiName == "" {
 			go portal.sendMessageMetrics(evt, fmt.Errorf("%w %s", errUnknownEmoji, emojiID), "Ignoring")
 			return
 		}
 
-		emojiID = emoji.APIName()
+		emojiID = emojiFile.ID
+		requestEmojiID = fmt.Sprintf("%s:%s", emojiFile.EmojiName, emojiFile.ID)
 	} else {
 		emojiID = variationselector.Remove(emojiID)
+		requestEmojiID = emojiID
 	}
 
 	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, msg.DiscordID, sender.DiscordID, emojiID)
@@ -1839,7 +1842,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 		return
 	}
 
-	err := sender.Session.MessageReactionAdd(msg.DiscordProtoChannelID(), msg.DiscordID, emojiID)
+	err := sender.Session.MessageReactionAdd(msg.DiscordProtoChannelID(), msg.DiscordID, requestEmojiID)
 	go portal.sendMessageMetrics(evt, err, "Error sending")
 	if err == nil {
 		dbReaction := portal.bridge.DB.Reaction.New()

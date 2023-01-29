@@ -140,7 +140,10 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 		}
 		dbFile.MXC = uploaded.ContentURI
 	}
-	dbFile.Insert(nil)
+	// TODO add option to cache encrypted files too?
+	if !dbFile.Encrypted {
+		dbFile.Insert(nil)
+	}
 	return dbFile, nil
 }
 

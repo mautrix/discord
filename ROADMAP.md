@@ -10,6 +10,7 @@
   * [x] Reactions
     * [x] Unicode emojis
     * [ ] Custom emojis (re-reacting with custom emojis sent from Discord already works)
+  * [ ] Executing Discord bot commands
   * [ ] Presence
   * [x] Typing notifications
   * [x] Own read status
@@ -33,6 +34,8 @@
       * [x] Auto-joining threads when opening
       * [ ] Backfilling threads after joining
     * [x] Custom emojis
+    * [x] Embeds
+    * [x] Interactions (commands)
   * [x] Message deletions
   * [x] Reactions
     * [x] Unicode emojis

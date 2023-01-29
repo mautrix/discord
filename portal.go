@@ -664,66 +664,15 @@ func (portal *Portal) handleDiscordAttachment(intent *appservice.IntentAPI, att 
 	return portal.handleDiscordFile("attachment", intent, att.ID, att.URL, content, ts, threadRelation)
 }
 
-type BeeperLinkPreview struct {
-	mautrix.RespPreviewURL
-	MatchedURL      string                   `json:"matched_url"`
-	ImageEncryption *event.EncryptedFileInfo `json:"beeper:image:encryption,omitempty"`
-}
-
-func (portal *Portal) convertDiscordLinkEmbedImage(intent *appservice.IntentAPI, url string, width, height int, preview *BeeperLinkPreview) {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, "", "")
-	if err != nil {
-		portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
-	} else {
-		if width != 0 || height != 0 {
-			preview.ImageWidth = width
-			preview.ImageHeight = height
-		} else {
-			preview.ImageWidth = dbFile.Width
-			preview.ImageHeight = dbFile.Height
-		}
-		preview.ImageSize = dbFile.Size
-		preview.ImageType = dbFile.MimeType
-		if dbFile.Encrypted {
-			preview.ImageEncryption = &event.EncryptedFileInfo{
-				EncryptedFile: *dbFile.DecryptionInfo,
-				URL:           dbFile.MXC.CUString(),
-			}
-		} else {
-			preview.ImageURL = dbFile.MXC.CUString()
-		}
-	}
-}
-
-func (portal *Portal) convertDiscordLinkEmbedsToBeeper(intent *appservice.IntentAPI, embeds []*discordgo.MessageEmbed) (previews []BeeperLinkPreview) {
-	previews = []BeeperLinkPreview{}
-	for _, embed := range embeds {
-		if embed.Type != discordgo.EmbedTypeLink && embed.Type != discordgo.EmbedTypeArticle {
-			continue
-		}
-		var preview BeeperLinkPreview
-		preview.MatchedURL = embed.URL
-		preview.Title = embed.Title
-		preview.Description = embed.Description
-		if embed.Image != nil {
-			portal.convertDiscordLinkEmbedImage(intent, embed.Image.ProxyURL, embed.Image.Width, embed.Image.Height, &preview)
-		} else if embed.Thumbnail != nil {
-			portal.convertDiscordLinkEmbedImage(intent, embed.Thumbnail.ProxyURL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
-		}
-		previews = append(previews, preview)
-	}
-	return
-}
-
 type ConvertedMessage struct {
 	Content *event.MessageEventContent
 	Extra   map[string]any
 }
 
-func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) ConvertedMessage {
+func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *ConvertedMessage {
 	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, "", "")
 	if err != nil {
-		return ConvertedMessage{Content: portal.createMediaFailedMessage(err)}
+		return &ConvertedMessage{Content: portal.createMediaFailedMessage(err)}
 	}
 
 	content := &event.MessageEventContent{
@@ -759,7 +708,7 @@ func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, emb
 			"fi.mau.no_audio":      true,
 		}
 	}
-	return ConvertedMessage{Content: content, Extra: extra}
+	return &ConvertedMessage{Content: content, Extra: extra}
 }
 
 func (portal *Portal) handleDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
@@ -778,7 +727,7 @@ func (portal *Portal) handleDiscordVideoEmbed(intent *appservice.IntentAPI, embe
 	}
 
 	return &database.MessagePart{
-		AttachmentID: fmt.Sprintf("%s-e%d", msgID, index+1),
+		AttachmentID: fmt.Sprintf("video_%s", embed.URL),
 		MXID:         resp.EventID,
 	}
 }
@@ -804,7 +753,7 @@ const (
 	embedFooterDateSeparator = ` • `
 )
 
-func (portal *Portal) handleDiscordRichEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
+func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int) string {
 	var htmlParts []string
 	if embed.Author != nil {
 		var authorHTML string
@@ -903,7 +852,7 @@ func (portal *Portal) handleDiscordRichEmbed(intent *appservice.IntentAPI, embed
 	}
 
 	if len(htmlParts) == 0 {
-		return nil
+		return ""
 	}
 
 	compiledHTML := strings.Join(htmlParts, "")
@@ -912,24 +861,105 @@ func (portal *Portal) handleDiscordRichEmbed(intent *appservice.IntentAPI, embed
 	} else {
 		compiledHTML = fmt.Sprintf(embedHTMLWrapper, compiledHTML)
 	}
-	content := format.HTMLToContent(compiledHTML)
-	content.RelatesTo = threadRelation.Copy()
+	return compiledHTML
+}
 
-	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, nil, ts.UnixMilli())
+type BeeperLinkPreview struct {
+	mautrix.RespPreviewURL
+	MatchedURL      string                   `json:"matched_url"`
+	ImageEncryption *event.EncryptedFileInfo `json:"beeper:image:encryption,omitempty"`
+}
+
+func (portal *Portal) convertDiscordLinkEmbedImage(intent *appservice.IntentAPI, url string, width, height int, preview *BeeperLinkPreview) {
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, "", "")
 	if err != nil {
-		portal.log.Warnfln("Failed to send embed #%d of message %s to Matrix: %v", index+1, msgID, err)
+		portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
+	} else {
+		if width != 0 || height != 0 {
+			preview.ImageWidth = width
+			preview.ImageHeight = height
+		} else {
+			preview.ImageWidth = dbFile.Width
+			preview.ImageHeight = dbFile.Height
+		}
+		preview.ImageSize = dbFile.Size
+		preview.ImageType = dbFile.MimeType
+		if dbFile.Encrypted {
+			preview.ImageEncryption = &event.EncryptedFileInfo{
+				EncryptedFile: *dbFile.DecryptionInfo,
+				URL:           dbFile.MXC.CUString(),
+			}
+		} else {
+			preview.ImageURL = dbFile.MXC.CUString()
+		}
+	}
+}
+
+func (portal *Portal) convertDiscordLinkEmbedToBeeper(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *BeeperLinkPreview {
+	var preview BeeperLinkPreview
+	preview.MatchedURL = embed.URL
+	preview.Title = embed.Title
+	preview.Description = embed.Description
+	if embed.Image != nil {
+		portal.convertDiscordLinkEmbedImage(intent, embed.Image.ProxyURL, embed.Image.Width, embed.Image.Height, &preview)
+	} else if embed.Thumbnail != nil {
+		portal.convertDiscordLinkEmbedImage(intent, embed.Thumbnail.ProxyURL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
+	}
+	return &preview
+}
+
+const msgInteractionTemplateHTML = `<blockquote>
+<a href="https://matrix.to/#/%s">%s</a> used <font color="#3771bb">/%s</font>
+</blockquote>`
+
+func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, msg *discordgo.Message, relation *event.RelatesTo, isEdit bool) *ConvertedMessage {
+	var htmlParts []string
+	if msg.Interaction != nil {
+		puppet := portal.bridge.GetPuppetByID(msg.Interaction.User.ID)
+		puppet.UpdateInfo(nil, msg.Interaction.User)
+		htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, puppet.MXID, puppet.Name, msg.Interaction.Name))
+	}
+	if msg.Content != "" && !isPlainGifMessage(msg) {
+		htmlParts = append(htmlParts, portal.renderDiscordMarkdownOnlyHTML(msg.Content))
+	}
+	previews := make([]*BeeperLinkPreview, 0)
+	for i, embed := range msg.Embeds {
+		switch embed.Type {
+		case discordgo.EmbedTypeRich, discordgo.EmbedTypeImage:
+			htmlParts = append(htmlParts, portal.convertDiscordRichEmbed(intent, embed, msg.ID, i))
+		case discordgo.EmbedTypeLink, discordgo.EmbedTypeArticle:
+			previews = append(previews, portal.convertDiscordLinkEmbedToBeeper(intent, embed))
+		case discordgo.EmbedTypeVideo, discordgo.EmbedTypeGifv:
+			// Ignore video embeds, they're handled as separate messages
+		default:
+			portal.log.Warnfln("Unknown type %s in embed #%d of message %s", embed.Type, i+1, msg.ID)
+		}
+	}
+
+	if len(htmlParts) == 0 {
 		return nil
 	}
 
-	// Update the fallback reply event for the next attachment
-	if threadRelation != nil {
-		threadRelation.InReplyTo.EventID = resp.EventID
+	content := format.HTMLToContent(strings.Join(htmlParts, "\n"))
+	if relation != nil {
+		content.RelatesTo = relation.Copy()
+	}
+	extraContent := map[string]any{
+		"com.beeper.linkpreviews": previews,
 	}
 
-	return &database.MessagePart{
-		AttachmentID: fmt.Sprintf("%s-e%d", msgID, index+1),
-		MXID:         resp.EventID,
+	if msg.MessageReference != nil && !isEdit {
+		//key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
+		replyTo := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.MessageReference.MessageID)
+		if len(replyTo) > 0 {
+			if content.RelatesTo == nil {
+				content.RelatesTo = &event.RelatesTo{}
+			}
+			content.RelatesTo.SetReplyTo(replyTo[0].MXID)
+		}
 	}
+
+	return &ConvertedMessage{Content: &content, Extra: extraContent}
 }
 
 func isPlainGifMessage(msg *discordgo.Message) bool {
@@ -976,26 +1006,9 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 
 	var parts []database.MessagePart
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	if (msg.Content != "" || msg.Interaction != nil) && !isPlainGifMessage(msg) {
-		content := portal.renderDiscordMarkdown(msg.Content, msg.Interaction)
-		content.RelatesTo = threadRelation.Copy()
-
-		extraContent := map[string]any{
-			"com.beeper.linkpreviews": portal.convertDiscordLinkEmbedsToBeeper(intent, msg.Embeds),
-		}
-
-		if msg.MessageReference != nil {
-			//key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
-			replyTo := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.MessageReference.MessageID)
-			if len(replyTo) > 0 {
-				if content.RelatesTo == nil {
-					content.RelatesTo = &event.RelatesTo{}
-				}
-				content.RelatesTo.SetReplyTo(replyTo[0].MXID)
-			}
-		}
-
-		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, extraContent, ts.UnixMilli())
+	textPart := portal.convertDiscordTextMessage(intent, msg, threadRelation, false)
+	if textPart != nil {
+		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, textPart.Content, textPart.Extra, ts.UnixMilli())
 		if err != nil {
 			portal.log.Warnfln("Failed to send message %s to matrix: %v", msg.ID, err)
 			return
@@ -1020,16 +1033,18 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			parts = append(parts, *part)
 		}
 	}
+	handledURLs := make(map[string]struct{})
 	for i, embed := range msg.Embeds {
-		var part *database.MessagePart
-		switch {
-		case embed.Video != nil: // gif/video embeds (hopefully no rich content)
-			part = portal.handleDiscordVideoEmbed(intent, embed, msg.ID, i, ts, threadRelation)
-		case embed.Type == discordgo.EmbedTypeLink, embed.Type == discordgo.EmbedTypeArticle:
-			// skip link previews, these are handled earlier
-		default: // rich embeds
-			part = portal.handleDiscordRichEmbed(intent, embed, msg.ID, i, ts, threadRelation)
+		// Ignore non-video embeds, they're handled in convertDiscordTextMessage
+		if embed.Type != discordgo.EmbedTypeVideo && embed.Type != discordgo.EmbedTypeGifv {
+			continue
 		}
+		// Discord deduplicates embeds by URL. It makes things easier for us too.
+		if _, handled := handledURLs[embed.URL]; handled {
+			continue
+		}
+		handledURLs[embed.URL] = struct{}{}
+		part := portal.handleDiscordVideoEmbed(intent, embed, msg.ID, i, ts, threadRelation)
 		if part != nil {
 			parts = append(parts, *part)
 		}
@@ -1143,6 +1158,16 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 			delete(attachmentMap, remainingSticker.ID)
 		}
 	}
+	for _, remainingEmbed := range msg.Embeds {
+		// Other types of embeds are sent inline with the text message part
+		if remainingEmbed.Type != discordgo.EmbedTypeVideo && remainingEmbed.Type != discordgo.EmbedTypeGifv {
+			continue
+		}
+		embedID := "video_" + remainingEmbed.URL
+		if _, found := attachmentMap[embedID]; found {
+			delete(attachmentMap, embedID)
+		}
+	}
 	for _, deletedAttachment := range attachmentMap {
 		_, err := intent.RedactEvent(portal.MXID, deletedAttachment.MXID)
 		if err != nil {
@@ -1151,36 +1176,32 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		deletedAttachment.Delete()
 	}
 
-	if (msg.Content == "" && msg.Interaction == nil) || existing[0].AttachmentID != "" {
+	var converted *ConvertedMessage
+	// Slightly hacky special case: messages with gif links will get an embed with the gif.
+	// The link isn't rendered on Discord, so just edit the link message into a gif message on Matrix too.
+	if isPlainGifMessage(msg) {
+		converted = portal.convertDiscordVideoEmbed(intent, msg.Embeds[0])
+	} else {
+		converted = portal.convertDiscordTextMessage(intent, msg, nil, true)
+	}
+	if converted == nil {
 		portal.log.Debugfln("Dropping non-text edit to %s (message on matrix: %t, text on discord: %t)", msg.ID, existing[0].AttachmentID == "", len(msg.Content) > 0)
 		return
 	}
-	var content event.MessageEventContent
-	var extraContent map[string]any
-	if isPlainGifMessage(msg) {
-		converted := portal.convertDiscordVideoEmbed(intent, msg.Embeds[0])
-		content = *converted.Content
-		extraContent = converted.Extra
-	} else {
-		content = portal.renderDiscordMarkdown(msg.Content, msg.Interaction)
-		extraContent = map[string]any{
-			"com.beeper.linkpreviews": portal.convertDiscordLinkEmbedsToBeeper(intent, msg.Embeds),
-		}
-	}
-	content.SetEdit(existing[0].MXID)
+	converted.Content.SetEdit(existing[0].MXID)
 	extraContentCopy := map[string]any{}
-	for key, value := range extraContent {
+	for key, value := range converted.Extra {
 		extraContentCopy[key] = value
 	}
-	extraContentCopy["m.new_content"] = extraContent
-	extraContent = extraContentCopy
+	extraContentCopy["m.new_content"] = converted.Extra
+	converted.Extra = extraContentCopy
 
 	var editTS int64
 	if msg.EditedTimestamp != nil {
 		editTS = msg.EditedTimestamp.UnixMilli()
 	}
 	// TODO figure out some way to deduplicate outgoing edits
-	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, &content, extraContent, editTS)
+	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, converted.Content, converted.Extra, editTS)
 	if err != nil {
 		portal.log.Warnfln("Failed to send message %s to matrix: %v", msg.ID, err)
 		return

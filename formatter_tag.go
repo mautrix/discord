@@ -37,7 +37,8 @@ import (
 
 type astDiscordTag struct {
 	ast.BaseInline
-	id int64
+	portal *Portal
+	id     int64
 }
 
 var _ ast.Node = (*astDiscordTag)(nil)
@@ -143,7 +144,10 @@ func (s *discordTagParser) Trigger() []byte {
 	return []byte{'<'}
 }
 
+var parserContextPortal = parser.NewContextKey()
+
 func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
+	portal := pc.Get(parserContextPortal).(*Portal)
 	//before := block.PrecendingCharacter()
 	line, _ := block.PeekLine()
 	match := discordTagRegex.FindSubmatch(line)
@@ -157,7 +161,7 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 	if err != nil {
 		return nil
 	}
-	tag := astDiscordTag{id: id}
+	tag := astDiscordTag{id: id, portal: portal}
 	tagName := string(match[1])
 	switch {
 	case tagName == "@":
@@ -199,9 +203,9 @@ func (s *discordTagParser) CloseBlock(parent ast.Node, pc parser.Context) {
 	// nothing to do
 }
 
-type discordTagHTMLRenderer struct {
-	portal *Portal
-}
+type discordTagHTMLRenderer struct{}
+
+var defaultDiscordTagHTMLRenderer = &discordTagHTMLRenderer{}
 
 func (r *discordTagHTMLRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(astKindDiscordTag, r.renderDiscordMention)
@@ -259,17 +263,17 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 	}
 	switch node := n.(type) {
 	case *astDiscordUserMention:
-		puppet := r.portal.bridge.GetPuppetByID(strconv.FormatInt(node.id, 10))
+		puppet := node.portal.bridge.GetPuppetByID(strconv.FormatInt(node.id, 10))
 		_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s">%s</a>`, puppet.MXID, puppet.Name)
 		return
 	case *astDiscordRoleMention:
-		role := r.portal.bridge.DB.Role.GetByID(r.portal.GuildID, strconv.FormatInt(node.id, 10))
+		role := node.portal.bridge.DB.Role.GetByID(node.portal.GuildID, strconv.FormatInt(node.id, 10))
 		if role != nil {
 			_, _ = fmt.Fprintf(w, `<font color="#%06x"><strong>@%s</strong></font>`, role.Color, role.Name)
 			return
 		}
 	case *astDiscordChannelMention:
-		portal := r.portal.bridge.GetExistingPortalByID(database.PortalKey{
+		portal := node.portal.bridge.GetExistingPortalByID(database.PortalKey{
 			ChannelID: strconv.FormatInt(node.id, 10),
 			Receiver:  "",
 		})
@@ -282,7 +286,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			return
 		}
 	case *astDiscordCustomEmoji:
-		reactionMXC := r.portal.getEmojiMXCByDiscordID(strconv.FormatInt(node.id, 10), node.name, node.animated)
+		reactionMXC := node.portal.getEmojiMXCByDiscordID(strconv.FormatInt(node.id, 10), node.name, node.animated)
 		if !reactionMXC.IsEmpty() {
 			_, _ = fmt.Fprintf(w, `<img data-mx-emoticon src="%[1]s" alt="%[2]s" title="%[2]s" height="32"/>`, reactionMXC.String(), node.name)
 			return
@@ -310,15 +314,15 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 	return
 }
 
-type DiscordTag struct {
-	Portal *Portal
-}
+type discordTag struct{}
 
-func (e *DiscordTag) Extend(m goldmark.Markdown) {
+var ExtDiscordTag = &discordTag{}
+
+func (e *discordTag) Extend(m goldmark.Markdown) {
 	m.Parser().AddOptions(parser.WithInlineParsers(
 		util.Prioritized(defaultDiscordTagParser, 600),
 	))
 	m.Renderer().AddOptions(renderer.WithNodeRenderers(
-		util.Prioritized(&discordTagHTMLRenderer{e.Portal}, 600),
+		util.Prioritized(defaultDiscordTagHTMLRenderer, 600),
 	))
 }

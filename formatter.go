@@ -33,8 +33,15 @@ import (
 	"maunium.net/go/mautrix/util/variationselector"
 )
 
-var discordExtensions = goldmark.WithExtensions(extension.Strikethrough, mdext.SimpleSpoiler, mdext.DiscordUnderline, &DiscordEveryone{})
+// escapeFixer is a hacky partial fix for the difference in escaping markdown, used with escapeReplacement
+//
+// Discord allows escaping with just one backslash, e.g. \__a__,
+// but standard markdown requires both to be escaped (\_\_a__)
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
+
+func escapeReplacement(s string) string {
+	return s[:2] + `\` + s[2:]
+}
 
 // indentableParagraphParser is the default paragraph parser with CanAcceptIndentedLine.
 // Used when disabling CodeBlockParser (as disabling it without a replacement will make indented blocks disappear).
@@ -48,24 +55,24 @@ func (b *indentableParagraphParser) CanAcceptIndentedLine() bool {
 	return true
 }
 
-func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string) string {
-	text = escapeFixer.ReplaceAllStringFunc(text, func(s string) string {
-		return s[:2] + `\` + s[2:]
-	})
+var discordRenderer = goldmark.New(
+	goldmark.WithParser(mdext.ParserWithoutFeatures(
+		parser.NewListParser(), parser.NewListItemParser(), parser.NewHTMLBlockParser(), parser.NewRawHTMLParser(),
+		parser.NewSetextHeadingParser(), parser.NewATXHeadingParser(), parser.NewThematicBreakParser(),
+		parser.NewLinkParser(), parser.NewCodeBlockParser(),
+	)),
+	goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(defaultIndentableParagraphParser, 500))),
+	format.HTMLOptions,
+	goldmark.WithExtensions(extension.Strikethrough, mdext.SimpleSpoiler, mdext.DiscordUnderline, ExtDiscordEveryone, ExtDiscordTag),
+)
 
-	mdRenderer := goldmark.New(
-		goldmark.WithParser(mdext.ParserWithoutFeatures(
-			parser.NewListParser(), parser.NewListItemParser(), parser.NewHTMLBlockParser(), parser.NewRawHTMLParser(),
-			parser.NewSetextHeadingParser(), parser.NewATXHeadingParser(), parser.NewThematicBreakParser(),
-			parser.NewLinkParser(), parser.NewCodeBlockParser(),
-		)),
-		goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(defaultIndentableParagraphParser, 500))),
-		format.HTMLOptions, discordExtensions,
-		goldmark.WithExtensions(&DiscordTag{portal}),
-	)
+func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string) string {
+	text = escapeFixer.ReplaceAllStringFunc(text, escapeReplacement)
 
 	var buf strings.Builder
-	err := mdRenderer.Convert([]byte(text), &buf)
+	ctx := parser.NewContext()
+	ctx.Set(parserContextPortal, portal)
+	err := discordRenderer.Convert([]byte(text), &buf, parser.WithContext(ctx))
 	if err != nil {
 		panic(fmt.Errorf("markdown parser errored: %w", err))
 	}

@@ -96,9 +96,11 @@ func (r *discordEveryoneHTMLRenderer) renderDiscordEveryone(w util.BufWriter, so
 	return
 }
 
-type DiscordEveryone struct{}
+type discordEveryone struct{}
 
-func (e *DiscordEveryone) Extend(m goldmark.Markdown) {
+var ExtDiscordEveryone = &discordEveryone{}
+
+func (e *discordEveryone) Extend(m goldmark.Markdown) {
 	m.Parser().AddOptions(parser.WithInlineParsers(
 		util.Prioritized(defaultDiscordEveryoneParser, 600),
 	))

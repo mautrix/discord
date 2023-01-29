@@ -740,7 +740,7 @@ func (portal *Portal) handleDiscordVideoEmbed(intent *appservice.IntentAPI, embe
 const (
 	embedHTMLWrapper         = `<blockquote class="discord-embed">%s</blockquote>`
 	embedHTMLWrapperColor    = `<blockquote class="discord-embed" background-color="#%06X">%s</blockquote>`
-	embedHTMLAuthorWithImage = `<p class="discord-embed-author"><img data-mx-emoticon width="24" height="24" src="%s" title="Author icon" alt="Author icon">&nbsp;<span>%s</span></p>`
+	embedHTMLAuthorWithImage = `<p class="discord-embed-author"><img data-mx-emoticon width="24" height="24" src="%s" title="Author icon" alt="">&nbsp;<span>%s</span></p>`
 	embedHTMLAuthorPlain     = `<p class="discord-embed-author"><span>%s</span></p>`
 	embedHTMLAuthorLink      = `<a href="%s">%s</a>`
 	embedHTMLTitleWithLink   = `<p class="discord-embed-title"><a href="%s"><strong>%s</strong></a></p>`
@@ -750,8 +750,8 @@ const (
 	embedHTMLFieldValue      = `<td>%s</td>`
 	embedHTMLFields          = `<table class="discord-embed-fields"><tr>%s</tr><tr>%s</tr></table>`
 	embedHTMLLinearField     = `<p class="discord-embed-field" x-inline="%s"><strong>%s</strong><br><span>%s</span></p>`
-	embedHTMLImage           = `<p class="discord-embed-image"><img src="%s" alt="Embed image" title="Embed image"></p>`
-	embedHTMLFooterWithImage = `<p class="discord-embed-footer"><sub><img data-mx-emoticon width="20" height="20" src="%s" title="Footer icon" alt="Footer icon">&nbsp;<span>%s</span>%s</sub></p>`
+	embedHTMLImage           = `<p class="discord-embed-image"><img src="%s" alt="" title="Embed image"></p>`
+	embedHTMLFooterWithImage = `<p class="discord-embed-footer"><sub><img data-mx-emoticon width="20" height="20" src="%s" title="Footer icon" alt="">&nbsp;<span>%s</span>%s</sub></p>`
 	embedHTMLFooterPlain     = `<p class="discord-embed-footer"><sub><span>%s</span>%s</sub></p>`
 	embedHTMLFooterOnlyDate  = `<p class="discord-embed-footer"><sub>%s</sub></p>`
 	embedHTMLDate            = `<time datetime="%s">%s</time>`

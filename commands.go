@@ -353,7 +353,7 @@ func fnListGuilds(ce *WrappedCommandEvent) {
 		}
 		var avatarHTML string
 		if !guild.AvatarURL.IsEmpty() {
-			avatarHTML = fmt.Sprintf(`<img data-mx-emoticon height="24" width="24" src="%s" alt="" title="Guild avatar"> `, guild.AvatarURL.String())
+			avatarHTML = fmt.Sprintf(`<img data-mx-emoticon height="24" src="%s" alt="" title="Guild avatar"> `, guild.AvatarURL.String())
 		}
 		items = append(items, fmt.Sprintf("<li>%s%s (<code>%s</code>) - %s</li>", avatarHTML, html.EscapeString(guild.Name), guild.ID, status))
 	}

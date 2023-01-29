@@ -917,6 +917,8 @@ const msgInteractionTemplateHTML = `<blockquote>
 <a href="https://matrix.to/#/%s">%s</a> used <font color="#3771bb">/%s</font>
 </blockquote>`
 
+const msgComponentTemplateHTML = `<p>This message contains interactive elements. Use the Discord app to interact with the message.</p>`
+
 func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, msg *discordgo.Message, relation *event.RelatesTo, isEdit bool) *ConvertedMessage {
 	var htmlParts []string
 	if msg.Interaction != nil {
@@ -939,6 +941,10 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 		default:
 			portal.log.Warnfln("Unknown type %s in embed #%d of message %s", embed.Type, i+1, msg.ID)
 		}
+	}
+
+	if len(msg.Components) > 0 {
+		htmlParts = append(htmlParts, msgComponentTemplateHTML)
 	}
 
 	if len(htmlParts) == 0 {

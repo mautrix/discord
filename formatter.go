@@ -55,24 +55,35 @@ func (b *indentableParagraphParser) CanAcceptIndentedLine() bool {
 	return true
 }
 
+var removeFeaturesExceptLinks = []any{
+	parser.NewListParser(), parser.NewListItemParser(), parser.NewHTMLBlockParser(), parser.NewRawHTMLParser(),
+	parser.NewSetextHeadingParser(), parser.NewATXHeadingParser(), parser.NewThematicBreakParser(),
+	parser.NewCodeBlockParser(),
+}
+var removeFeaturesAndLinks = append(removeFeaturesExceptLinks, parser.NewLinkParser())
+var fixIndentedParagraphs = goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(defaultIndentableParagraphParser, 500)))
+var discordExtensions = goldmark.WithExtensions(extension.Strikethrough, mdext.SimpleSpoiler, mdext.DiscordUnderline, ExtDiscordEveryone, ExtDiscordTag)
+
 var discordRenderer = goldmark.New(
-	goldmark.WithParser(mdext.ParserWithoutFeatures(
-		parser.NewListParser(), parser.NewListItemParser(), parser.NewHTMLBlockParser(), parser.NewRawHTMLParser(),
-		parser.NewSetextHeadingParser(), parser.NewATXHeadingParser(), parser.NewThematicBreakParser(),
-		parser.NewLinkParser(), parser.NewCodeBlockParser(),
-	)),
-	goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(defaultIndentableParagraphParser, 500))),
-	format.HTMLOptions,
-	goldmark.WithExtensions(extension.Strikethrough, mdext.SimpleSpoiler, mdext.DiscordUnderline, ExtDiscordEveryone, ExtDiscordTag),
+	goldmark.WithParser(mdext.ParserWithoutFeatures(removeFeaturesAndLinks...)),
+	fixIndentedParagraphs, format.HTMLOptions, discordExtensions,
+)
+var discordRendererWithInlineLinks = goldmark.New(
+	goldmark.WithParser(mdext.ParserWithoutFeatures(removeFeaturesExceptLinks...)),
+	fixIndentedParagraphs, format.HTMLOptions, discordExtensions,
 )
 
-func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string) string {
+func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLinks bool) string {
 	text = escapeFixer.ReplaceAllStringFunc(text, escapeReplacement)
 
 	var buf strings.Builder
 	ctx := parser.NewContext()
 	ctx.Set(parserContextPortal, portal)
-	err := discordRenderer.Convert([]byte(text), &buf, parser.WithContext(ctx))
+	renderer := discordRenderer
+	if allowInlineLinks {
+		renderer = discordRendererWithInlineLinks
+	}
+	err := renderer.Convert([]byte(text), &buf, parser.WithContext(ctx))
 	if err != nil {
 		panic(fmt.Errorf("markdown parser errored: %w", err))
 	}

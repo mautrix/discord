@@ -779,7 +779,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 	}
 	if embed.Title != "" {
 		var titleHTML string
-		baseTitleHTML := portal.renderDiscordMarkdownOnlyHTML(embed.Title)
+		baseTitleHTML := portal.renderDiscordMarkdownOnlyHTML(embed.Title, false)
 		if embed.URL != "" {
 			titleHTML = fmt.Sprintf(embedHTMLTitleWithLink, html.EscapeString(embed.URL), baseTitleHTML)
 		} else {
@@ -788,7 +788,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		htmlParts = append(htmlParts, titleHTML)
 	}
 	if embed.Description != "" {
-		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, portal.renderDiscordMarkdownOnlyHTML(embed.Description)))
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, portal.renderDiscordMarkdownOnlyHTML(embed.Description, true)))
 	}
 	for i := 0; i < len(embed.Fields); i++ {
 		item := embed.Fields[i]
@@ -805,15 +805,15 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 			headerParts := make([]string, len(splitItems))
 			contentParts := make([]string, len(splitItems))
 			for j, splitItem := range splitItems {
-				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, portal.renderDiscordMarkdownOnlyHTML(splitItem.Name))
-				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, portal.renderDiscordMarkdownOnlyHTML(splitItem.Value))
+				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, portal.renderDiscordMarkdownOnlyHTML(splitItem.Name, false))
+				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, portal.renderDiscordMarkdownOnlyHTML(splitItem.Value, true))
 			}
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFields, strings.Join(headerParts, ""), strings.Join(contentParts, "")))
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLLinearField,
 				strconv.FormatBool(item.Inline),
-				portal.renderDiscordMarkdownOnlyHTML(item.Name),
-				portal.renderDiscordMarkdownOnlyHTML(item.Value),
+				portal.renderDiscordMarkdownOnlyHTML(item.Name, false),
+				portal.renderDiscordMarkdownOnlyHTML(item.Value, true),
 			))
 		}
 	}
@@ -927,7 +927,7 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 		htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, puppet.MXID, puppet.Name, msg.Interaction.Name))
 	}
 	if msg.Content != "" && !isPlainGifMessage(msg) {
-		htmlParts = append(htmlParts, portal.renderDiscordMarkdownOnlyHTML(msg.Content))
+		htmlParts = append(htmlParts, portal.renderDiscordMarkdownOnlyHTML(msg.Content, false))
 	}
 	previews := make([]*BeeperLinkPreview, 0)
 	for i, embed := range msg.Embeds {

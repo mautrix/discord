@@ -23,6 +23,7 @@ import (
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/commands"
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util"
 	"maunium.net/go/mautrix/util/configupgrade"
 
 	"go.mau.fi/mautrix-discord/config"
@@ -71,6 +72,8 @@ type DiscordBridge struct {
 	puppets             map[string]*Puppet
 	puppetsByCustomMXID map[id.UserID]*Puppet
 	puppetsLock         sync.Mutex
+
+	attachmentTransfers *util.SyncMap[attachmentKey, *util.ReturnableOnce[*database.File]]
 }
 
 func (br *DiscordBridge) GetExampleConfig() string {
@@ -163,6 +166,8 @@ func main() {
 
 		puppets:             make(map[string]*Puppet),
 		puppetsByCustomMXID: make(map[id.UserID]*Puppet),
+
+		attachmentTransfers: util.NewSyncMap[attachmentKey, *util.ReturnableOnce[*database.File]](),
 	}
 	br.Bridge = bridge.Bridge{
 		Name:         "mautrix-discord",

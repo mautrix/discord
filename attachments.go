@@ -17,6 +17,7 @@ import (
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util"
 
 	"go.mau.fi/mautrix-discord/database"
 )
@@ -146,32 +147,51 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 }
 
 type AttachmentMeta struct {
-	AttachmentID string
-	MimeType     string
-	EmojiName    string
+	AttachmentID  string
+	MimeType      string
+	EmojiName     string
+	CopyIfMissing bool
 }
 
-func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, meta *AttachmentMeta) (*database.File, error) {
-	dbFile := br.DB.File.Get(url, encrypt)
-	if dbFile == nil {
-		data, err := downloadDiscordAttachment(url)
-		if err != nil {
-			return nil, err
-		}
+var NoMeta = AttachmentMeta{}
 
-		if meta == nil {
-			meta = &AttachmentMeta{}
-		}
-		dbFile, err = br.uploadMatrixAttachment(intent, data, url, encrypt, *meta)
-		if err != nil {
-			return nil, err
-		}
-		// TODO add option to cache encrypted files too?
-		if !dbFile.Encrypted {
-			dbFile.Insert(nil)
-		}
+type attachmentKey struct {
+	URL     string
+	Encrypt bool
+}
+
+func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, meta AttachmentMeta) (returnDBFile *database.File, returnErr error) {
+	isCacheable := !encrypt
+	returnDBFile = br.DB.File.Get(url, encrypt)
+	if returnDBFile == nil {
+		transferKey := attachmentKey{url, encrypt}
+		once, _ := br.attachmentTransfers.GetOrSet(transferKey, &util.ReturnableOnce[*database.File]{})
+		returnDBFile, returnErr = once.Do(func() (onceDBFile *database.File, onceErr error) {
+			if isCacheable {
+				onceDBFile = br.DB.File.Get(url, encrypt)
+				if onceDBFile != nil {
+					return
+				}
+			}
+
+			var data []byte
+			data, onceErr = downloadDiscordAttachment(url)
+			if onceErr != nil {
+				return
+			}
+
+			onceDBFile, onceErr = br.uploadMatrixAttachment(intent, data, url, encrypt, meta)
+			if onceErr != nil {
+				return
+			}
+			if isCacheable {
+				onceDBFile.Insert(nil)
+			}
+			br.attachmentTransfers.Delete(transferKey)
+			return
+		})
 	}
-	return dbFile, nil
+	return
 }
 
 func (portal *Portal) getEmojiMXCByDiscordID(emojiID, name string, animated bool) id.ContentURI {
@@ -183,7 +203,7 @@ func (portal *Portal) getEmojiMXCByDiscordID(emojiID, name string, animated bool
 		url = discordgo.EndpointEmoji(emojiID)
 		mimeType = "image/png"
 	}
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(portal.MainIntent(), url, false, &AttachmentMeta{
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(portal.MainIntent(), url, false, AttachmentMeta{
 		AttachmentID: emojiID,
 		MimeType:     mimeType,
 		EmojiName:    name,

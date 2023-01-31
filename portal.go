@@ -555,7 +555,7 @@ func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridg
 const DiscordStickerSize = 160
 
 func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.IntentAPI, id, url string, content *event.MessageEventContent, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, &AttachmentMeta{AttachmentID: id, MimeType: content.Info.MimeType})
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, AttachmentMeta{AttachmentID: id, MimeType: content.Info.MimeType})
 	if err != nil {
 		errorEventID := portal.sendMediaFailedMessage(intent, err)
 		if errorEventID != "" {
@@ -675,7 +675,7 @@ type ConvertedMessage struct {
 }
 
 func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *ConvertedMessage {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, nil)
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, NoMeta)
 	if err != nil {
 		return &ConvertedMessage{Content: portal.createMediaFailedMessage(err)}
 	}
@@ -768,7 +768,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		}
 		authorHTML = fmt.Sprintf(embedHTMLAuthorPlain, authorNameHTML)
 		if embed.Author.ProxyIconURL != "" {
-			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Author.ProxyIconURL, false, nil)
+			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Author.ProxyIconURL, false, NoMeta)
 			if err != nil {
 				portal.log.Warnfln("Failed to reupload author icon in embed #%d of message %s: %v", index+1, msgID, err)
 			} else {
@@ -818,7 +818,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		}
 	}
 	if embed.Image != nil {
-		dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.ProxyURL, false, nil)
+		dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.ProxyURL, false, NoMeta)
 		if err != nil {
 			portal.log.Warnfln("Failed to reupload image in embed #%d of message %s: %v", index+1, msgID, err)
 		} else {
@@ -844,7 +844,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		}
 		footerHTML = fmt.Sprintf(embedHTMLFooterPlain, html.EscapeString(embed.Footer.Text), datePart)
 		if embed.Footer.ProxyIconURL != "" {
-			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Footer.ProxyIconURL, false, nil)
+			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Footer.ProxyIconURL, false, NoMeta)
 			if err != nil {
 				portal.log.Warnfln("Failed to reupload footer icon in embed #%d of message %s: %v", index+1, msgID, err)
 			} else {
@@ -876,7 +876,7 @@ type BeeperLinkPreview struct {
 }
 
 func (portal *Portal) convertDiscordLinkEmbedImage(intent *appservice.IntentAPI, url string, width, height int, preview *BeeperLinkPreview) {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, nil)
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, NoMeta)
 	if err != nil {
 		portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
 	} else {

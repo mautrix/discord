@@ -919,6 +919,39 @@ const msgInteractionTemplateHTML = `<blockquote>
 
 const msgComponentTemplateHTML = `<p>This message contains interactive elements. Use the Discord app to interact with the message.</p>`
 
+type BridgeEmbedType int
+
+const (
+	EmbedUnknown BridgeEmbedType = iota
+	EmbedRich
+	EmbedLinkPreview
+	EmbedVideo
+)
+
+func isActuallyLinkPreview(embed *discordgo.MessageEmbed) bool {
+	// Sending YouTube links creates a video embed, but we want to bridge it as a URL preview,
+	// so this is a hacky way to detect those.
+	return embed.Video != nil && embed.Video.ProxyURL == ""
+}
+
+func getEmbedType(embed *discordgo.MessageEmbed) BridgeEmbedType {
+	switch embed.Type {
+	case discordgo.EmbedTypeLink, discordgo.EmbedTypeArticle:
+		return EmbedLinkPreview
+	case discordgo.EmbedTypeVideo:
+		if isActuallyLinkPreview(embed) {
+			return EmbedLinkPreview
+		}
+		return EmbedVideo
+	case discordgo.EmbedTypeGifv:
+		return EmbedVideo
+	case discordgo.EmbedTypeRich, discordgo.EmbedTypeImage:
+		return EmbedRich
+	default:
+		return EmbedUnknown
+	}
+}
+
 func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, msg *discordgo.Message, relation *event.RelatesTo, isEdit bool) *ConvertedMessage {
 	var htmlParts []string
 	if msg.Interaction != nil {
@@ -931,12 +964,12 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 	}
 	previews := make([]*BeeperLinkPreview, 0)
 	for i, embed := range msg.Embeds {
-		switch embed.Type {
-		case discordgo.EmbedTypeRich, discordgo.EmbedTypeImage:
+		switch getEmbedType(embed) {
+		case EmbedRich:
 			htmlParts = append(htmlParts, portal.convertDiscordRichEmbed(intent, embed, msg.ID, i))
-		case discordgo.EmbedTypeLink, discordgo.EmbedTypeArticle:
+		case EmbedLinkPreview:
 			previews = append(previews, portal.convertDiscordLinkEmbedToBeeper(intent, embed))
-		case discordgo.EmbedTypeVideo, discordgo.EmbedTypeGifv:
+		case EmbedVideo:
 			// Ignore video embeds, they're handled as separate messages
 		default:
 			portal.log.Warnfln("Unknown type %s in embed #%d of message %s", embed.Type, i+1, msg.ID)
@@ -1057,7 +1090,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	handledURLs := make(map[string]struct{})
 	for i, embed := range msg.Embeds {
 		// Ignore non-video embeds, they're handled in convertDiscordTextMessage
-		if embed.Type != discordgo.EmbedTypeVideo && embed.Type != discordgo.EmbedTypeGifv {
+		if getEmbedType(embed) != EmbedVideo {
 			continue
 		}
 		// Discord deduplicates embeds by URL. It makes things easier for us too.
@@ -1181,7 +1214,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	}
 	for _, remainingEmbed := range msg.Embeds {
 		// Other types of embeds are sent inline with the text message part
-		if remainingEmbed.Type != discordgo.EmbedTypeVideo && remainingEmbed.Type != discordgo.EmbedTypeGifv {
+		if getEmbedType(remainingEmbed) != EmbedVideo {
 			continue
 		}
 		embedID := "video_" + remainingEmbed.URL

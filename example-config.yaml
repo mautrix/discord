@@ -151,8 +151,8 @@ bridge:
         target: webp
         # Arguments for converter. All converters take width and height.
         args:
-            width: 256
-            height: 256
+            width: 320
+            height: 320
             fps: 25 # only for webm, webp and gif (2, 5, 10, 20 or 25 recommended)
     # Servers to always allow double puppeting from
     double_puppet_server_map:

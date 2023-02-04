@@ -578,6 +578,10 @@ func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.Inte
 		content.Info.Width = dbFile.Width
 		content.Info.Height = dbFile.Height
 	}
+	if content.Info.Width == 0 && content.Info.Height == 0 && typeName == "sticker" {
+		content.Info.Width = DiscordStickerSize
+		content.Info.Height = DiscordStickerSize
+	}
 	if dbFile.DecryptionInfo != nil {
 		content.File = &event.EncryptedFileInfo{
 			EncryptedFile: *dbFile.DecryptionInfo,

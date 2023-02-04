@@ -145,7 +145,7 @@ CREATE TABLE role (
     CONSTRAINT role_guild_fkey FOREIGN KEY (dc_guild_id) REFERENCES guild (dcid) ON DELETE CASCADE
 );
 
-CREATE TABLE new_discord_file (
+CREATE TABLE discord_file (
     url       TEXT,
     encrypted BOOLEAN,
     mxc       TEXT NOT NULL UNIQUE,

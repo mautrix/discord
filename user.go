@@ -521,6 +521,7 @@ func (user *User) Connect() error {
 	user.Session = session
 
 	user.Session.AddHandler(user.readyHandler)
+	user.Session.AddHandler(user.resumeHandler)
 	user.Session.AddHandler(user.connectedHandler)
 	user.Session.AddHandler(user.disconnectedHandler)
 	user.Session.AddHandler(user.invalidAuthHandler)
@@ -613,7 +614,34 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.Update()
 	}
 
+	go user.subscribeGuilds(2 * time.Second)
+
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
+}
+
+func (user *User) subscribeGuilds(delay time.Duration) {
+	for _, guildMeta := range user.Session.State.Guilds {
+		guild := user.bridge.GetGuildByID(guildMeta.ID, false)
+		if guild != nil && guild.MXID != "" {
+			user.log.Debugfln("Subscribing to guild %s", guild.ID)
+			dat := discordgo.GuildSubscribeData{
+				GuildID:    guild.ID,
+				Typing:     true,
+				Activities: true,
+				Threads:    true,
+			}
+			err := user.Session.SubscribeGuild(dat)
+			if err != nil {
+				user.log.Warnfln("Failed to subscribe to %s: %v", guild.ID, err)
+			}
+			time.Sleep(delay)
+		}
+	}
+}
+
+func (user *User) resumeHandler(_ *discordgo.Session, r *discordgo.Resumed) {
+	user.log.Debugln("Discord connection resumed")
+	user.subscribeGuilds(0 * time.Second)
 }
 
 func (user *User) addPrivateChannelToSpace(portal *Portal) bool {

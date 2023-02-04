@@ -995,11 +995,7 @@ func (user *User) typingStartHandler(_ *discordgo.Session, t *discordgo.TypingSt
 	if portal == nil || portal.MXID == "" {
 		return
 	}
-	puppet := user.bridge.GetPuppetByID(t.UserID)
-	_, err := puppet.IntentFor(portal).UserTyping(portal.MXID, true, 12*time.Second)
-	if err != nil {
-		user.log.Warnfln("Failed to mark %s as typing in %s: %v", puppet.MXID, portal.MXID, err)
-	}
+	portal.handleDiscordTyping(t)
 }
 
 func (user *User) interactionSuccessHandler(_ *discordgo.Session, s *discordgo.InteractionSuccess) {

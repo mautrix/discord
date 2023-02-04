@@ -1282,6 +1282,24 @@ func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Mess
 	}
 }
 
+func (portal *Portal) handleDiscordTyping(evt *discordgo.TypingStart) {
+	puppet := portal.bridge.GetPuppetByID(evt.UserID)
+	if puppet.Name == "" {
+		// Puppet hasn't been synced yet
+		return
+	}
+	intent := puppet.IntentFor(portal)
+	err := intent.EnsureJoined(portal.MXID)
+	if err != nil {
+		portal.log.Warnfln("Failed to ensure %s is joined for typing notification: %v", puppet.MXID, portal.MXID, err)
+		return
+	}
+	_, err = intent.UserTyping(portal.MXID, true, 12*time.Second)
+	if err != nil {
+		portal.log.Warnfln("Failed to mark %s as typing: %v", puppet.MXID, portal.MXID, err)
+	}
+}
+
 func (portal *Portal) syncParticipants(source *User, participants []*discordgo.User) {
 	for _, participant := range participants {
 		puppet := portal.bridge.GetPuppetByID(participant.ID)

@@ -1153,6 +1153,17 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	guild.AutoBridgeChannels = everything
 	guild.Update()
 
+	user.log.Debugfln("Subscribing to guild %s after bridging", guild.ID)
+	err = user.Session.SubscribeGuild(discordgo.GuildSubscribeData{
+		GuildID:    guild.ID,
+		Typing:     true,
+		Activities: true,
+		Threads:    true,
+	})
+	if err != nil {
+		user.log.Warnfln("Failed to subscribe to %s: %v", guild.ID, err)
+	}
+
 	return nil
 }
 

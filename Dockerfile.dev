@@ -1,7 +1,12 @@
+FROM dock.mau.dev/tulir/lottieconverter AS lottie
+
 FROM golang:1-alpine3.17 AS builder
 
-RUN apk add --no-cache git ca-certificates build-base su-exec olm-dev bash jq yq curl
+RUN apk add --no-cache git ca-certificates build-base su-exec olm-dev bash jq yq curl \
+    zlib libpng giflib libstdc++ libgcc
 
+COPY --from=lottie /usr/lib/librlottie.so* /usr/lib/
+COPY --from=lottie /usr/local/bin/lottieconverter /usr/local/bin/lottieconverter
 COPY . /build
 WORKDIR /build
 RUN go build -o /usr/bin/mautrix-discord

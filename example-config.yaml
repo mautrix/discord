@@ -140,6 +140,20 @@ bridge:
     # Whether or not created rooms should have federation enabled.
     # If false, created portal rooms will never be federated.
     federate_rooms: true
+    # Settings for converting animated stickers.
+    animated_sticker:
+        # Format to which animated stickers should be converted.
+        # disable - No conversion, send as-is (lottie JSON)
+        # png - converts to non-animated png (fastest)
+        # gif - converts to animated gif
+        # webm - converts to webm video, requires ffmpeg executable with vp9 codec and webm container support
+        # webp - converts to animated webp, requires ffmpeg executable with webp codec/container support
+        target: webp
+        # Arguments for converter. All converters take width and height.
+        args:
+            width: 256
+            height: 256
+            fps: 25 # only for webm, webp and gif (2, 5, 10, 20 or 25 recommended)
     # Servers to always allow double puppeting from
     double_puppet_server_map:
         example.com: https://example.com

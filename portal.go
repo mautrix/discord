@@ -555,7 +555,11 @@ func (portal *Portal) sendMediaFailedMessage(intent *appservice.IntentAPI, bridg
 const DiscordStickerSize = 160
 
 func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.IntentAPI, id, url string, content *event.MessageEventContent, ts time.Time, threadRelation *event.RelatesTo) *database.MessagePart {
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, AttachmentMeta{AttachmentID: id, MimeType: content.Info.MimeType})
+	meta := AttachmentMeta{AttachmentID: id, MimeType: content.Info.MimeType}
+	if typeName == "sticker" && content.Info.MimeType == "application/json" {
+		meta.Converter = portal.bridge.convertLottie
+	}
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, meta)
 	if err != nil {
 		errorEventID := portal.sendMediaFailedMessage(intent, err)
 		if errorEventID != "" {
@@ -565,6 +569,9 @@ func (portal *Portal) handleDiscordFile(typeName string, intent *appservice.Inte
 			}
 		}
 		return nil
+	}
+	if typeName == "sticker" && content.Info.MimeType == "application/json" {
+		content.Info.MimeType = dbFile.MimeType
 	}
 	content.Info.Size = dbFile.Size
 	if content.Info.Width == 0 && content.Info.Height == 0 {

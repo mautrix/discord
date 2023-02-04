@@ -2,10 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +23,7 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/util"
+	"maunium.net/go/mautrix/util/ffmpeg"
 
 	"go.mau.fi/mautrix-discord/database"
 )
@@ -151,6 +157,7 @@ type AttachmentMeta struct {
 	MimeType      string
 	EmojiName     string
 	CopyIfMissing bool
+	Converter     func([]byte) ([]byte, string, error)
 }
 
 var NoMeta = AttachmentMeta{}
@@ -158,6 +165,78 @@ var NoMeta = AttachmentMeta{}
 type attachmentKey struct {
 	URL     string
 	Encrypt bool
+}
+
+func (br *DiscordBridge) convertLottie(data []byte) ([]byte, string, error) {
+	fps := br.Config.Bridge.AnimatedSticker.Args.FPS
+	width := br.Config.Bridge.AnimatedSticker.Args.Width
+	height := br.Config.Bridge.AnimatedSticker.Args.Height
+	target := br.Config.Bridge.AnimatedSticker.Target
+	var lottieTarget, outputMime string
+	switch target {
+	case "png":
+		lottieTarget = "png"
+		outputMime = "image/png"
+		fps = 1
+	case "gif":
+		lottieTarget = "gif"
+		outputMime = "image/gif"
+	case "webm":
+		lottieTarget = "pngs"
+		outputMime = "video/webm"
+	case "webp":
+		lottieTarget = "pngs"
+		outputMime = "image/webp"
+	case "disable":
+		return data, "application/json", nil
+	default:
+		return nil, "", fmt.Errorf("invalid animated sticker target %q in bridge config", br.Config.Bridge.AnimatedSticker.Target)
+	}
+
+	ctx := context.Background()
+	tempdir, err := os.MkdirTemp("", "mautrix_discord_lottie_")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
+	lottieOutput := filepath.Join(tempdir, "out_")
+	if lottieTarget != "pngs" {
+		lottieOutput = filepath.Join(tempdir, "output."+lottieTarget)
+	}
+	cmd := exec.CommandContext(ctx, "lottieconverter", "-", lottieOutput, lottieTarget, fmt.Sprintf("%dx%d", width, height), strconv.Itoa(fps))
+	cmd.Stdin = bytes.NewReader(data)
+	err = cmd.Run()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to run lottieconverter: %w", err)
+	}
+	var path string
+	if lottieTarget == "pngs" {
+		var videoCodec string
+		outputExtension := "." + target
+		if target == "webm" {
+			videoCodec = "libvpx-vp9"
+		} else if target == "webp" {
+			videoCodec = "libwebp_anim"
+		} else {
+			panic(fmt.Errorf("impossible case: unknown target %q", target))
+		}
+		path, err = ffmpeg.ConvertPath(
+			ctx, lottieOutput+"*.png", outputExtension,
+			[]string{"-framerate", strconv.Itoa(fps), "-pattern_type", "glob"},
+			[]string{"-c:v", videoCodec, "-pix_fmt", "yuva420p", "-f", target},
+			false,
+		)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to run ffmpeg: %w", err)
+		}
+	} else {
+		path = lottieOutput
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read converted file: %w", err)
+	}
+	return data, outputMime, nil
 }
 
 func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, meta AttachmentMeta) (returnDBFile *database.File, returnErr error) {
@@ -178,6 +257,14 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 			data, onceErr = downloadDiscordAttachment(url)
 			if onceErr != nil {
 				return
+			}
+
+			if meta.Converter != nil {
+				data, meta.MimeType, onceErr = meta.Converter(data)
+				if onceErr != nil {
+					onceErr = fmt.Errorf("failed to convert attachment: %w", onceErr)
+					return
+				}
 			}
 
 			onceDBFile, onceErr = br.uploadMatrixAttachment(intent, data, url, encrypt, meta)

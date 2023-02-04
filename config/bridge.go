@@ -50,6 +50,14 @@ type BridgeConfig struct {
 	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`
 	DeleteGuildOnLeave          bool `yaml:"delete_guild_on_leave"`
 	FederateRooms               bool `yaml:"federate_rooms"`
+	AnimatedSticker             struct {
+		Target string `yaml:"target"`
+		Args   struct {
+			Width  int `yaml:"width"`
+			Height int `yaml:"height"`
+			FPS    int `yaml:"fps"`
+		} `yaml:"args"`
+	} `yaml:"animated_sticker"`
 
 	DoublePuppetServerMap      map[string]string `yaml:"double_puppet_server_map"`
 	DoublePuppetAllowDiscovery bool              `yaml:"double_puppet_allow_discovery"`

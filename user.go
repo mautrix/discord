@@ -879,6 +879,10 @@ func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildI
 		}
 		portal = thread.Parent
 	}
+	// Double check because some messages don't have the guild ID specified.
+	if !user.bridgeMessage(portal.GuildID) {
+		return
+	}
 
 	portal.discordMessages <- portalDiscordMessage{
 		msg:    msg,

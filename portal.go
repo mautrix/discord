@@ -986,6 +986,11 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 			portal.log.Warnfln("Unknown type %s in embed #%d of message %s", embed.Type, i+1, msg.ID)
 		}
 	}
+	//handle voice calls
+	if msg.Type == discordgo.MessageTypeCall {
+		portal.log.Warnfln("handled in convert func")
+		htmlParts = append(htmlParts, "Incoming Voice Call")
+	}
 
 	if len(msg.Components) > 0 {
 		htmlParts = append(htmlParts, msgComponentTemplateHTML)

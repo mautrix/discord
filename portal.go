@@ -988,7 +988,6 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 	}
 	//handle voice calls
 	if msg.Type == discordgo.MessageTypeCall {
-		portal.log.Warnfln("handled in convert func")
 		htmlParts = append(htmlParts, "Incoming Voice Call")
 	}
 

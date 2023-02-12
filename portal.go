@@ -964,6 +964,12 @@ func getEmbedType(embed *discordgo.MessageEmbed) BridgeEmbedType {
 }
 
 func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, msg *discordgo.Message, relation *event.RelatesTo, isEdit bool) *ConvertedMessage {
+	if msg.Type == discordgo.MessageTypeCall {
+		return &ConvertedMessage{Content: &event.MessageEventContent{
+			MsgType: event.MsgEmote,
+			Body:    "started a call",
+		}}
+	}
 	var htmlParts []string
 	if msg.Interaction != nil {
 		puppet := portal.bridge.GetPuppetByID(msg.Interaction.User.ID)
@@ -1188,6 +1194,9 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		if !ok {
 			portal.log.Debugfln("Dropping edit with no author of non-recent message %s", msg.ID)
 			return
+		} else if creationMessage.Type == discordgo.MessageTypeCall {
+			portal.log.Debugfln("Dropping edit of call message %s", msg.ID)
+			return
 		}
 		portal.log.Debugfln("Found original message %s in cache for edit without author", msg.ID)
 		if len(msg.Embeds) > 0 {
@@ -1254,8 +1263,10 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		return
 	}
 	converted.Content.SetEdit(existing[0].MXID)
-	converted.Extra = map[string]any{
-		"m.new_content": converted.Extra,
+	if converted.Extra != nil {
+		converted.Extra = map[string]any{
+			"m.new_content": converted.Extra,
+		}
 	}
 
 	var editTS int64

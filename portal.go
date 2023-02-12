@@ -969,6 +969,11 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 			MsgType: event.MsgEmote,
 			Body:    "started a call",
 		}}
+	} else if msg.Type == discordgo.MessageTypeGuildMemberJoin {
+		return &ConvertedMessage{Content: &event.MessageEventContent{
+			MsgType: event.MsgEmote,
+			Body:    "joined the server",
+		}}
 	}
 	var htmlParts []string
 	if msg.Interaction != nil {

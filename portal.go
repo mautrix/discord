@@ -1930,7 +1930,11 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 }
 
 func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool, thread *Thread) {
-	intent := portal.bridge.GetPuppetByID(reaction.UserID).IntentFor(portal)
+	puppet := portal.bridge.GetPuppetByID(reaction.UserID)
+	if reaction.Member != nil && reaction.Member.User != nil {
+		puppet.UpdateInfo(nil, reaction.Member.User)
+	}
+	intent := puppet.IntentFor(portal)
 
 	var discordID string
 	var matrixReaction string

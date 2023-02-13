@@ -3,7 +3,7 @@ module go.mau.fi/mautrix-discord
 go 1.18
 
 require (
-	github.com/bwmarrin/discordgo v0.26.1
+	github.com/bwmarrin/discordgo v0.27.0
 	github.com/gabriel-vasile/mimetype v1.4.1
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/gorilla/mux v1.8.0
@@ -34,4 +34,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20230213095219-cc0cb7eff931
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20230215201850-32771907474d

@@ -198,6 +198,12 @@ func (br *DiscordBridge) convertLottie(data []byte) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
+	defer func() {
+		removErr := os.RemoveAll(tempdir)
+		if removErr != nil {
+			br.Log.Warnfln("Failed to delete lottie conversion temp dir: %v", removErr)
+		}
+	}()
 
 	lottieOutput := filepath.Join(tempdir, "out_")
 	if lottieTarget != "pngs" {

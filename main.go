@@ -173,7 +173,7 @@ func main() {
 		Name:         "mautrix-discord",
 		URL:          "https://github.com/mautrix/discord",
 		Description:  "A Matrix-Discord puppeting bridge.",
-		Version:      "0.1.0",
+		Version:      "0.1.1",
 		ProtocolName: "Discord",
 
 		CryptoPickleKey: "maunium.net/go/mautrix-whatsapp",

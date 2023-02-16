@@ -1,4 +1,4 @@
-# unreleased
+# v0.1.1 (2023-02-16)
 
 * Started automatically subscribing to bridged guilds. This fixes two problems:
   * Typing notifications should now work automatically in guilds.

@@ -34,6 +34,7 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
+	"go.mau.fi/mautrix-discord/database"
 	"go.mau.fi/mautrix-discord/remoteauth"
 )
 
@@ -305,18 +306,19 @@ var cmdGuilds = &commands.FullHandler{
 	Help: commands.HelpMeta{
 		Section:     commands.HelpSectionUnclassified,
 		Description: "Guild bridging management",
-		Args:        "<status/bridge/unbridge> [_guild ID_] [--entire]",
+		Args:        "<status/bridge/unbridge/bridging-mode> [_guild ID_] [...]",
 	},
 	RequiresLogin: true,
 }
 
-const smallGuildsHelp = "**Usage**: `$cmdprefix guilds <help/status/bridge/unbridge> [guild ID] [--entire]`"
+const smallGuildsHelp = "**Usage**: `$cmdprefix guilds <help/status/bridge/unbridge> [guild ID] [...]`"
 
 const fullGuildsHelp = smallGuildsHelp + `
 
 * **help** - View this help message.
 * **status** - View the list of guilds and their bridging status.
 * **bridge <_guild ID_> [--entire]** - Enable bridging for a guild. The --entire flag auto-creates portals for all channels.
+* **bridging-mode <_guild ID_> <_mode_>** - Set the mode for bridging messages and new channels in a guild.
 * **unbridge <_guild ID_>** - Unbridge a guild and delete all channel portal rooms.`
 
 func fnGuilds(ce *WrappedCommandEvent) {
@@ -333,6 +335,8 @@ func fnGuilds(ce *WrappedCommandEvent) {
 		fnBridgeGuild(ce)
 	case "unbridge", "delete":
 		fnUnbridgeGuild(ce)
+	case "bridging-mode", "mode":
+		fnGuildBridgingMode(ce)
 	case "help":
 		ce.Reply(fullGuildsHelp)
 	default:
@@ -347,15 +351,11 @@ func fnListGuilds(ce *WrappedCommandEvent) {
 		if guild == nil {
 			continue
 		}
-		status := "not bridged"
-		if guild.MXID != "" {
-			status = "bridged"
-		}
 		var avatarHTML string
 		if !guild.AvatarURL.IsEmpty() {
 			avatarHTML = fmt.Sprintf(`<img data-mx-emoticon height="24" src="%s" alt="" title="Guild avatar"> `, guild.AvatarURL.String())
 		}
-		items = append(items, fmt.Sprintf("<li>%s%s (<code>%s</code>) - %s</li>", avatarHTML, html.EscapeString(guild.Name), guild.ID, status))
+		items = append(items, fmt.Sprintf("<li>%s%s (<code>%s</code>) - %s</li>", avatarHTML, html.EscapeString(guild.Name), guild.ID, guild.BridgingMode.Description()))
 	}
 	if len(items) == 0 {
 		ce.Reply("No guilds found")
@@ -382,6 +382,36 @@ func fnUnbridgeGuild(ce *WrappedCommandEvent) {
 	} else {
 		ce.Reply("Successfully unbridged guild")
 	}
+}
+
+const availableModes = "Available modes:\n" +
+	"* `nothing` to never bridge any messages (default when unbridged)\n" +
+	"* `if-portal-exists` to bridge messages in existing portals, but drop messages in unbridged channels\n" +
+	"* `create-on-message` to bridge all messages and create portals if necessary on incoming messages (default after bridging)\n" +
+	"* `everything` to bridge all messages and create portals proactively on bridge startup (default if bridged with `--entire`)\n"
+
+func fnGuildBridgingMode(ce *WrappedCommandEvent) {
+	if len(ce.Args) == 0 || len(ce.Args) > 2 {
+		ce.Reply("**Usage**: `$cmdprefix guilds bridging-mode <guild ID> [mode]`\n\n" + availableModes)
+		return
+	}
+	guild := ce.Bridge.GetGuildByID(ce.Args[0], false)
+	if guild == nil {
+		ce.Reply("Guild not found")
+		return
+	}
+	if len(ce.Args) == 1 {
+		ce.Reply("%s (%s) is currently set to %s (`%s`)\n\n%s", guild.PlainName, guild.ID, guild.BridgingMode.Description(), guild.BridgingMode.String(), availableModes)
+		return
+	}
+	mode := database.ParseGuildBridgingMode(ce.Args[1])
+	if mode == database.GuildBridgeInvalid {
+		ce.Reply("Invalid guild bridging mode `%s`", ce.Args[1])
+		return
+	}
+	guild.BridgingMode = mode
+	guild.Update()
+	ce.Reply("Set guild bridging mode to %s", mode.Description())
 }
 
 var cmdDeleteAllPortals = &commands.FullHandler{

@@ -312,6 +312,6 @@ func (guild *Guild) RemoveMXID() {
 	guild.MXID = ""
 	guild.AvatarSet = false
 	guild.NameSet = false
-	guild.AutoBridgeChannels = false
+	guild.BridgingMode = database.GuildBridgeNothing
 	guild.Update()
 }

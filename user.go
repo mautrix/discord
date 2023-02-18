@@ -567,12 +567,15 @@ func (user *User) Disconnect() error {
 	return nil
 }
 
-func (user *User) bridgeMessage(guildID string) bool {
+func (user *User) getGuildBridgingMode(guildID string) database.GuildBridgingMode {
 	if guildID == "" {
-		return true
+		return database.GuildBridgeEverything
 	}
 	guild := user.bridge.GetGuildByID(guildID, false)
-	return guild != nil && guild.MXID != ""
+	if guild == nil {
+		return database.GuildBridgeNothing
+	}
+	return guild.BridgingMode
 }
 
 func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
@@ -769,7 +772,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 	if len(meta.Channels) > 0 {
 		for _, ch := range meta.Channels {
 			portal := user.GetPortalByMeta(ch)
-			if guild.AutoBridgeChannels && portal.MXID == "" && user.channelIsBridgeable(ch) {
+			if guild.BridgingMode >= database.GuildBridgeEverything && portal.MXID == "" && user.channelIsBridgeable(ch) {
 				err := portal.CreateMatrixRoom(user, ch)
 				if err != nil {
 					user.log.Errorfln("Failed to create portal for guild channel %s/%s in initial sync: %v", guild.ID, ch.ID, err)
@@ -843,7 +846,7 @@ func (user *User) guildUpdateHandler(_ *discordgo.Session, g *discordgo.GuildUpd
 }
 
 func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.ChannelCreate) {
-	if !user.bridgeMessage(c.GuildID) {
+	if user.getGuildBridgingMode(c.GuildID) < database.GuildBridgeEverything {
 		user.log.Debugfln("Ignoring channel create event in unbridged guild %s/%s", c.GuildID, c.ID)
 		return
 	}
@@ -893,7 +896,8 @@ func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.Channe
 }
 
 func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildID string) {
-	if !user.bridgeMessage(guildID) {
+	if user.getGuildBridgingMode(guildID) <= database.GuildBridgeNothing {
+		// If guild bridging mode is nothing, don't even check if the portal exists
 		return
 	}
 
@@ -907,8 +911,7 @@ func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildI
 		}
 		portal = thread.Parent
 	}
-	// Double check because some messages don't have the guild ID specified.
-	if !user.bridgeMessage(portal.GuildID) {
+	if mode := user.getGuildBridgingMode(portal.GuildID); mode <= database.GuildBridgeNothing || (portal.MXID == "" && mode <= database.GuildBridgeIfPortalExists) {
 		return
 	}
 
@@ -1150,7 +1153,9 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 			}
 		}
 	}
-	guild.AutoBridgeChannels = everything
+	if everything {
+		guild.BridgingMode = database.GuildBridgeEverything
+	}
 	guild.Update()
 
 	user.log.Debugfln("Subscribing to guild %s after bridging", guild.ID)
@@ -1177,10 +1182,10 @@ func (user *User) unbridgeGuild(guildID string) error {
 	}
 	guild.roomCreateLock.Lock()
 	defer guild.roomCreateLock.Unlock()
-	if !guild.AutoBridgeChannels && guild.MXID == "" {
+	if guild.BridgingMode == database.GuildBridgeNothing && guild.MXID == "" {
 		return errors.New("that guild is not bridged")
 	}
-	guild.AutoBridgeChannels = false
+	guild.BridgingMode = database.GuildBridgeNothing
 	guild.Update()
 	for _, portal := range user.bridge.GetAllPortalsInGuild(guild.ID) {
 		portal.cleanup(false)

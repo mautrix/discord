@@ -1,4 +1,4 @@
--- v0 -> v13: Latest revision
+-- v0 -> v14: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -10,7 +10,7 @@ CREATE TABLE guild (
     avatar_url TEXT NOT NULL,
     avatar_set BOOLEAN NOT NULL,
 
-    auto_bridge_channels BOOLEAN NOT NULL
+    bridging_mode INTEGER NOT NULL
 );
 
 CREATE TABLE portal (

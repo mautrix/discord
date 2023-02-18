@@ -18,6 +18,7 @@ import (
 	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/id"
 
+	"go.mau.fi/mautrix-discord/database"
 	"go.mau.fi/mautrix-discord/remoteauth"
 )
 
@@ -429,11 +430,12 @@ func (p *ProvisioningAPI) reconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 type guildEntry struct {
-	ID         string        `json:"id"`
-	Name       string        `json:"name"`
-	AvatarURL  id.ContentURI `json:"avatar_url"`
-	MXID       id.RoomID     `json:"mxid"`
-	AutoBridge bool          `json:"auto_bridge_channels"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	AvatarURL    id.ContentURI `json:"avatar_url"`
+	MXID         id.RoomID     `json:"mxid"`
+	AutoBridge   bool          `json:"auto_bridge_channels"`
+	BridgingMode string        `json:"bridging_mode"`
 }
 
 type respGuildsList struct {
@@ -451,11 +453,12 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		resp.Guilds = append(resp.Guilds, guildEntry{
-			ID:         guild.ID,
-			Name:       guild.PlainName,
-			AvatarURL:  guild.AvatarURL,
-			MXID:       guild.MXID,
-			AutoBridge: guild.AutoBridgeChannels,
+			ID:           guild.ID,
+			Name:         guild.PlainName,
+			AvatarURL:    guild.AvatarURL,
+			MXID:         guild.MXID,
+			AutoBridge:   guild.BridgingMode == database.GuildBridgeEverything,
+			BridgingMode: guild.BridgingMode.String(),
 		})
 	}
 
@@ -526,7 +529,7 @@ func (p *ProvisioningAPI) guildsUnbridge(w http.ResponseWriter, r *http.Request)
 			Error:   "Guild not found",
 			ErrCode: mautrix.MNotFound.ErrCode,
 		})
-	} else if !guild.AutoBridgeChannels && guild.MXID == "" {
+	} else if guild.BridgingMode == database.GuildBridgeNothing && guild.MXID == "" {
 		jsonResponse(w, http.StatusNotFound, Error{
 			Error:   "That guild is not bridged",
 			ErrCode: ErrCodeGuildNotBridged,

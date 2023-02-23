@@ -513,9 +513,9 @@ func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	case *discordgo.MessageDelete:
 		portal.handleDiscordMessageDelete(msg.user, convertedMsg.Message)
 	case *discordgo.MessageReactionAdd:
-		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, true, msg.thread)
+		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, true, msg.thread, convertedMsg.Member)
 	case *discordgo.MessageReactionRemove:
-		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, false, msg.thread)
+		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, false, msg.thread, nil)
 	default:
 		portal.log.Warnln("unknown message type")
 	}
@@ -1929,10 +1929,10 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	}
 }
 
-func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool, thread *Thread) {
+func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool, thread *Thread, member *discordgo.Member) {
 	puppet := portal.bridge.GetPuppetByID(reaction.UserID)
-	if reaction.Member != nil && reaction.Member.User != nil {
-		puppet.UpdateInfo(nil, reaction.Member.User)
+	if member != nil {
+		puppet.UpdateInfo(user, member.User)
 	}
 	intent := puppet.IntentFor(portal)
 

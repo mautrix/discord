@@ -440,7 +440,7 @@ func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) 
 
 	// TODO sync mute status properly
 	if portal.GuildID != "" && user.bridge.Config.Bridge.MuteChannelsOnCreate {
-		go user.mutePortal(doublePuppetIntent, portal, false)
+		user.mutePortal(doublePuppetIntent, portal, false)
 	}
 }
 

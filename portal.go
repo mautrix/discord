@@ -1548,6 +1548,10 @@ func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.Eve
 			return
 		}
 	}
+	if !sender.Session.IsUser {
+		// Drop read receipts from bot users (after checking for the thread auto-join stuff)
+		return
+	}
 	msg := portal.bridge.DB.Message.GetByMXID(portal.Key, eventID)
 	if msg == nil {
 		msg = portal.bridge.DB.Message.GetClosestBefore(portal.Key, discordThreadID, receipt.Timestamp)

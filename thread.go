@@ -79,7 +79,12 @@ func (thread *Thread) Join(user *User) {
 		return
 	}
 	user.log.Debugfln("Joining thread %s@%s", thread.ID, thread.ParentID)
-	err := user.Session.ThreadJoinWithLocation(thread.ID, discordgo.ThreadJoinLocationContextMenu)
+	var err error
+	if user.Session.IsUser {
+		err = user.Session.ThreadJoinWithLocation(thread.ID, discordgo.ThreadJoinLocationContextMenu)
+	} else {
+		err = user.Session.ThreadJoin(thread.ID)
+	}
 	if err != nil {
 		user.log.Errorfln("Error joining thread %s@%s: %v", thread.ID, thread.ParentID, err)
 	} else {

@@ -562,8 +562,6 @@ func (user *User) Connect() error {
 
 	user.Session.AddHandler(user.interactionSuccessHandler)
 
-	user.Session.Identify.Presence.Status = "online"
-
 	return user.Session.Open()
 }
 
@@ -637,6 +635,9 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 }
 
 func (user *User) subscribeGuilds(delay time.Duration) {
+	if !user.Session.IsUser {
+		return
+	}
 	for _, guildMeta := range user.Session.State.Guilds {
 		guild := user.bridge.GetGuildByID(guildMeta.ID, false)
 		if guild != nil && guild.MXID != "" {
@@ -1172,15 +1173,17 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	}
 	guild.Update()
 
-	user.log.Debugfln("Subscribing to guild %s after bridging", guild.ID)
-	err = user.Session.SubscribeGuild(discordgo.GuildSubscribeData{
-		GuildID:    guild.ID,
-		Typing:     true,
-		Activities: true,
-		Threads:    true,
-	})
-	if err != nil {
-		user.log.Warnfln("Failed to subscribe to %s: %v", guild.ID, err)
+	if user.Session.IsUser {
+		user.log.Debugfln("Subscribing to guild %s after bridging", guild.ID)
+		err = user.Session.SubscribeGuild(discordgo.GuildSubscribeData{
+			GuildID:    guild.ID,
+			Typing:     true,
+			Activities: true,
+			Threads:    true,
+		})
+		if err != nil {
+			user.log.Warnfln("Failed to subscribe to %s: %v", guild.ID, err)
+		}
 	}
 
 	return nil

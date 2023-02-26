@@ -254,12 +254,15 @@ bridge:
         "example.com": user
         "@admin:example.com": admin
 
+# Logging config. See https://github.com/tulir/zeroconfig for details.
 logging:
-  directory: ./logs
-  file_name_format: '{{.Date}}-{{.Index}}.log'
-  file_date_format: "2006-01-02"
-  file_mode: 384
-  timestamp_format: Jan _2, 2006 15:04:05
-  print_level: debug
-  print_json: false
-  file_json: false
+    min_level: debug
+    writers:
+    - type: stdout
+      format: pretty-colored
+    - type: file
+      format: json
+      filename: ./logs/mautrix-discord.log
+      max_size: 100
+      max_backups: 10
+      compress: true

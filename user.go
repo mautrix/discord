@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog"
 	log "maunium.net/go/maulogger/v2"
 
 	"github.com/bwmarrin/discordgo"
@@ -76,34 +76,22 @@ func (user *User) GetRemoteName() string {
 	return user.DiscordID
 }
 
-var discordLog log.Logger
+var discordLog zerolog.Logger
 
 func init() {
 	discordgo.Logger = func(msgL, caller int, format string, a ...interface{}) {
-		pc, file, line, _ := runtime.Caller(caller + 1)
-
-		files := strings.Split(file, "/")
-		file = files[len(files)-1]
-
-		name := runtime.FuncForPC(pc).Name()
-		fns := strings.Split(name, ".")
-		name = fns[len(fns)-1]
-
-		msg := fmt.Sprintf(format, a...)
-
-		var level log.Level
+		var level zerolog.Level
 		switch msgL {
 		case discordgo.LogError:
-			level = log.LevelError
+			level = zerolog.ErrorLevel
 		case discordgo.LogWarning:
-			level = log.LevelWarn
+			level = zerolog.WarnLevel
 		case discordgo.LogInformational:
-			level = log.LevelInfo
+			level = zerolog.InfoLevel
 		case discordgo.LogDebug:
-			level = log.LevelDebug
+			level = zerolog.DebugLevel
 		}
-
-		discordLog.Logfln(level, "%s:%d:%s() %s", file, line, name, msg)
+		discordLog.WithLevel(level).Caller(caller+1).Msgf(strings.TrimSpace(format), a...)
 	}
 }
 
@@ -204,7 +192,7 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 		pendingInteractions: make(map[string]*WrappedCommandEvent),
 	}
 	user.nextDiscordUploadID.Store(rand.Int31n(100))
-	user.BridgeState = br.NewBridgeStateQueue(user, user.log)
+	user.BridgeState = br.NewBridgeStateQueue(user)
 	return user
 }
 

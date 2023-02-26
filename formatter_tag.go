@@ -30,7 +30,6 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
-	"maunium.net/go/mautrix"
 
 	"go.mau.fi/mautrix-discord/database"
 )
@@ -305,7 +304,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		fullHumanReadable := ts.Format(discordTimestampStyle('F').Format())
 		_, _ = fmt.Fprintf(w, `<time title="%s" datetime="%s"><strong>%s</strong></time>`, fullHumanReadable, fullRFC, formatted)
 	}
-	stringifiable, ok := n.(mautrix.Stringifiable)
+	stringifiable, ok := n.(fmt.Stringer)
 	if ok {
 		_, _ = w.WriteString(stringifiable.String())
 	} else {

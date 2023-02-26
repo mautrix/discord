@@ -18,7 +18,12 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
+	"runtime"
+	"strings"
 	"sync"
+
+	"github.com/rs/zerolog"
 
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/commands"
@@ -93,7 +98,17 @@ func (br *DiscordBridge) Init() {
 	br.RegisterCommands()
 
 	br.DB = database.New(br.Bridge.DB, br.Log.Sub("Database"))
-	discordLog = br.Log.Sub("Discord")
+	discordLog = br.ZLog.With().Str("component", "discordgo").Logger()
+
+	// TODO move this to mautrix-go?
+	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
+		files := strings.Split(file, "/")
+		file = files[len(files)-1]
+		name := runtime.FuncForPC(pc).Name()
+		fns := strings.Split(name, ".")
+		name = fns[len(fns)-1]
+		return fmt.Sprintf("%s:%d:%s()", file, line, name)
+	}
 }
 
 func (br *DiscordBridge) Start() {

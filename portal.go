@@ -1908,7 +1908,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 
 		emojiID = fmt.Sprintf("%s:%s", emojiFile.EmojiName, emojiFile.ID)
 	} else {
-		emojiID = variationselector.Remove(emojiID)
+		emojiID = variationselector.FullyQualify(emojiID)
 	}
 
 	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, msg.DiscordID, sender.DiscordID, emojiID)

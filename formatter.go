@@ -206,8 +206,8 @@ func (portal *Portal) parseMatrixHTML(user *User, content *event.MessageEventCon
 		ctx := format.NewContext()
 		ctx.ReturnData[formatterContextUserKey] = user
 		ctx.ReturnData[formatterContextPortalKey] = portal
-		return variationselector.Remove(matrixHTMLParser.Parse(content.FormattedBody, ctx))
+		return variationselector.FullyQualify(matrixHTMLParser.Parse(content.FormattedBody, ctx))
 	} else {
-		return variationselector.Remove(escapeDiscordMarkdown(content.Body))
+		return variationselector.FullyQualify(escapeDiscordMarkdown(content.Body))
 	}
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/skip2/go-qrcode"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge/commands"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -426,14 +427,15 @@ var cmdDeleteAllPortals = &commands.FullHandler{
 
 func fnDeleteAllPortals(ce *WrappedCommandEvent) {
 	portals := ce.Bridge.GetAllPortals()
-	if len(portals) == 0 {
+	guilds := ce.Bridge.GetAllGuilds()
+	if len(portals) == 0 && len(guilds) == 0 {
 		ce.Reply("Didn't find any portals")
 		return
 	}
 
-	leave := func(portal *Portal) {
-		if len(portal.MXID) > 0 {
-			_, _ = portal.MainIntent().KickUser(portal.MXID, &mautrix.ReqKickUser{
+	leave := func(mxid id.RoomID, intent *appservice.IntentAPI) {
+		if len(mxid) > 0 {
+			_, _ = intent.KickUser(mxid, &mautrix.ReqKickUser{
 				Reason: "Deleting portal",
 				UserID: ce.User.MXID,
 			})
@@ -442,17 +444,21 @@ func fnDeleteAllPortals(ce *WrappedCommandEvent) {
 	customPuppet := ce.Bridge.GetPuppetByCustomMXID(ce.User.MXID)
 	if customPuppet != nil && customPuppet.CustomIntent() != nil {
 		intent := customPuppet.CustomIntent()
-		leave = func(portal *Portal) {
-			if len(portal.MXID) > 0 {
-				_, _ = intent.LeaveRoom(portal.MXID)
-				_, _ = intent.ForgetRoom(portal.MXID)
+		leave = func(mxid id.RoomID, _ *appservice.IntentAPI) {
+			if len(mxid) > 0 {
+				_, _ = intent.LeaveRoom(mxid)
+				_, _ = intent.ForgetRoom(mxid)
 			}
 		}
 	}
-	ce.Reply("Found %d portals, deleting...", len(portals))
+	ce.Reply("Found %d channel portals and %d guild portals, deleting...", len(portals), len(guilds))
 	for _, portal := range portals {
 		portal.Delete()
-		leave(portal)
+		leave(portal.MXID, portal.MainIntent())
+	}
+	for _, guild := range guilds {
+		guild.Delete()
+		leave(guild.MXID, ce.Bot)
 	}
 	ce.Reply("Finished deleting portal info. Now cleaning up rooms in background.")
 

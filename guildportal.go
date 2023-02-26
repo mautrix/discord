@@ -315,3 +315,14 @@ func (guild *Guild) RemoveMXID() {
 	guild.BridgingMode = database.GuildBridgeNothing
 	guild.Update()
 }
+
+func (guild *Guild) Delete() {
+	guild.Guild.Delete()
+	guild.bridge.guildsLock.Lock()
+	delete(guild.bridge.guildsByID, guild.ID)
+	if guild.MXID != "" {
+		delete(guild.bridge.guildsByMXID, guild.MXID)
+	}
+	guild.bridge.guildsLock.Unlock()
+
+}

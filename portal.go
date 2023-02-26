@@ -1210,15 +1210,6 @@ func (portal *Portal) HandleMatrixLeave(brSender bridge.User) {
 func (portal *Portal) HandleMatrixKick(brSender bridge.User, brTarget bridge.Ghost)   {}
 func (portal *Portal) HandleMatrixInvite(brSender bridge.User, brTarget bridge.Ghost) {}
 
-func (portal *Portal) leave(sender *User) {
-	if portal.MXID == "" {
-		return
-	}
-
-	intent := portal.bridge.GetPuppetByID(sender.DiscordID).IntentFor(portal)
-	intent.LeaveRoom(portal.MXID)
-}
-
 func (portal *Portal) Delete() {
 	portal.Portal.Delete()
 	portal.bridge.portalsLock.Lock()

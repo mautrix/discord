@@ -632,6 +632,10 @@ func (portal *Portal) handleDiscordSticker(intent *appservice.IntentAPI, sticker
 		mime = "image/apng"
 	case discordgo.StickerFormatTypeLottie:
 		mime = "application/json"
+	case discordgo.StickerFormatTypeGIF:
+		mime = "image/gif"
+	default:
+		portal.log.Warnfln("Unknown sticker format %d in %s", sticker.FormatType, sticker.ID)
 	}
 	content := &event.MessageEventContent{
 		Body: sticker.Name, // TODO find description from somewhere?

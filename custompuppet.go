@@ -46,6 +46,7 @@ func (br *DiscordBridge) newDoublePuppetClient(mxid id.UserID, accessToken strin
 	}
 
 	client.Log = br.AS.Log.With().Str("as_user_id", mxid.String()).Logger()
+	client.StateStore = br.AS.StateStore
 	client.Client = br.AS.HTTPClient
 	client.DefaultHTTPRetries = br.AS.DefaultHTTPRetries
 

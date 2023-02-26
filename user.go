@@ -442,8 +442,13 @@ func (user *User) Login(token string) error {
 	user.wasLoggedOut = false
 	user.bridgeStateLock.Unlock()
 	user.DiscordToken = token
+	err := user.Connect()
+	if err != nil {
+		user.DiscordToken = ""
+		return err
+	}
 	user.Update()
-	return user.Connect()
+	return nil
 }
 
 func (user *User) IsLoggedIn() bool {

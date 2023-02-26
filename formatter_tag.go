@@ -262,8 +262,11 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 	}
 	switch node := n.(type) {
 	case *astDiscordUserMention:
-		puppet := node.portal.bridge.GetPuppetByID(strconv.FormatInt(node.id, 10))
-		_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s">%s</a>`, puppet.MXID, puppet.Name)
+		if user := node.portal.bridge.GetUserByID(strconv.FormatInt(node.id, 10)); user != nil {
+			_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%[1]s">%[1]s</a>`, user.MXID)
+		} else if puppet := node.portal.bridge.GetPuppetByID(strconv.FormatInt(node.id, 10)); puppet != nil {
+			_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s">%s</a>`, puppet.MXID, puppet.Name)
+		}
 		return
 	case *astDiscordRoleMention:
 		role := node.portal.bridge.DB.Role.GetByID(node.portal.GuildID, strconv.FormatInt(node.id, 10))

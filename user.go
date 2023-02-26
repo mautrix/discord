@@ -487,6 +487,24 @@ func (user *User) Connected() bool {
 	return user.Session != nil
 }
 
+const BotIntents = discordgo.IntentGuilds |
+	discordgo.IntentGuildMessages |
+	discordgo.IntentGuildMessageReactions |
+	discordgo.IntentGuildMessageTyping |
+	discordgo.IntentGuildBans |
+	discordgo.IntentGuildEmojis |
+	discordgo.IntentGuildIntegrations |
+	discordgo.IntentGuildInvites |
+	//discordgo.IntentGuildVoiceStates |
+	//discordgo.IntentGuildScheduledEvents |
+	discordgo.IntentDirectMessages |
+	discordgo.IntentDirectMessageTyping |
+	discordgo.IntentDirectMessageTyping |
+	// Privileged intents
+	discordgo.IntentMessageContent |
+	//discordgo.IntentGuildPresences |
+	discordgo.IntentGuildMembers
+
 func (user *User) Connect() error {
 	user.Lock()
 	defer user.Unlock()
@@ -504,6 +522,9 @@ func (user *User) Connect() error {
 	// TODO move to config
 	if os.Getenv("DISCORD_DEBUG") == "1" {
 		session.LogLevel = discordgo.LogDebug
+	}
+	if !session.IsUser {
+		session.Identify.Intents = BotIntents
 	}
 
 	user.Session = session
@@ -593,7 +614,7 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	}
 	user.PrunePortalList(updateTS)
 
-	if r.ReadState.Version > user.ReadStateVersion {
+	if r.ReadState != nil && r.ReadState.Version > user.ReadStateVersion {
 		// TODO can we figure out which read states are actually new?
 		for _, entry := range r.ReadState.Entries {
 			user.messageAckHandler(nil, &discordgo.MessageAck{

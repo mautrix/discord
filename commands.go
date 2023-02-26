@@ -19,6 +19,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html"
@@ -80,12 +81,45 @@ var cmdLoginToken = &commands.FullHandler{
 	Help: commands.HelpMeta{
 		Section:     commands.HelpSectionAuth,
 		Description: "Link the bridge to your Discord account by extracting the access token manually.",
+		Args:        "<user/bot/oauth> <_token_>",
 	},
 }
 
+const discordTokenEpoch = 1293840000
+
+func decodeToken(token string) (userID int64, err error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		err = fmt.Errorf("invalid number of parts in token")
+		return
+	}
+	var userIDStr []byte
+	userIDStr, err = base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		err = fmt.Errorf("invalid base64 in user ID part: %w", err)
+		return
+	}
+	_, err = base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		err = fmt.Errorf("invalid base64 in random part: %w", err)
+		return
+	}
+	_, err = base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		err = fmt.Errorf("invalid base64 in checksum part: %w", err)
+		return
+	}
+	userID, err = strconv.ParseInt(string(userIDStr), 10, 64)
+	if err != nil {
+		err = fmt.Errorf("invalid number in decoded user ID part: %w", err)
+		return
+	}
+	return
+}
+
 func fnLoginToken(ce *WrappedCommandEvent) {
-	if len(ce.Args) == 0 {
-		ce.Reply("**Usage**: `$cmdprefix login-token <token>`")
+	if len(ce.Args) != 2 {
+		ce.Reply("**Usage**: `$cmdprefix login-token <user/bot/oauth> <token>`")
 		return
 	}
 	ce.MarkRead()
@@ -94,7 +128,25 @@ func fnLoginToken(ce *WrappedCommandEvent) {
 		ce.Reply("You're already logged in")
 		return
 	}
-	if err := ce.User.Login(ce.Args[0]); err != nil {
+	token := ce.Args[1]
+	userID, err := decodeToken(token)
+	if err != nil {
+		ce.Reply("Invalid token")
+		return
+	}
+	switch strings.ToLower(ce.Args[0]) {
+	case "user":
+		// Token is used as-is
+	case "bot":
+		token = "Bot " + token
+	case "oauth":
+		token = "Bearer " + token
+	default:
+		ce.Reply("Token type must be `user`, `bot` or `oauth`")
+		return
+	}
+	ce.Reply("Connecting to Discord as user ID %d", userID)
+	if err = ce.User.Login(token); err != nil {
 		ce.Reply("Error connecting to Discord: %v", err)
 		return
 	}

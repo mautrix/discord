@@ -109,7 +109,8 @@ func (portal *Portal) convertDiscordSticker(intent *appservice.IntentAPI, sticke
 		portal.log.Warnfln("Unknown sticker format %d in %s", sticker.FormatType, sticker.ID)
 	}
 	return &ConvertedMessage{
-		Type: event.EventSticker,
+		AttachmentID: sticker.ID,
+		Type:         event.EventSticker,
 		Content: portal.convertDiscordFile("sticker", intent, sticker.ID, sticker.URL(), &event.MessageEventContent{
 			Body: sticker.Name, // TODO find description from somewhere?
 			Info: &event.FileInfo{
@@ -148,8 +149,9 @@ func (portal *Portal) convertDiscordAttachment(intent *appservice.IntentAPI, att
 	}
 	content = portal.convertDiscordFile("attachment", intent, att.ID, att.URL, content)
 	return &ConvertedMessage{
-		Type:    event.EventMessage,
-		Content: content,
+		AttachmentID: att.ID,
+		Type:         event.EventMessage,
+		Content:      content,
 	}
 }
 
@@ -214,27 +216,35 @@ func (portal *Portal) convertDiscordMessage(intent *appservice.IntentAPI, msg *d
 	if textPart := portal.convertDiscordTextMessage(intent, msg); textPart != nil {
 		parts = append(parts, textPart)
 	}
+	handledIDs := make(map[string]struct{})
 	for _, att := range msg.Attachments {
+		if _, handled := handledIDs[att.ID]; handled {
+			continue
+		}
+		handledIDs[att.ID] = struct{}{}
 		if part := portal.convertDiscordAttachment(intent, att); part != nil {
 			parts = append(parts, part)
 		}
 	}
 	for _, sticker := range msg.StickerItems {
+		if _, handled := handledIDs[sticker.ID]; handled {
+			continue
+		}
+		handledIDs[sticker.ID] = struct{}{}
 		if part := portal.convertDiscordSticker(intent, sticker); part != nil {
 			parts = append(parts, part)
 		}
 	}
-	handledURLs := make(map[string]struct{})
 	for _, embed := range msg.Embeds {
 		// Ignore non-video embeds, they're handled in convertDiscordTextMessage
 		if getEmbedType(embed) != EmbedVideo {
 			continue
 		}
 		// Discord deduplicates embeds by URL. It makes things easier for us too.
-		if _, handled := handledURLs[embed.URL]; handled {
+		if _, handled := handledIDs[embed.URL]; handled {
 			continue
 		}
-		handledURLs[embed.URL] = struct{}{}
+		handledIDs[embed.URL] = struct{}{}
 		part := portal.convertDiscordVideoEmbed(intent, embed)
 		if part != nil {
 			parts = append(parts, part)

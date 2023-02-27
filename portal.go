@@ -1650,6 +1650,8 @@ func (portal *Portal) UpdateNameDirect(name string) bool {
 func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
 	if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && (portal.AvatarSet || portal.MXID == "") {
 		return false
+	} else if !portal.Encrypted && !portal.bridge.Config.Bridge.PrivateChatPortalMeta && portal.IsPrivateChat() {
+		return false
 	}
 	portal.log.Debugfln("Updating avatar from puppet %q -> %q", portal.Avatar, puppet.Avatar)
 	portal.Avatar = puppet.Avatar

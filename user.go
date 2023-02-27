@@ -383,7 +383,7 @@ func (user *User) tryAutomaticDoublePuppeting() {
 }
 
 func (user *User) ViewingChannel(portal *Portal) bool {
-	if portal.GuildID != "" {
+	if portal.GuildID != "" || !user.Session.IsUser {
 		return false
 	}
 	user.markedOpenedLock.Lock()
@@ -910,21 +910,52 @@ func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.Channe
 	}
 }
 
+func (user *User) findPortal(channelID string) (*Portal, *Thread) {
+	portal := user.GetExistingPortalByID(channelID)
+	if portal != nil {
+		return portal, nil
+	}
+	thread := user.bridge.GetThreadByID(channelID, nil)
+	if thread != nil && thread.Parent != nil {
+		return thread.Parent, thread
+	}
+	if !user.Session.IsUser {
+		channel, _ := user.Session.State.Channel(channelID)
+		if channel == nil {
+			user.log.Debugfln("Fetching info of unknown channel %s to handle message", channelID)
+			var err error
+			channel, err = user.Session.Channel(channelID)
+			if err != nil {
+				user.log.Warnfln("Failed to get info of unknown channel %s: %v", channelID, err)
+			} else {
+				user.log.Debugfln("Got info for channel %s to handle message", channelID)
+				_ = user.Session.State.ChannelAdd(channel)
+			}
+		}
+		if channel != nil && user.channelIsBridgeable(channel) {
+			user.log.Debugfln("Creating portal and updating info for %s to handle message", channelID)
+			portal = user.GetPortalByMeta(channel)
+			if channel.GuildID == "" {
+				user.handlePrivateChannel(portal, channel, time.Now(), false, false)
+			} else {
+				user.log.Warnfln("Unexpected unknown guild channel %s/%s", channel.GuildID, channel.ID)
+			}
+			return portal, nil
+		}
+	}
+	return nil, nil
+}
+
 func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildID string) {
 	if user.getGuildBridgingMode(guildID) <= database.GuildBridgeNothing {
 		// If guild bridging mode is nothing, don't even check if the portal exists
 		return
 	}
 
-	portal := user.GetExistingPortalByID(channelID)
-	var thread *Thread
+	portal, thread := user.findPortal(channelID)
 	if portal == nil {
-		thread = user.bridge.GetThreadByID(channelID, nil)
-		if thread == nil || thread.Parent == nil {
-			user.log.Debugfln("Dropping %s in unknown channel %s/%s", typeName, guildID, channelID)
-			return
-		}
-		portal = thread.Parent
+		user.log.Debugfln("Dropping %s in unknown channel %s/%s", typeName, guildID, channelID)
+		return
 	}
 	if mode := user.getGuildBridgingMode(portal.GuildID); mode <= database.GuildBridgeNothing || (portal.MXID == "" && mode <= database.GuildBridgeIfPortalExists) {
 		return

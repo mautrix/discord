@@ -1,5 +1,6 @@
-config.yaml
-discord
-logs/
-registration.yaml
+*.yaml
+!example-config.yaml
+!.pre-commit-config.yaml
+
 *.db*
+*.log*

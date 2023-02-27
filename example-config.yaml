@@ -2,6 +2,9 @@
 homeserver:
     # The address that this appservice can use to connect to the homeserver.
     address: https://matrix.example.com
+    # Publicly accessible base URL for media, used for avatars in relay mode.
+    # If not set, the connection address above will be used.
+    public_address: null
     # The domain of the homeserver (also known as server_name, used for MXIDs, etc).
     domain: example.com
 

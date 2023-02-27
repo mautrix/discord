@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
@@ -91,6 +92,16 @@ func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLink
 }
 
 const formatterContextPortalKey = "fi.mau.discord.portal"
+const formatterContextAllowedMentionsKey = "fi.mau.discord.allowed_mentions"
+
+func appendIfNotContains(arr []string, newItem string) []string {
+	for _, item := range arr {
+		if item == newItem {
+			return arr
+		}
+	}
+	return append(arr, newItem)
+}
 
 func (br *DiscordBridge) pillConverter(displayname, mxid, eventID string, ctx format.Context) string {
 	if len(mxid) == 0 {
@@ -124,12 +135,15 @@ func (br *DiscordBridge) pillConverter(displayname, mxid, eventID string, ctx fo
 			}
 		}
 	} else if mxid[0] == '@' {
+		mentions := ctx.ReturnData[formatterContextAllowedMentionsKey].(*discordgo.MessageAllowedMentions)
 		parsedID, ok := br.ParsePuppetMXID(id.UserID(mxid))
 		if ok {
+			mentions.Users = appendIfNotContains(mentions.Users, parsedID)
 			return fmt.Sprintf("<@%s>", parsedID)
 		}
 		mentionedUser := br.GetUserByMXID(id.UserID(mxid))
 		if mentionedUser != nil && mentionedUser.DiscordID != "" {
+			mentions.Users = appendIfNotContains(mentions.Users, mentionedUser.DiscordID)
 			return fmt.Sprintf("<@%s>", mentionedUser.DiscordID)
 		}
 	}
@@ -195,12 +209,18 @@ var matrixHTMLParser = &format.HTMLParser{
 	},
 }
 
-func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent) string {
+func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent) (string, *discordgo.MessageAllowedMentions) {
+	allowedMentions := &discordgo.MessageAllowedMentions{
+		Parse:       []discordgo.AllowedMentionType{},
+		Users:       []string{},
+		RepliedUser: true,
+	}
 	if content.Format == event.FormatHTML && len(content.FormattedBody) > 0 {
 		ctx := format.NewContext()
 		ctx.ReturnData[formatterContextPortalKey] = portal
-		return variationselector.FullyQualify(matrixHTMLParser.Parse(content.FormattedBody, ctx))
+		ctx.ReturnData[formatterContextAllowedMentionsKey] = allowedMentions
+		return variationselector.FullyQualify(matrixHTMLParser.Parse(content.FormattedBody, ctx)), allowedMentions
 	} else {
-		return variationselector.FullyQualify(escapeDiscordMarkdown(content.Body))
+		return variationselector.FullyQualify(escapeDiscordMarkdown(content.Body)), allowedMentions
 	}
 }

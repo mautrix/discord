@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"reflect"
@@ -40,6 +41,8 @@ type portalMatrixMessage struct {
 	evt  *event.Event
 	user *User
 }
+
+var relayClient, _ = discordgo.New("")
 
 type Portal struct {
 	*database.Portal
@@ -85,7 +88,7 @@ func (portal *Portal) MarkEncrypted() {
 }
 
 func (portal *Portal) ReceiveMatrixEvent(user bridge.User, evt *event.Event) {
-	if user.GetPermissionLevel() >= bridgeconfig.PermissionLevelUser /*|| portal.HasRelaybot()*/ {
+	if user.GetPermissionLevel() >= bridgeconfig.PermissionLevelUser || portal.RelayWebhookID != "" {
 		portal.matrixMessages <- portalMatrixMessage{user: user.(*User), evt: evt}
 	}
 }
@@ -971,6 +974,7 @@ var (
 	errUnknownRelationType         = errors.New("unknown relation type")
 	errTargetNotFound              = errors.New("target event not found")
 	errUnknownEmoji                = errors.New("unknown emoji")
+	errCantStartThread             = errors.New("can't create thread without being logged into Discord")
 )
 
 func errorToStatusReason(err error) (reason event.MessageStatusReason, status event.MessageStatus, isCertain, sendNotice bool, humanMessage string) {
@@ -981,7 +985,8 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		errors.Is(err, errUnknownEmoji),
 		errors.Is(err, id.InvalidContentURI),
 		errors.Is(err, attachment.UnsupportedVersion),
-		errors.Is(err, attachment.UnsupportedAlgorithm):
+		errors.Is(err, attachment.UnsupportedAlgorithm),
+		errors.Is(err, errCantStartThread):
 		return event.MessageStatusUnsupported, event.MessageStatusFail, true, true, ""
 	case errors.Is(err, attachment.HashMismatch),
 		errors.Is(err, attachment.InvalidKey),
@@ -1065,6 +1070,22 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 	}
 }
 
+func (portal *Portal) getRelayUserMeta(sender *User) (name, avatarURL string) {
+	member := portal.bridge.StateStore.GetMember(portal.MXID, sender.MXID)
+	name = member.Displayname
+	if name == "" {
+		name = sender.MXID.String()
+	}
+	mxc := member.AvatarURL.ParseOrIgnore()
+	if !mxc.IsEmpty() {
+		avatarURL = mautrix.BuildURL(
+			portal.bridge.PublicHSAddress,
+			"_matrix", "media", "v3", "download", mxc.Homeserver, mxc.FileID,
+		).String()
+	}
+	return
+}
+
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
@@ -1078,14 +1099,23 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	}
 
 	channelID := portal.Key.ChannelID
+	sess := sender.Session
 	var threadID string
 
 	if editMXID := content.GetRelatesTo().GetReplaceID(); editMXID != "" && content.NewContent != nil {
 		edits := portal.bridge.DB.Message.GetByMXID(portal.Key, editMXID)
 		if edits != nil {
-			discordContent := portal.parseMatrixHTML(content.NewContent)
-			// TODO save edit in message table
-			_, err := sender.Session.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
+			discordContent, allowedMentions := portal.parseMatrixHTML(content.NewContent)
+			var err error
+			if sess != nil {
+				// TODO save edit in message table
+				_, err = sess.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
+			} else {
+				_, err = relayClient.WebhookMessageEdit(portal.RelayWebhookID, portal.RelayWebhookSecret, edits.DiscordID, &discordgo.WebhookEdit{
+					Content:         &discordContent,
+					AllowedMentions: allowedMentions,
+				})
+			}
 			go portal.sendMessageMetrics(evt, err, "Failed to edit")
 		} else {
 			go portal.sendMessageMetrics(evt, fmt.Errorf("%w %s", errUnknownEditTarget, editMXID), "Ignoring")
@@ -1096,6 +1126,11 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		if existingThread != nil {
 			threadID = existingThread.ID
 		} else {
+			if sess == nil {
+				// TODO start thread with bot?
+				go portal.sendMessageMetrics(evt, errCantStartThread, "Dropping")
+				return
+			}
 			var err error
 			threadID, err = portal.startThreadFromMatrix(sender, threadRoot)
 			if err != nil {
@@ -1129,48 +1164,85 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				}
 			}
 		}
-		sendReq.Content = portal.parseMatrixHTML(content)
+		sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content)
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := downloadMatrixAttachment(portal.MainIntent(), content)
 		if err != nil {
 			go portal.sendMessageMetrics(evt, err, "Error downloading media in")
 			return
 		}
-
-		att := &discordgo.MessageAttachment{
-			ID:          "0",
-			Filename:    content.Body,
-			Description: description,
-		}
-		sendReq.Attachments = []*discordgo.MessageAttachment{att}
+		filename := content.Body
 		if content.FileName != "" && content.FileName != content.Body {
-			att.Filename = content.FileName
-			sendReq.Content = portal.parseMatrixHTML(content)
+			filename = content.FileName
+			sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content)
 		}
-		prep, err := sender.Session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
-			Files: []*discordgo.FilePrepare{{
-				Size: len(data),
-				Name: att.Filename,
-				ID:   sender.NextDiscordUploadID(),
-			}},
-		})
-		if err != nil {
-			go portal.sendMessageMetrics(evt, err, "Error preparing to reupload media in")
-			return
-		}
-		prepared := prep.Attachments[0]
-		att.UploadedFilename = prepared.UploadFilename
-		err = uploadDiscordAttachment(prepared.UploadURL, data)
-		if err != nil {
-			go portal.sendMessageMetrics(evt, err, "Error reuploading media in")
-			return
+
+		if sess != nil && sess.IsUser {
+			att := &discordgo.MessageAttachment{
+				ID:          "0",
+				Filename:    filename,
+				Description: description,
+			}
+			sendReq.Attachments = []*discordgo.MessageAttachment{att}
+			prep, err := sender.Session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
+				Files: []*discordgo.FilePrepare{{
+					Size: len(data),
+					Name: att.Filename,
+					ID:   sender.NextDiscordUploadID(),
+				}},
+			})
+			if err != nil {
+				go portal.sendMessageMetrics(evt, err, "Error preparing to reupload media in")
+				return
+			}
+			prepared := prep.Attachments[0]
+			att.UploadedFilename = prepared.UploadFilename
+			err = uploadDiscordAttachment(prepared.UploadURL, data)
+			if err != nil {
+				go portal.sendMessageMetrics(evt, err, "Error reuploading media in")
+				return
+			}
+		} else {
+			sendReq.Files = []*discordgo.File{{
+				Name:        filename,
+				ContentType: content.Info.MimeType,
+				Reader:      bytes.NewReader(data),
+			}}
 		}
 	default:
 		go portal.sendMessageMetrics(evt, fmt.Errorf("%w %q", errUnknownMsgType, content.MsgType), "Ignoring")
 		return
 	}
+	if sess != nil {
+		// AllowedMentions must not be set for real users, and it's also not that useful for personal bots.
+		// It's only important for relaying, where the webhook may have higher permissions than the user on Matrix.
+		sendReq.AllowedMentions = nil
+	} else if strings.Contains(sendReq.Content, "@everyone") || strings.Contains(sendReq.Content, "@here") {
+		powerLevels, err := portal.MainIntent().PowerLevels(portal.MXID)
+		if err != nil {
+			portal.log.Warnfln("Failed to get power levels in %s to check if %s can @everyone: %v", portal.MXID, sender.MXID, err)
+		} else if powerLevels.GetUserLevel(sender.MXID) >= powerLevels.Notifications.Room() {
+			sendReq.AllowedMentions.Parse = append(sendReq.AllowedMentions.Parse, discordgo.AllowedMentionTypeEveryone)
+		}
+	}
 	sendReq.Nonce = generateNonce()
-	msg, err := sender.Session.ChannelMessageSendComplex(channelID, &sendReq)
+	var msg *discordgo.Message
+	var err error
+	if sess != nil {
+		msg, err = sess.ChannelMessageSendComplex(channelID, &sendReq)
+	} else {
+		username, avatarURL := portal.getRelayUserMeta(sender)
+		msg, err = relayClient.WebhookThreadExecute(portal.RelayWebhookID, portal.RelayWebhookSecret, true, threadID, &discordgo.WebhookParams{
+			Content:         sendReq.Content,
+			Username:        username,
+			AvatarURL:       avatarURL,
+			TTS:             sendReq.TTS,
+			Files:           sendReq.Files,
+			Components:      sendReq.Components,
+			Embeds:          sendReq.Embeds,
+			AllowedMentions: sendReq.AllowedMentions,
+		})
+	}
 	go portal.sendMessageMetrics(evt, err, "Error sending")
 	if msg != nil {
 		dbMsg := portal.bridge.DB.Message.New()
@@ -1180,7 +1252,11 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			dbMsg.AttachmentID = msg.Attachments[0].ID
 		}
 		dbMsg.MXID = evt.ID
-		dbMsg.SenderID = sender.DiscordID
+		if sess != nil {
+			dbMsg.SenderID = sender.DiscordID
+		} else {
+			dbMsg.SenderID = portal.RelayWebhookID
+		}
 		dbMsg.Timestamp, _ = discordgo.SnowflakeTimestamp(msg.ID)
 		dbMsg.ThreadID = threadID
 		dbMsg.Insert()
@@ -1332,6 +1408,9 @@ func (portal *Portal) getMatrixUsers() ([]id.UserID, error) {
 func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
+		return
+	} else if !sender.IsLoggedIn() {
+		//go portal.sendMessageMetrics(evt, errReactionUserNotLoggedIn, "Ignoring")
 		return
 	}
 

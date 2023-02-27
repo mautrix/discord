@@ -55,6 +55,7 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdLogout,
 		cmdReconnect,
 		cmdDisconnect,
+		cmdSetRelay,
 		cmdGuilds,
 		cmdRejoinSpace,
 		cmdDeleteAllPortals,
@@ -350,6 +351,91 @@ func fnRejoinSpace(ce *WrappedCommandEvent) {
 		ce.Reply("**Usage**: `$cmdprefix rejoin-space <guild ID/main/dms>`")
 		return
 	}
+}
+
+var cmdSetRelay = &commands.FullHandler{
+	Func: wrapCommand(fnSetRelay),
+	Name: "set-relay",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionUnclassified,
+		Description: "Create or set a relay webhook for a portal",
+		Args:        "[room ID] <​--url URL> OR <​--create [name]>",
+	},
+	RequiresLogin: true,
+}
+
+const webhookURLFormat = "https://discord.com/api/webhooks/%d/%s"
+
+const selectRelayHelp = "Usage: `$cmdprefix [room ID] <​--url URL> OR <​--create [name]>`"
+
+func fnSetRelay(ce *WrappedCommandEvent) {
+	portal := ce.Portal
+	if len(ce.Args) > 0 && strings.HasPrefix(ce.Args[0], "!") {
+		portal = ce.Bridge.GetPortalByMXID(id.RoomID(ce.Args[0]))
+		if portal == nil {
+			ce.Reply("Portal with room ID %s not found", ce.Args[0])
+			return
+		}
+		ce.Args = ce.Args[1:]
+	} else if portal == nil {
+		ce.Reply("You must either run the command in a portal, or specify an internal room ID as the first parameter")
+		return
+	}
+	if len(ce.Args) == 0 {
+		ce.Reply(selectRelayHelp)
+		return
+	}
+	log := ce.ZLog.With().Str("channel_id", portal.Key.ChannelID).Logger()
+	createType := strings.ToLower(strings.TrimLeft(ce.Args[0], "-"))
+	var webhookID int64
+	var webhookSecret string
+	switch createType {
+	case "url":
+		if len(ce.Args) < 2 {
+			ce.Reply("Usage: `$cmdprefix [room ID] --url <URL>")
+			return
+		}
+		ce.Redact()
+		_, err := fmt.Sscanf(ce.Args[1], webhookURLFormat, &webhookID, &webhookSecret)
+		if err != nil {
+			log.Warn().Str("webhook_url", ce.Args[1]).Err(err).Msg("Failed to parse provided webhook URL")
+			ce.Reply("Invalid webhook URL")
+			return
+		}
+	case "create":
+		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, portal.Key.ChannelID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to check user permissions")
+			ce.Reply("Failed to check if you have permission to create webhooks")
+			return
+		} else if perms&discordgo.PermissionManageWebhooks == 0 {
+			log.Debug().Int64("perms", perms).Msg("User doesn't have permissions to manage webhooks in channel")
+			ce.Reply("You don't have permission to manage webhooks in that channel")
+			return
+		}
+		name := "mautrix"
+		if len(ce.Args) > 1 {
+			name = strings.Join(ce.Args[1:], " ")
+		}
+		log.Debug().Str("webhook_name", name).Msg("Creating webhook")
+		webhook, err := ce.User.Session.WebhookCreate(portal.Key.ChannelID, name, "")
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to create webhook")
+			ce.Reply("Failed to create webhook: %v", err)
+			return
+		}
+		webhookID, _ = strconv.ParseInt(webhook.ID, 10, 64)
+		ce.Reply("Created webhook %s", webhook.Name)
+		webhookSecret = webhook.Token
+	default:
+		ce.Reply(selectRelayHelp)
+		return
+	}
+	log.Debug().Int64("webhook_id", webhookID).Msg("Setting portal relay webhook")
+	portal.RelayWebhookID = strconv.FormatInt(webhookID, 10)
+	portal.RelayWebhookSecret = webhookSecret
+	portal.Update()
+	ce.Reply("Saved webhook ID %s as portal relay webhook", portal.RelayWebhookID)
 }
 
 var cmdGuilds = &commands.FullHandler{

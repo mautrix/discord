@@ -1,4 +1,4 @@
--- v0 -> v14: Latest revision
+-- v0 -> v15: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -38,6 +38,9 @@ CREATE TABLE portal (
     in_space   TEXT NOT NULL,
 
     first_event_id TEXT NOT NULL,
+
+    relay_webhook_id     TEXT,
+    relay_webhook_secret TEXT,
 
     PRIMARY KEY (dcid, receiver),
     CONSTRAINT portal_parent_fkey FOREIGN KEY (dc_parent_id, dc_parent_receiver) REFERENCES portal (dcid, receiver) ON DELETE CASCADE,

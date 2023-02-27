@@ -15,7 +15,7 @@ require (
 	github.com/stretchr/testify v1.8.1
 	github.com/yuin/goldmark v1.5.4
 	maunium.net/go/maulogger/v2 v2.4.1
-	maunium.net/go/mautrix v0.15.0-beta.1.0.20230226232632-00f40652f33d
+	maunium.net/go/mautrix v0.15.0-beta.1.0.20230227211640-c8b3566fb7ba
 )
 
 require (
@@ -37,4 +37,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20230226184350-ef6bcfe94f07
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20230227224009-daaee0136f88

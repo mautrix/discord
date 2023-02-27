@@ -97,6 +97,8 @@ func (br *DiscordBridge) Init() {
 	br.CommandProcessor = commands.NewProcessor(&br.Bridge)
 	br.RegisterCommands()
 
+	matrixHTMLParser.PillConverter = br.pillConverter
+
 	br.DB = database.New(br.Bridge.DB, br.Log.Sub("Database"))
 	discordLog = br.ZLog.With().Str("component", "discordgo").Logger()
 

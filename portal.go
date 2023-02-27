@@ -1083,7 +1083,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if editMXID := content.GetRelatesTo().GetReplaceID(); editMXID != "" && content.NewContent != nil {
 		edits := portal.bridge.DB.Message.GetByMXID(portal.Key, editMXID)
 		if edits != nil {
-			discordContent := portal.parseMatrixHTML(sender, content.NewContent)
+			discordContent := portal.parseMatrixHTML(content.NewContent)
 			// TODO save edit in message table
 			_, err := sender.Session.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
 			go portal.sendMessageMetrics(evt, err, "Failed to edit")
@@ -1129,7 +1129,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				}
 			}
 		}
-		sendReq.Content = portal.parseMatrixHTML(sender, content)
+		sendReq.Content = portal.parseMatrixHTML(content)
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := downloadMatrixAttachment(portal.MainIntent(), content)
 		if err != nil {
@@ -1145,7 +1145,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		sendReq.Attachments = []*discordgo.MessageAttachment{att}
 		if content.FileName != "" && content.FileName != content.Body {
 			att.Filename = content.FileName
-			sendReq.Content = portal.parseMatrixHTML(sender, content)
+			sendReq.Content = portal.parseMatrixHTML(content)
 		}
 		prep, err := sender.Session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
 			Files: []*discordgo.FilePrepare{{

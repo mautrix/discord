@@ -90,23 +90,21 @@ func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLink
 	return format.UnwrapSingleParagraph(buf.String())
 }
 
-const formatterContextUserKey = "fi.mau.discord.user"
 const formatterContextPortalKey = "fi.mau.discord.portal"
 
-func pillConverter(displayname, mxid, eventID string, ctx format.Context) string {
+func (br *DiscordBridge) pillConverter(displayname, mxid, eventID string, ctx format.Context) string {
 	if len(mxid) == 0 {
 		return displayname
 	}
-	user := ctx.ReturnData[formatterContextUserKey].(*User)
 	if mxid[0] == '#' {
-		alias, err := user.bridge.Bot.ResolveAlias(id.RoomAlias(mxid))
+		alias, err := br.Bot.ResolveAlias(id.RoomAlias(mxid))
 		if err != nil {
 			return displayname
 		}
 		mxid = alias.RoomID.String()
 	}
 	if mxid[0] == '!' {
-		portal := user.bridge.GetPortalByMXID(id.RoomID(mxid))
+		portal := br.GetPortalByMXID(id.RoomID(mxid))
 		if portal != nil {
 			if eventID == "" {
 				//currentPortal := ctx[formatterContextPortalKey].(*Portal)
@@ -117,7 +115,7 @@ func pillConverter(displayname, mxid, eventID string, ctx format.Context) string
 				//} else {
 				//	// TODO is mentioning private channels possible at all?
 				//}
-			} else if msg := user.bridge.DB.Message.GetByMXID(portal.Key, id.EventID(eventID)); msg != nil {
+			} else if msg := br.DB.Message.GetByMXID(portal.Key, id.EventID(eventID)); msg != nil {
 				guildID := portal.GuildID
 				if guildID == "" {
 					guildID = "@me"
@@ -126,11 +124,11 @@ func pillConverter(displayname, mxid, eventID string, ctx format.Context) string
 			}
 		}
 	} else if mxid[0] == '@' {
-		parsedID, ok := user.bridge.ParsePuppetMXID(id.UserID(mxid))
+		parsedID, ok := br.ParsePuppetMXID(id.UserID(mxid))
 		if ok {
 			return fmt.Sprintf("<@%s>", parsedID)
 		}
-		mentionedUser := user.bridge.GetUserByMXID(id.UserID(mxid))
+		mentionedUser := br.GetUserByMXID(id.UserID(mxid))
 		if mentionedUser != nil && mentionedUser.DiscordID != "" {
 			return fmt.Sprintf("<@%s>", mentionedUser.DiscordID)
 		}
@@ -197,14 +195,9 @@ var matrixHTMLParser = &format.HTMLParser{
 	},
 }
 
-func init() {
-	matrixHTMLParser.PillConverter = pillConverter
-}
-
-func (portal *Portal) parseMatrixHTML(user *User, content *event.MessageEventContent) string {
+func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent) string {
 	if content.Format == event.FormatHTML && len(content.FormattedBody) > 0 {
 		ctx := format.NewContext()
-		ctx.ReturnData[formatterContextUserKey] = user
 		ctx.ReturnData[formatterContextPortalKey] = portal
 		return variationselector.FullyQualify(matrixHTMLParser.Parse(content.FormattedBody, ctx))
 	} else {

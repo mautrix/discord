@@ -226,6 +226,7 @@ func (guild *Guild) CreateMatrixRoom(user *User, meta *discordgo.Guild) error {
 
 func (guild *Guild) UpdateInfo(source *User, meta *discordgo.Guild) *discordgo.Guild {
 	if meta.Unavailable {
+		guild.log.Debugfln("Ignoring unavailable guild update")
 		return meta
 	}
 	changed := false

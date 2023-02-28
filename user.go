@@ -835,7 +835,7 @@ func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidA
 }
 
 func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {
-	user.log.Infoln("Got guild create event for", g.ID)
+	user.log.Infofln("Got guild create event for %s (name: %s, unavailable: %t)", g.ID, g.Name, g.Unavailable)
 	user.handleGuild(g.Guild, time.Now(), false)
 }
 

@@ -4,11 +4,16 @@
   * The basic log config will be migrated automatically, but you may want to
     tweak it as the options are different.
 * Added support for logging in with a bot account.
+  The [Authentication docs](https://docs.mau.fi/bridges/go/discord/authentication.html)
+  have been updated with instructions for creating a bot.
 * Added support for relaying messages for unauthenticated users using a webhook.
+  See [docs](https://docs.mau.fi/bridges/go/discord/relay.html) for instructions.
+* Added `ping` command.
+* Added support for gif stickers from Discord.
 * Changed mention bridging so mentions for users logged into the bridge use the
   Matrix user's MXID even if double puppeting is not enabled.
 * Actually fixed ghost user info not being synced when receiving reactions.
-* Added support for gif stickers from Discord.
+* Fixed guild name not being synced immediately after joining a new guild.
 * Fixed variation selectors when bridging emojis to Discord.
 
 # v0.1.1 (2023-02-16)

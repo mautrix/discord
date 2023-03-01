@@ -1,6 +1,6 @@
 github.com/DATA-DOG/go-sqlmock v1.5.0 h1:Shsta01QNfFxHCfpW6YH2STWB0MudeXXEWMr20OEh60=
-github.com/beeper/discordgo v0.0.0-20230227224009-daaee0136f88 h1:sZUZP+ClkQk1uC0KB6dYJ+v6Ygao3RaPKp/3leRjYik=
-github.com/beeper/discordgo v0.0.0-20230227224009-daaee0136f88/go.mod h1:NJZpH+1AfhIcyQsPeuBKsUtYrRnjkyu0kIVMCHkZtRY=
+github.com/beeper/discordgo v0.0.0-20230301183055-25031a2e2461 h1:NYwJRLsgc22WsKB16uxUx2xbB+3AtbH0QuttVSCGe+4=
+github.com/beeper/discordgo v0.0.0-20230301183055-25031a2e2461/go.mod h1:NJZpH+1AfhIcyQsPeuBKsUtYrRnjkyu0kIVMCHkZtRY=
 github.com/coreos/go-systemd/v22 v22.3.3-0.20220203105225-a9a7ef127534 h1:rtAn27wIbmOGUs7RIbVgPEjb31ehTVniDwPGXyMxm5U=
 github.com/coreos/go-systemd/v22 v22.3.3-0.20220203105225-a9a7ef127534/go.mod h1:Y58oyj3AT4RCenI/lSvhwexgC+NSVTIJ3seZv2GcEnc=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

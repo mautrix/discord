@@ -56,6 +56,7 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdReconnect,
 		cmdDisconnect,
 		cmdSetRelay,
+		cmdUnsetRelay,
 		cmdGuilds,
 		cmdRejoinSpace,
 		cmdDeleteAllPortals,
@@ -463,6 +464,39 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 	portal.RelayWebhookSecret = webhookMeta.Token
 	portal.Update()
 	ce.Reply("Saved webhook %s (%s) as portal relay webhook", webhookMeta.Name, portal.RelayWebhookID)
+}
+
+var cmdUnsetRelay = &commands.FullHandler{
+	Func: wrapCommand(fnUnsetRelay),
+	Name: "unset-relay",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionUnclassified,
+		Description: "Disable the relay webhook and optionally delete it on Discord",
+		Args:        "[--delete]",
+	},
+	RequiresPortal:     true,
+	RequiresEventLevel: roomModerator,
+}
+
+func fnUnsetRelay(ce *WrappedCommandEvent) {
+	if ce.Portal.RelayWebhookID == "" {
+		ce.Reply("This portal doesn't have a relay webhook")
+		return
+	}
+	if len(ce.Args) > 0 && ce.Args[0] == "--delete" {
+		err := relayClient.WebhookDeleteWithToken(ce.Portal.RelayWebhookID, ce.Portal.RelayWebhookSecret)
+		if err != nil {
+			ce.Reply("Failed to delete webhook: %v", err)
+			return
+		} else {
+			ce.Reply("Successfully deleted webhook")
+		}
+	} else {
+		ce.Reply("Relay webhook disabled")
+	}
+	ce.Portal.RelayWebhookID = ""
+	ce.Portal.RelayWebhookSecret = ""
+	ce.Portal.Update()
 }
 
 var cmdGuilds = &commands.FullHandler{

@@ -1100,6 +1100,10 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 
 	channelID := portal.Key.ChannelID
 	sess := sender.Session
+	if sess == nil && portal.RelayWebhookID == "" {
+		// TODO error message
+		return
+	}
 	var threadID string
 
 	if editMXID := content.GetRelatesTo().GetReplaceID(); editMXID != "" && content.NewContent != nil {
@@ -1579,11 +1583,22 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 		return
 	}
 
-	// First look if we're redacting a message
+	sess := sender.Session
+	if sess == nil && portal.RelayWebhookID == "" {
+		// TODO metrics
+		return
+	}
+
 	message := portal.bridge.DB.Message.GetByMXID(portal.Key, evt.Redacts)
 	if message != nil {
+		var err error
 		// TODO add support for deleting individual attachments from messages
-		err := sender.Session.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID)
+		if sess != nil {
+			err = sess.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID)
+		} else {
+			// TODO pre-validate that the message was sent by the webhook?
+			err = relayClient.WebhookMessageDelete(portal.RelayWebhookID, portal.RelayWebhookSecret, message.DiscordID)
+		}
 		go portal.sendMessageMetrics(evt, err, "Error sending")
 		if err == nil {
 			message.Delete()
@@ -1591,15 +1606,16 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 		return
 	}
 
-	// Now check if it's a reaction.
-	reaction := portal.bridge.DB.Reaction.GetByMXID(evt.Redacts)
-	if reaction != nil && reaction.Channel == portal.Key {
-		err := sender.Session.MessageReactionRemove(reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
-		go portal.sendMessageMetrics(evt, err, "Error sending")
-		if err == nil {
-			reaction.Delete()
+	if sess != nil {
+		reaction := portal.bridge.DB.Reaction.GetByMXID(evt.Redacts)
+		if reaction != nil && reaction.Channel == portal.Key {
+			err := sess.MessageReactionRemove(reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
+			go portal.sendMessageMetrics(evt, err, "Error sending")
+			if err == nil {
+				reaction.Delete()
+			}
+			return
 		}
-		return
 	}
 
 	go portal.sendMessageMetrics(evt, errTargetNotFound, "Ignoring")

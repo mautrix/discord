@@ -970,6 +970,7 @@ var (
 	errUnknownMsgType              = errors.New("unknown msgtype")
 	errUnexpectedParsedContentType = errors.New("unexpected parsed content type")
 	errUserNotReceiver             = errors.New("user is not portal receiver")
+	errUserNotLoggedIn             = errors.New("user is not logged in and portal doesn't have webhook")
 	errUnknownEditTarget           = errors.New("unknown edit target")
 	errUnknownRelationType         = errors.New("unknown relation type")
 	errTargetNotFound              = errors.New("target event not found")
@@ -992,7 +993,7 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		errors.Is(err, attachment.InvalidKey),
 		errors.Is(err, attachment.InvalidInitVector):
 		return event.MessageStatusUndecryptable, event.MessageStatusFail, true, true, ""
-	case errors.Is(err, errUserNotReceiver):
+	case errors.Is(err, errUserNotReceiver), errors.Is(err, errUserNotLoggedIn):
 		return event.MessageStatusNoPermission, event.MessageStatusFail, true, false, ""
 	case errors.Is(err, errUnknownEditTarget):
 		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, ""
@@ -1101,7 +1102,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	channelID := portal.Key.ChannelID
 	sess := sender.Session
 	if sess == nil && portal.RelayWebhookID == "" {
-		// TODO error message
+		go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
 		return
 	}
 	var threadID string
@@ -1585,7 +1586,7 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 
 	sess := sender.Session
 	if sess == nil && portal.RelayWebhookID == "" {
-		// TODO metrics
+		go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
 		return
 	}
 

@@ -353,6 +353,8 @@ func fnRejoinSpace(ce *WrappedCommandEvent) {
 	}
 }
 
+var roomModerator = event.Type{Type: "fi.mau.discord.admin", Class: event.StateEventType}
+
 var cmdSetRelay = &commands.FullHandler{
 	Func: wrapCommand(fnSetRelay),
 	Name: "set-relay",
@@ -361,7 +363,8 @@ var cmdSetRelay = &commands.FullHandler{
 		Description: "Create or set a relay webhook for a portal",
 		Args:        "[room ID] <​--url URL> OR <​--create [name]>",
 	},
-	RequiresLogin: true,
+	RequiresLogin:      true,
+	RequiresEventLevel: roomModerator,
 }
 
 const webhookURLFormat = "https://discord.com/api/webhooks/%d/%s"
@@ -376,12 +379,24 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			ce.Reply("Portal with room ID %s not found", ce.Args[0])
 			return
 		}
+		levels, err := portal.MainIntent().PowerLevels(ce.RoomID)
+		if err != nil {
+			ce.ZLog.Warn().Err(err).Msg("Failed to check room power levels")
+			ce.Reply("Failed to get room power levels to see if you're allowed to use that command")
+			return
+		} else if levels.GetUserLevel(ce.User.GetMXID()) < levels.GetEventLevel(roomModerator) {
+			ce.Reply("You don't have admin rights in that room")
+			return
+		}
 		ce.Args = ce.Args[1:]
 	} else if portal == nil {
 		ce.Reply("You must either run the command in a portal, or specify an internal room ID as the first parameter")
 		return
 	}
-	if len(ce.Args) == 0 {
+	if ce.Portal.GuildID == "" {
+		ce.Reply("Only guild channels can have relays")
+		return
+	} else if len(ce.Args) == 0 {
 		ce.Reply(selectRelayHelp)
 		return
 	}

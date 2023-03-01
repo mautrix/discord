@@ -1,3 +1,16 @@
+# v0.2.0 (unreleased)
+
+* Switched to zerolog for logging.
+  * The basic log config will be migrated automatically, but you may want to
+    tweak it as the options are different.
+* Added support for logging in with a bot account.
+* Added support for relaying messages for unauthenticated users using a webhook.
+* Changed mention bridging so mentions for users logged into the bridge use the
+  Matrix user's MXID even if double puppeting is not enabled.
+* Actually fixed ghost user info not being synced when receiving reactions.
+* Added support for gif stickers from Discord.
+* Fixed variation selectors when bridging emojis to Discord.
+
 # v0.1.1 (2023-02-16)
 
 * Started automatically subscribing to bridged guilds. This fixes two problems:

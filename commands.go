@@ -387,8 +387,7 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 	}
 	log := ce.ZLog.With().Str("channel_id", portal.Key.ChannelID).Logger()
 	createType := strings.ToLower(strings.TrimLeft(ce.Args[0], "-"))
-	var webhookID int64
-	var webhookSecret string
+	var webhookMeta *discordgo.Webhook
 	switch createType {
 	case "url":
 		if len(ce.Args) < 2 {
@@ -396,10 +395,18 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			return
 		}
 		ce.Redact()
+		var webhookID int64
+		var webhookSecret string
 		_, err := fmt.Sscanf(ce.Args[1], webhookURLFormat, &webhookID, &webhookSecret)
 		if err != nil {
 			log.Warn().Str("webhook_url", ce.Args[1]).Err(err).Msg("Failed to parse provided webhook URL")
 			ce.Reply("Invalid webhook URL")
+			return
+		}
+		webhookMeta, err = relayClient.WebhookWithToken(strconv.FormatInt(webhookID, 10), webhookSecret)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get webhook info")
+			ce.Reply("Failed to get webhook info: %v", err)
 			return
 		}
 	case "create":
@@ -418,24 +425,29 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			name = strings.Join(ce.Args[1:], " ")
 		}
 		log.Debug().Str("webhook_name", name).Msg("Creating webhook")
-		webhook, err := ce.User.Session.WebhookCreate(portal.Key.ChannelID, name, "")
+		webhookMeta, err = ce.User.Session.WebhookCreate(portal.Key.ChannelID, name, "")
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to create webhook")
 			ce.Reply("Failed to create webhook: %v", err)
 			return
 		}
-		webhookID, _ = strconv.ParseInt(webhook.ID, 10, 64)
-		ce.Reply("Created webhook %s", webhook.Name)
-		webhookSecret = webhook.Token
 	default:
 		ce.Reply(selectRelayHelp)
 		return
 	}
-	log.Debug().Int64("webhook_id", webhookID).Msg("Setting portal relay webhook")
-	portal.RelayWebhookID = strconv.FormatInt(webhookID, 10)
-	portal.RelayWebhookSecret = webhookSecret
+	if portal.Key.ChannelID != webhookMeta.ChannelID {
+		log.Debug().
+			Str("portal_channel_id", portal.Key.ChannelID).
+			Str("webhook_channel_id", webhookMeta.ChannelID).
+			Msg("Provided webhook is for wrong channel")
+		ce.Reply("That webhook is not for the right channel (expected %s, webhook is for %s)", portal.Key.ChannelID, webhookMeta.ChannelID)
+		return
+	}
+	log.Debug().Str("webhook_id", webhookMeta.ID).Msg("Setting portal relay webhook")
+	portal.RelayWebhookID = webhookMeta.ID
+	portal.RelayWebhookSecret = webhookMeta.Token
 	portal.Update()
-	ce.Reply("Saved webhook ID %s as portal relay webhook", portal.RelayWebhookID)
+	ce.Reply("Saved webhook %s (%s) as portal relay webhook", webhookMeta.Name, portal.RelayWebhookID)
 }
 
 var cmdGuilds = &commands.FullHandler{

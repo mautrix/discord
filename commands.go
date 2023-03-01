@@ -55,6 +55,7 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdLoginToken,
 		cmdLoginQR,
 		cmdLogout,
+		cmdPing,
 		cmdReconnect,
 		cmdDisconnect,
 		cmdSetRelay,
@@ -281,6 +282,29 @@ func fnLogout(ce *WrappedCommandEvent) {
 		ce.Reply("Logged out successfully.")
 	} else {
 		ce.Reply("You weren't logged in, but data was re-cleared just to be safe.")
+	}
+}
+
+var cmdPing = &commands.FullHandler{
+	Func: wrapCommand(fnPing),
+	Name: "ping",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionAuth,
+		Description: "Check your connection to Discord",
+	},
+}
+
+func fnPing(ce *WrappedCommandEvent) {
+	if ce.User.Session == nil {
+		if ce.User.DiscordToken == "" {
+			ce.Reply("You're not logged in")
+		} else {
+			ce.Reply("You have a Discord token stored, but are not connected for some reason 🤔")
+		}
+	} else if ce.User.wasDisconnected {
+		ce.Reply("You're logged in, but the Discord connection seems to be dead 💥")
+	} else {
+		ce.Reply("You're logged in as %s#%s (`%s`)", ce.User.Session.State.User.Username, ce.User.Session.State.User.Discriminator, ce.User.DiscordID)
 	}
 }
 

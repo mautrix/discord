@@ -28,12 +28,14 @@ import (
 	"maunium.net/go/mautrix/bridge/commands"
 )
 
+var HelpSectionDiscordBots = commands.HelpSection{Name: "Discord bot interaction", Order: 30}
+
 var cmdCommands = &commands.FullHandler{
 	Func:    wrapCommand(fnCommands),
 	Name:    "commands",
 	Aliases: []string{"cmds", "cs"},
 	Help: commands.HelpMeta{
-		Section:     commands.HelpSectionUnclassified,
+		Section:     HelpSectionDiscordBots,
 		Description: "View parameters of bot interaction commands on Discord",
 		Args:        "search <_query_> OR help <_command_>",
 	},
@@ -46,7 +48,7 @@ var cmdExec = &commands.FullHandler{
 	Name:    "exec",
 	Aliases: []string{"command", "cmd", "c", "exec", "e"},
 	Help: commands.HelpMeta{
-		Section:     commands.HelpSectionUnclassified,
+		Section:     HelpSectionDiscordBots,
 		Description: "Run bot interaction commands on Discord",
 		Args:        "<_command_> [_arg=value ..._]",
 	},

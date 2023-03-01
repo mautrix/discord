@@ -47,6 +47,8 @@ type WrappedCommandEvent struct {
 	Portal *Portal
 }
 
+var HelpSectionPortalManagement = commands.HelpSection{Name: "Portal management", Order: 20}
+
 func (br *DiscordBridge) RegisterCommands() {
 	proc := br.CommandProcessor.(*commands.Processor)
 	proc.AddHandlers(
@@ -327,7 +329,7 @@ var cmdRejoinSpace = &commands.FullHandler{
 	Func: wrapCommand(fnRejoinSpace),
 	Name: "rejoin-space",
 	Help: commands.HelpMeta{
-		Section:     commands.HelpSectionUnclassified,
+		Section:     HelpSectionPortalManagement,
 		Description: "Ask the bridge for an invite to a space you left",
 		Args:        "<_guild ID_/main/dms>",
 	},
@@ -360,7 +362,7 @@ var cmdSetRelay = &commands.FullHandler{
 	Func: wrapCommand(fnSetRelay),
 	Name: "set-relay",
 	Help: commands.HelpMeta{
-		Section:     commands.HelpSectionUnclassified,
+		Section:     HelpSectionPortalManagement,
 		Description: "Create or set a relay webhook for a portal",
 		Args:        "[room ID] <​--url URL> OR <​--create [name]>",
 	},
@@ -470,7 +472,7 @@ var cmdUnsetRelay = &commands.FullHandler{
 	Func: wrapCommand(fnUnsetRelay),
 	Name: "unset-relay",
 	Help: commands.HelpMeta{
-		Section:     commands.HelpSectionUnclassified,
+		Section:     HelpSectionPortalManagement,
 		Description: "Disable the relay webhook and optionally delete it on Discord",
 		Args:        "[--delete]",
 	},
@@ -504,7 +506,7 @@ var cmdGuilds = &commands.FullHandler{
 	Name:    "guilds",
 	Aliases: []string{"servers", "guild", "server"},
 	Help: commands.HelpMeta{
-		Section:     commands.HelpSectionUnclassified,
+		Section:     HelpSectionPortalManagement,
 		Description: "Guild bridging management",
 		Args:        "<status/bridge/unbridge/bridging-mode> [_guild ID_] [...]",
 	},
@@ -618,7 +620,7 @@ var cmdDeleteAllPortals = &commands.FullHandler{
 	Func: wrapCommand(fnDeleteAllPortals),
 	Name: "delete-all-portals",
 	Help: commands.HelpMeta{
-		Section:     commands.HelpSectionUnclassified,
+		Section:     commands.HelpSectionAdmin,
 		Description: "Delete all portals.",
 	},
 	RequiresAdmin: true,

@@ -737,8 +737,8 @@ func fnBridge(ce *WrappedCommandEvent) {
 			Bool("delete", deleteOld).
 			Msg("Unbridging old room")
 		portal.removeFromSpace()
+		portal.cleanup(!deleteOld)
 		portal.RemoveMXID()
-		portal.cleanup(deleteOld)
 		ce.ZLog.Info().
 			Str("old_room_id", portal.MXID.String()).
 			Bool("delete", deleteOld).
@@ -787,8 +787,8 @@ func fnUnbridge(ce *WrappedCommandEvent) {
 	ce.Portal.roomCreateLock.Lock()
 	defer ce.Portal.roomCreateLock.Lock()
 	ce.Portal.removeFromSpace()
-	ce.Portal.RemoveMXID()
 	ce.Portal.cleanup(ce.Command == "delete-portal")
+	ce.Portal.RemoveMXID()
 }
 
 var cmdDeleteAllPortals = &commands.FullHandler{

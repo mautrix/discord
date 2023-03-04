@@ -32,6 +32,7 @@ import (
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
+	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/bridge/commands"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -58,6 +59,9 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdPing,
 		cmdReconnect,
 		cmdDisconnect,
+		cmdBridge,
+		cmdUnbridge,
+		cmdDeletePortal,
 		cmdSetRelay,
 		cmdUnsetRelay,
 		cmdGuilds,
@@ -406,14 +410,16 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			ce.Reply("Portal with room ID %s not found", ce.Args[0])
 			return
 		}
-		levels, err := portal.MainIntent().PowerLevels(ce.RoomID)
-		if err != nil {
-			ce.ZLog.Warn().Err(err).Msg("Failed to check room power levels")
-			ce.Reply("Failed to get room power levels to see if you're allowed to use that command")
-			return
-		} else if levels.GetUserLevel(ce.User.GetMXID()) < levels.GetEventLevel(roomModerator) {
-			ce.Reply("You don't have admin rights in that room")
-			return
+		if ce.User.PermissionLevel < bridgeconfig.PermissionLevelAdmin {
+			levels, err := portal.MainIntent().PowerLevels(ce.RoomID)
+			if err != nil {
+				ce.ZLog.Warn().Err(err).Msg("Failed to check room power levels")
+				ce.Reply("Failed to get room power levels to see if you're allowed to use that command")
+				return
+			} else if levels.GetUserLevel(ce.User.GetMXID()) < levels.GetEventLevel(roomModerator) {
+				ce.Reply("You don't have admin rights in that room")
+				return
+			}
 		}
 		ce.Args = ce.Args[1:]
 	} else if portal == nil {
@@ -638,6 +644,142 @@ func fnGuildBridgingMode(ce *WrappedCommandEvent) {
 	guild.BridgingMode = mode
 	guild.Update()
 	ce.Reply("Set guild bridging mode to %s", mode.Description())
+}
+
+var cmdBridge = &commands.FullHandler{
+	Func: wrapCommand(fnBridge),
+	Name: "bridge",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionPortalManagement,
+		Description: "Bridge this room to a specific Discord channel",
+		Args:        "[--replace[=delete]] <_channel ID_>",
+	},
+	RequiresEventLevel: roomModerator,
+}
+
+func isNumber(str string) bool {
+	for _, chr := range str {
+		if chr < '0' || chr > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func fnBridge(ce *WrappedCommandEvent) {
+	if ce.Portal != nil {
+		ce.Reply("This is already a portal room. Unbridge with `$cmdprefix unbridge` first if you want to link it to a different channel.")
+		return
+	}
+	var channelID string
+	var unbridgeOld, deleteOld bool
+	fail := true
+	for _, arg := range ce.Args {
+		arg = strings.ToLower(arg)
+		if arg == "--replace" {
+			unbridgeOld = true
+		} else if arg == "--replace=delete" {
+			unbridgeOld = true
+			deleteOld = true
+		} else if channelID == "" && isNumber(arg) {
+			channelID = arg
+			fail = false
+		} else {
+			fail = true
+			break
+		}
+	}
+	if fail {
+		ce.Reply("**Usage**: `$cmdprefix bridge [--replace[=delete]] <channel ID>`")
+		return
+	}
+	portal := ce.User.GetExistingPortalByID(channelID)
+	if portal == nil {
+		ce.Reply("Channel not found")
+		return
+	}
+	portal.roomCreateLock.Lock()
+	defer portal.roomCreateLock.Lock()
+	if portal.MXID != "" {
+		hasUnbridgePermission := ce.User.PermissionLevel >= bridgeconfig.PermissionLevelAdmin
+		if !hasUnbridgePermission {
+			levels, err := portal.MainIntent().PowerLevels(portal.MXID)
+			if errors.Is(err, mautrix.MNotFound) {
+				ce.ZLog.Debug().Err(err).Msg("Got M_NOT_FOUND trying to get power levels to check if user can unbridge it, assuming the room is gone")
+				hasUnbridgePermission = true
+			} else if err != nil {
+				ce.ZLog.Warn().Err(err).Msg("Failed to check room power levels")
+				ce.Reply("Failed to get power levels in old room to see if you're allowed to unbridge it")
+				return
+			} else {
+				hasUnbridgePermission = levels.GetUserLevel(ce.User.GetMXID()) >= levels.GetEventLevel(roomModerator)
+			}
+		}
+		if !unbridgeOld || !hasUnbridgePermission {
+			extraHelp := "Rerun the command with `--replace` or `--replace=delete` to unbridge the old room."
+			if !hasUnbridgePermission {
+				extraHelp = "Additionally, you do not have the permissions to unbridge the old room."
+			}
+			ce.Reply("That channel is already bridged to [%s](https://matrix.to/#/%s). %s", portal.Name, portal.MXID, extraHelp)
+			return
+		}
+		ce.ZLog.Debug().
+			Str("old_room_id", portal.MXID.String()).
+			Bool("delete", deleteOld).
+			Msg("Unbridging old room")
+		portal.removeFromSpace()
+		portal.RemoveMXID()
+		portal.cleanup(deleteOld)
+		ce.ZLog.Info().
+			Str("old_room_id", portal.MXID.String()).
+			Bool("delete", deleteOld).
+			Msg("Unbridged old room to make space for new bridge")
+	}
+	if portal.Guild != nil && portal.Guild.BridgingMode < database.GuildBridgeIfPortalExists {
+		ce.ZLog.Debug().Str("guild_id", portal.Guild.ID).Msg("Bumping bridging mode of portal guild to if-portal-exists")
+		portal.Guild.BridgingMode = database.GuildBridgeIfPortalExists
+		portal.Guild.Update()
+	}
+	ce.ZLog.Debug().Str("channel_id", portal.Key.ChannelID).Msg("Bridging room")
+	portal.MXID = ce.RoomID
+	portal.updateRoomName()
+	portal.updateRoomAvatar()
+	portal.updateRoomTopic()
+	portal.updateSpace()
+	portal.UpdateBridgeInfo()
+	portal.Update()
+	ce.Reply("Room successfully bridged")
+	ce.ZLog.Info().Str("channel_id", portal.Key.ChannelID).Msg("Manual bridging complete")
+}
+
+var cmdUnbridge = &commands.FullHandler{
+	Func: wrapCommand(fnUnbridge),
+	Name: "unbridge",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionPortalManagement,
+		Description: "Unbridge this room from the linked Discord channel",
+	},
+	RequiresPortal:     true,
+	RequiresEventLevel: roomModerator,
+}
+
+var cmdDeletePortal = &commands.FullHandler{
+	Func: wrapCommand(fnUnbridge),
+	Name: "delete-portal",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionPortalManagement,
+		Description: "Unbridge this room and kick all Matrix users",
+	},
+	RequiresPortal:     true,
+	RequiresEventLevel: roomModerator,
+}
+
+func fnUnbridge(ce *WrappedCommandEvent) {
+	ce.Portal.roomCreateLock.Lock()
+	defer ce.Portal.roomCreateLock.Lock()
+	ce.Portal.removeFromSpace()
+	ce.Portal.RemoveMXID()
+	ce.Portal.cleanup(ce.Command == "delete-portal")
 }
 
 var cmdDeleteAllPortals = &commands.FullHandler{

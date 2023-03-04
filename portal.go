@@ -160,7 +160,9 @@ func (br *DiscordBridge) GetExistingPortalByID(key database.PortalKey) *Portal {
 	defer br.portalsLock.Unlock()
 	portal, ok := br.portalsByID[key]
 	if !ok {
-		portal, ok = br.portalsByID[database.NewPortalKey(key.ChannelID, "")]
+		if key.Receiver != "" {
+			portal, ok = br.portalsByID[database.NewPortalKey(key.ChannelID, "")]
+		}
 		if !ok {
 			return br.loadPortal(br.DB.Portal.GetByID(key), nil, -1)
 		}
@@ -1732,6 +1734,11 @@ func (portal *Portal) UpdateNameDirect(name string) bool {
 	portal.log.Debugfln("Updating name %q -> %q", portal.Name, name)
 	portal.Name = name
 	portal.NameSet = false
+	portal.updateRoomName()
+	return true
+}
+
+func (portal *Portal) updateRoomName() {
 	if portal.MXID != "" {
 		_, err := portal.MainIntent().SetRoomName(portal.MXID, portal.Name)
 		if err != nil {
@@ -1740,7 +1747,6 @@ func (portal *Portal) UpdateNameDirect(name string) bool {
 			portal.NameSet = true
 		}
 	}
-	return true
 }
 
 func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
@@ -1779,7 +1785,7 @@ func (portal *Portal) UpdateGroupDMAvatar(iconID string) bool {
 }
 
 func (portal *Portal) updateRoomAvatar() {
-	if portal.MXID == "" {
+	if portal.MXID == "" || portal.AvatarURL.IsEmpty() {
 		return
 	}
 	_, err := portal.MainIntent().SetRoomAvatar(portal.MXID, portal.AvatarURL)
@@ -1797,6 +1803,11 @@ func (portal *Portal) UpdateTopic(topic string) bool {
 	portal.log.Debugfln("Updating topic %q -> %q", portal.Topic, topic)
 	portal.Topic = topic
 	portal.TopicSet = false
+	portal.updateRoomTopic()
+	return true
+}
+
+func (portal *Portal) updateRoomTopic() {
 	if portal.MXID != "" {
 		_, err := portal.MainIntent().SetRoomTopic(portal.MXID, portal.Topic)
 		if err != nil {
@@ -1805,7 +1816,6 @@ func (portal *Portal) UpdateTopic(topic string) bool {
 			portal.TopicSet = true
 		}
 	}
-	return true
 }
 
 func (portal *Portal) removeFromSpace() {

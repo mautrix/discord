@@ -426,14 +426,23 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 		ce.Reply("You must either run the command in a portal, or specify an internal room ID as the first parameter")
 		return
 	}
-	if ce.Portal.GuildID == "" {
+	log := ce.ZLog.With().Str("channel_id", portal.Key.ChannelID).Logger()
+	if portal.GuildID == "" {
 		ce.Reply("Only guild channels can have relays")
+		return
+	} else if portal.RelayWebhookID != "" {
+		webhookMeta, err := relayClient.WebhookWithToken(portal.RelayWebhookID, portal.RelayWebhookSecret)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get existing webhook info")
+			ce.Reply("This channel has a relay webhook set, but getting its info failed: %v", err)
+			return
+		}
+		ce.Reply("This channel already has a relay webhook %s (%s)", webhookMeta.Name, webhookMeta.ID)
 		return
 	} else if len(ce.Args) == 0 {
 		ce.Reply(selectRelayHelp)
 		return
 	}
-	log := ce.ZLog.With().Str("channel_id", portal.Key.ChannelID).Logger()
 	createType := strings.ToLower(strings.TrimLeft(ce.Args[0], "-"))
 	var webhookMeta *discordgo.Webhook
 	switch createType {

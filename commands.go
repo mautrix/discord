@@ -756,9 +756,18 @@ func fnBridge(ce *WrappedCommandEvent) {
 	portal.updateRoomTopic()
 	portal.updateSpace()
 	portal.UpdateBridgeInfo()
+	state, err := portal.MainIntent().State(portal.MXID)
+	if err != nil {
+		ce.ZLog.Error().Err(err).Msg("Failed to update state cache for room")
+	}
+	encryptionEvent, isEncrypted := state[event.StateEncryption][""]
+	portal.Encrypted = isEncrypted && encryptionEvent.Content.AsEncryption().Algorithm == id.AlgorithmMegolmV1
 	portal.Update()
 	ce.Reply("Room successfully bridged")
-	ce.ZLog.Info().Str("channel_id", portal.Key.ChannelID).Msg("Manual bridging complete")
+	ce.ZLog.Info().
+		Str("channel_id", portal.Key.ChannelID).
+		Bool("encrypted", portal.Encrypted).
+		Msg("Manual bridging complete")
 }
 
 var cmdUnbridge = &commands.FullHandler{

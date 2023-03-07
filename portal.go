@@ -602,7 +602,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 		resp, err := portal.sendMatrixMessage(intent, part.Type, part.Content, part.Extra, ts.UnixMilli())
 		if err != nil {
-			portal.log.Errorfln("Failed to send part #%d (attachment ID %q) of message %s to Matrix: %v", i+1, part.AttachmentID, msg.ID)
+			portal.log.Errorfln("Failed to send part #%d (attachment ID %q) of message %s to Matrix: %v", i+1, part.AttachmentID, msg.ID, err)
 			continue
 		}
 		lastThreadEvent = resp.EventID

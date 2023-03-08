@@ -483,6 +483,7 @@ func (user *User) Logout() {
 	user.DiscordToken = ""
 	user.ReadStateVersion = 0
 	user.Update()
+	user.log.Infoln("User logged out")
 }
 
 func (user *User) Connected() bool {
@@ -572,6 +573,7 @@ func (user *User) Disconnect() error {
 		return ErrNotConnected
 	}
 
+	user.log.Infoln("Disconnecting session manually")
 	if err := user.Session.Close(); err != nil {
 		return err
 	}
@@ -828,7 +830,7 @@ func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconn
 func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidAuth) {
 	user.bridgeStateLock.Lock()
 	defer user.bridgeStateLock.Unlock()
-	user.log.Debugln("Got logged out from Discord")
+	user.log.Infoln("Got logged out from Discord due to invalid token")
 	user.wasLoggedOut = true
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004", Message: "Discord access token is no longer valid, please log in again"})
 	go user.Logout()

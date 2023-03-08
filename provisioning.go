@@ -227,7 +227,7 @@ func (p *ProvisioningAPI) logout(w http.ResponseWriter, r *http.Request) {
 	} else {
 		msg = "User wasn't logged in."
 	}
-	user.Logout()
+	user.Logout(false)
 	jsonResponse(w, http.StatusOK, Response{true, msg})
 }
 
@@ -328,8 +328,6 @@ func (p *ProvisioningAPI) qrLogin(w http.ResponseWriter, r *http.Request) {
 			}
 
 			log.Infofln("Logged in as %s#%s (%s)", discordUser.Username, discordUser.Discriminator, discordUser.UserID)
-			user.DiscordID = discordUser.UserID
-			user.Update()
 
 			if err = user.Login(discordUser.Token); err != nil {
 				log.Errorln("Failed to connect after logging in:", err)

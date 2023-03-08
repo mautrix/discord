@@ -458,7 +458,7 @@ func (user *User) IsLoggedIn() bool {
 	return user.DiscordToken != ""
 }
 
-func (user *User) Logout() {
+func (user *User) Logout(isOverwriting bool) {
 	user.Lock()
 	defer user.Unlock()
 
@@ -479,9 +479,16 @@ func (user *User) Logout() {
 	}
 
 	user.Session = nil
-	user.DiscordID = ""
 	user.DiscordToken = ""
 	user.ReadStateVersion = 0
+	if !isOverwriting {
+		user.bridge.usersLock.Lock()
+		if user.bridge.usersByID[user.DiscordID] == user {
+			delete(user.bridge.usersByID, user.DiscordID)
+		}
+		user.bridge.usersLock.Unlock()
+	}
+	user.DiscordID = ""
 	user.Update()
 	user.log.Infoln("User logged out")
 }
@@ -599,7 +606,15 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	user.bridgeStateLock.Unlock()
 
 	if user.DiscordID != r.User.ID {
+		user.bridge.usersLock.Lock()
 		user.DiscordID = r.User.ID
+		if previousUser, ok := user.bridge.usersByID[user.DiscordID]; ok && previousUser != user {
+			user.log.Warnfln("Another user (%s) is logged in with same Discord ID, logging them out", previousUser.MXID)
+			// TODO send notice?
+			previousUser.Logout(true)
+		}
+		user.bridge.usersByID[user.DiscordID] = user
+		user.bridge.usersLock.Unlock()
 		user.Update()
 	}
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBackfilling})
@@ -833,7 +848,7 @@ func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidA
 	user.log.Infoln("Got logged out from Discord due to invalid token")
 	user.wasLoggedOut = true
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004", Message: "Discord access token is no longer valid, please log in again"})
-	go user.Logout()
+	go user.Logout(false)
 }
 
 func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {

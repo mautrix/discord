@@ -281,7 +281,7 @@ var cmdLogout = &commands.FullHandler{
 
 func fnLogout(ce *WrappedCommandEvent) {
 	wasLoggedIn := ce.User.DiscordID != ""
-	ce.User.Logout()
+	ce.User.Logout(false)
 	if wasLoggedIn {
 		ce.Reply("Logged out successfully.")
 	} else {

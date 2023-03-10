@@ -751,6 +751,9 @@ func fnBridge(ce *WrappedCommandEvent) {
 	}
 	ce.ZLog.Debug().Str("channel_id", portal.Key.ChannelID).Msg("Bridging room")
 	portal.MXID = ce.RoomID
+	portal.bridge.portalsLock.Lock()
+	portal.bridge.portalsByMXID[portal.MXID] = portal
+	portal.bridge.portalsLock.Unlock()
 	portal.updateRoomName()
 	portal.updateRoomAvatar()
 	portal.updateRoomTopic()

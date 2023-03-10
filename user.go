@@ -442,13 +442,31 @@ func (user *User) Login(token string) error {
 	user.wasLoggedOut = false
 	user.bridgeStateLock.Unlock()
 	user.DiscordToken = token
-	err := user.Connect()
-	if err != nil {
-		user.DiscordToken = ""
-		return err
+	var err error
+	const maxRetries = 3
+Loop:
+	for i := 0; i < maxRetries; i++ {
+		err = user.Connect()
+		if err == nil {
+			user.Update()
+			return nil
+		}
+		user.log.Errorfln("Error connecting for login: %v", err)
+		closeErr := &websocket.CloseError{}
+		errors.As(err, &closeErr)
+		switch closeErr.Code {
+		case 4004, 4010, 4011, 4012, 4013, 4014:
+			break Loop
+		case 4000:
+			fallthrough
+		default:
+			if i < maxRetries-1 {
+				time.Sleep(time.Duration(i+1) * 2 * time.Second)
+			}
+		}
 	}
-	user.Update()
-	return nil
+	user.DiscordToken = ""
+	return err
 }
 
 func (user *User) IsLoggedIn() bool {

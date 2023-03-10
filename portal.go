@@ -1526,10 +1526,11 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		resp, err := intent.RedactEvent(portal.MXID, existing.MXID)
 		if err != nil {
 			portal.log.Warnfln("Failed to remove reaction from %s: %v", portal.MXID, err)
+		} else {
+			go portal.sendDeliveryReceipt(resp.EventID)
 		}
 
 		existing.Delete()
-		go portal.sendDeliveryReceipt(resp.EventID)
 		return
 	} else if existing != nil {
 		portal.log.Debugfln("Ignoring duplicate reaction %s from %s to %s", discordID, reaction.UserID, message[0].DiscordID)

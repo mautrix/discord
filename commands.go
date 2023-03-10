@@ -708,7 +708,7 @@ func fnBridge(ce *WrappedCommandEvent) {
 		return
 	}
 	portal.roomCreateLock.Lock()
-	defer portal.roomCreateLock.Lock()
+	defer portal.roomCreateLock.Unlock()
 	if portal.MXID != "" {
 		hasUnbridgePermission := ce.User.PermissionLevel >= bridgeconfig.PermissionLevelAdmin
 		if !hasUnbridgePermission {
@@ -759,9 +759,10 @@ func fnBridge(ce *WrappedCommandEvent) {
 	state, err := portal.MainIntent().State(portal.MXID)
 	if err != nil {
 		ce.ZLog.Error().Err(err).Msg("Failed to update state cache for room")
+	} else {
+		encryptionEvent, isEncrypted := state[event.StateEncryption][""]
+		portal.Encrypted = isEncrypted && encryptionEvent.Content.AsEncryption().Algorithm == id.AlgorithmMegolmV1
 	}
-	encryptionEvent, isEncrypted := state[event.StateEncryption][""]
-	portal.Encrypted = isEncrypted && encryptionEvent.Content.AsEncryption().Algorithm == id.AlgorithmMegolmV1
 	portal.Update()
 	ce.Reply("Room successfully bridged")
 	ce.ZLog.Info().
@@ -794,9 +795,9 @@ var cmdDeletePortal = &commands.FullHandler{
 
 func fnUnbridge(ce *WrappedCommandEvent) {
 	ce.Portal.roomCreateLock.Lock()
-	defer ce.Portal.roomCreateLock.Lock()
+	defer ce.Portal.roomCreateLock.Unlock()
 	ce.Portal.removeFromSpace()
-	ce.Portal.cleanup(ce.Command == "delete-portal")
+	ce.Portal.cleanup(ce.Command == "unbridge")
 	ce.Portal.RemoveMXID()
 }
 
@@ -845,7 +846,7 @@ func fnDeleteAllPortals(ce *WrappedCommandEvent) {
 		guild.Delete()
 		leave(guild.MXID, ce.Bot)
 	}
-	ce.Reply("Finished deleting portal info. Now cleaning up rooms in background.")
+	ce.Reply("Finished deleting portal info. Now cleaning up rooms in background. You'll have to restart the bridge or relogin before rooms can be bridged again.")
 
 	go func() {
 		for _, portal := range portals {

@@ -112,13 +112,17 @@ func (puppet *Puppet) tryRelogin(cause error, action string) bool {
 	if !puppet.bridge.Config.CanAutoDoublePuppet(puppet.CustomMXID) {
 		return false
 	}
-	puppet.log.Debugfln("Trying to relogin after '%v' while %s", cause, action)
+	log := puppet.log.With().
+		AnErr("cause_error", cause).
+		Str("while_action", action).
+		Logger()
+	log.Debug().Msg("Trying to relogin")
 	accessToken, err := puppet.loginWithSharedSecret(puppet.CustomMXID)
 	if err != nil {
-		puppet.log.Errorfln("Failed to relogin after '%v' while %s: %v", cause, action, err)
+		log.Error().Err(err).Msg("Failed to relogin")
 		return false
 	}
-	puppet.log.Infofln("Successfully relogined after '%v' while %s", cause, action)
+	log.Info().Msg("Successfully relogined")
 	puppet.AccessToken = accessToken
 	puppet.Update()
 	return true
@@ -126,7 +130,7 @@ func (puppet *Puppet) tryRelogin(cause error, action string) bool {
 
 func (puppet *Puppet) loginWithSharedSecret(mxid id.UserID) (string, error) {
 	_, homeserver, _ := mxid.Parse()
-	puppet.log.Debugfln("Logging into %s with shared secret", mxid)
+	puppet.log.Debug().Str("user_id", mxid.String()).Msg("Logging into double puppet target with shared secret")
 	loginSecret := puppet.bridge.Config.Bridge.LoginSharedSecretMap[homeserver]
 	client, err := puppet.bridge.newDoublePuppetClient(mxid, "")
 	if err != nil {

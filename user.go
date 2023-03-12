@@ -12,11 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
-	log "maunium.net/go/maulogger/v2"
-
-	"github.com/bwmarrin/discordgo"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -41,7 +39,7 @@ type User struct {
 	sync.Mutex
 
 	bridge *DiscordBridge
-	log    log.Logger
+	log    zerolog.Logger
 
 	PermissionLevel bridgeconfig.PermissionLevel
 
@@ -184,7 +182,7 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 	user := &User{
 		User:   dbUser,
 		bridge: br,
-		log:    br.Log.Sub("User").Sub(string(dbUser.MXID)),
+		log:    br.ZLog.With().Str("user_id", string(dbUser.MXID)).Logger(),
 
 		markedOpened:    make(map[string]time.Time),
 		PermissionLevel: br.Config.Bridge.Permissions.Get(dbUser.MXID),
@@ -214,7 +212,7 @@ func (br *DiscordBridge) getAllUsersWithToken() []*User {
 }
 
 func (br *DiscordBridge) startUsers() {
-	br.Log.Debugln("Starting users")
+	br.ZLog.Debug().Msg("Starting users")
 
 	usersWithToken := br.getAllUsersWithToken()
 	for _, u := range usersWithToken {
@@ -224,13 +222,13 @@ func (br *DiscordBridge) startUsers() {
 		br.SendGlobalBridgeState(status.BridgeState{StateEvent: status.StateUnconfigured}.Fill(nil))
 	}
 
-	br.Log.Debugln("Starting custom puppets")
+	br.ZLog.Debug().Msg("Starting custom puppets")
 	for _, customPuppet := range br.GetAllPuppetsWithCustomMXID() {
 		go func(puppet *Puppet) {
-			br.Log.Debugln("Starting custom puppet", puppet.CustomMXID)
+			br.ZLog.Debug().Str("user_id", puppet.CustomMXID.String()).Msg("Starting custom puppet")
 
 			if err := puppet.StartCustomMXID(true); err != nil {
-				puppet.log.Errorln("Failed to start custom puppet:", err)
+				puppet.log.Error().Err(err).Msg("Failed to start custom puppet")
 			}
 		}(customPuppet)
 	}
@@ -240,14 +238,14 @@ func (user *User) startupTryConnect(retryCount int) {
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnecting})
 	err := user.Connect()
 	if err != nil {
-		user.log.Errorfln("Error connecting: %v", err)
+		user.log.Error().Err(err).Msg("Error connecting on startup")
 		closeErr := &websocket.CloseError{}
 		if errors.As(err, &closeErr) && closeErr.Code == 4004 {
 			user.invalidAuthHandler(nil, nil)
 		} else if retryCount < 6 {
 			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-unknown-websocket-error", Message: err.Error()})
 			retryInSeconds := 2 << retryCount
-			user.log.Debugfln("Retrying connection in %d seconds", retryInSeconds)
+			user.log.Debug().Int("retry_in_seconds", retryInSeconds).Msg("Sleeping and retrying connection")
 			time.Sleep(time.Duration(retryInSeconds) * time.Second)
 			user.startupTryConnect(retryCount + 1)
 		} else {
@@ -321,7 +319,7 @@ func (user *User) getSpaceRoom(ptr *id.RoomID, name, topic string, parent id.Roo
 	})
 
 	if err != nil {
-		user.log.Errorln("Failed to auto-create space room:", err)
+		user.log.Error().Err(err).Msg("Failed to auto-create space room")
 	} else {
 		*ptr = resp.RoomID
 		user.Update()
@@ -333,7 +331,10 @@ func (user *User) getSpaceRoom(ptr *id.RoomID, name, topic string, parent id.Roo
 				Order: " 0000",
 			})
 			if err != nil {
-				user.log.Errorfln("Failed to add space room %s to parent space %s: %v", resp.RoomID, parent, err)
+				user.log.Error().Err(err).
+					Str("created_space_id", resp.RoomID.String()).
+					Str("parent_space_id", parent.String()).
+					Msg("Failed to add created space room to parent space")
 			}
 		}
 	}
@@ -356,30 +357,27 @@ func (user *User) tryAutomaticDoublePuppeting() {
 		return
 	}
 
-	user.log.Debugln("Checking if double puppeting needs to be enabled")
+	user.log.Debug().Msg("Checking if double puppeting needs to be enabled")
 
 	puppet := user.bridge.GetPuppetByID(user.DiscordID)
 	if puppet.CustomMXID != "" {
-		user.log.Debugln("User already has double-puppeting enabled")
-
+		user.log.Debug().Msg("User already has double-puppeting enabled")
 		return
 	}
 
 	accessToken, err := puppet.loginWithSharedSecret(user.MXID)
 	if err != nil {
-		user.log.Warnln("Failed to login with shared secret:", err)
-
+		user.log.Warn().Err(err).Msg("Failed to login with shared secret")
 		return
 	}
 
 	err = puppet.SwitchCustomMXID(accessToken, user.MXID)
 	if err != nil {
-		puppet.log.Warnln("Failed to switch to auto-logined custom puppet:", err)
-
+		puppet.log.Warn().Err(err).Msg("Failed to switch to auto-logined custom puppet")
 		return
 	}
 
-	user.log.Infoln("Successfully automatically enabled custom puppet")
+	user.log.Info().Msg("Successfully automatically enabled custom puppet")
 }
 
 func (user *User) ViewingChannel(portal *Portal) bool {
@@ -394,7 +392,9 @@ func (user *User) ViewingChannel(portal *Portal) bool {
 		user.markedOpened[portal.Key.ChannelID] = time.Now()
 		err := user.Session.MarkViewing(portal.Key.ChannelID)
 		if err != nil {
-			user.log.Errorfln("Failed to mark user as viewing %s: %v", portal.Key.ChannelID, err)
+			user.log.Error().Err(err).
+				Str("channel_id", portal.Key.ChannelID).
+				Msg("Failed to mark user as viewing channel")
 		}
 		return true
 	}
@@ -407,16 +407,18 @@ func (user *User) mutePortal(intent *appservice.IntentAPI, portal *Portal, unmut
 	}
 	var err error
 	if unmute {
-		user.log.Debugfln("Unmuting portal %s", portal.MXID)
+		user.log.Debug().Str("room_id", portal.MXID.String()).Msg("Unmuting portal")
 		err = intent.DeletePushRule("global", pushrules.RoomRule, string(portal.MXID))
 	} else {
-		user.log.Debugfln("Muting portal %s", portal.MXID)
+		user.log.Debug().Str("room_id", portal.MXID.String()).Msg("Muting portal")
 		err = intent.PutPushRule("global", pushrules.RoomRule, string(portal.MXID), &mautrix.ReqPutPushRule{
 			Actions: []pushrules.PushActionType{pushrules.ActionDontNotify},
 		})
 	}
 	if err != nil && !errors.Is(err, mautrix.MNotFound) {
-		user.log.Warnfln("Failed to update push rule for %s through double puppet: %v", portal.MXID, err)
+		user.log.Warn().Err(err).
+			Str("room_id", portal.MXID.String()).
+			Msg("Failed to update push rule through double puppet")
 	}
 }
 
@@ -451,7 +453,7 @@ Loop:
 			user.Update()
 			return nil
 		}
-		user.log.Errorfln("Error connecting for login: %v", err)
+		user.log.Error().Err(err).Msg("Error connecting for login")
 		closeErr := &websocket.CloseError{}
 		errors.As(err, &closeErr)
 		switch closeErr.Code {
@@ -485,14 +487,14 @@ func (user *User) Logout(isOverwriting bool) {
 		if puppet.CustomMXID != "" {
 			err := puppet.SwitchCustomMXID("", "")
 			if err != nil {
-				user.log.Warnln("Failed to logout-matrix while logging out of Discord:", err)
+				user.log.Warn().Err(err).Msg("Failed to disable custom puppet while logging out of Discord")
 			}
 		}
 	}
 
 	if user.Session != nil {
 		if err := user.Session.Close(); err != nil {
-			user.log.Warnln("Error closing session:", err)
+			user.log.Warn().Err(err).Msg("Error closing session")
 		}
 	}
 
@@ -508,7 +510,7 @@ func (user *User) Logout(isOverwriting bool) {
 	}
 	user.DiscordID = ""
 	user.Update()
-	user.log.Infoln("User logged out")
+	user.log.Info().Msg("User logged out")
 }
 
 func (user *User) Connected() bool {
@@ -544,7 +546,7 @@ func (user *User) Connect() error {
 		return ErrNotLoggedIn
 	}
 
-	user.log.Debugln("Connecting to discord")
+	user.log.Debug().Msg("Connecting to discord")
 
 	session, err := discordgo.New(user.DiscordToken)
 	if err != nil {
@@ -598,7 +600,7 @@ func (user *User) Disconnect() error {
 		return ErrNotConnected
 	}
 
-	user.log.Infoln("Disconnecting session manually")
+	user.log.Info().Msg("Disconnecting session manually")
 	if err := user.Session.Close(); err != nil {
 		return err
 	}
@@ -618,7 +620,7 @@ func (user *User) getGuildBridgingMode(guildID string) database.GuildBridgingMod
 }
 
 func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
-	user.log.Debugln("Discord connection ready")
+	user.log.Debug().Msg("Discord connection ready")
 	user.bridgeStateLock.Lock()
 	user.wasLoggedOut = false
 	user.bridgeStateLock.Unlock()
@@ -627,7 +629,9 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 		user.bridge.usersLock.Lock()
 		user.DiscordID = r.User.ID
 		if previousUser, ok := user.bridge.usersByID[user.DiscordID]; ok && previousUser != user {
-			user.log.Warnfln("Another user (%s) is logged in with same Discord ID, logging them out", previousUser.MXID)
+			user.log.Warn().
+				Str("previous_user_id", previousUser.MXID.String()).
+				Msg("Another user is logged in with same Discord ID, logging them out")
 			// TODO send notice?
 			previousUser.Logout(true)
 		}
@@ -676,7 +680,7 @@ func (user *User) subscribeGuilds(delay time.Duration) {
 	for _, guildMeta := range user.Session.State.Guilds {
 		guild := user.bridge.GetGuildByID(guildMeta.ID, false)
 		if guild != nil && guild.MXID != "" {
-			user.log.Debugfln("Subscribing to guild %s", guild.ID)
+			user.log.Debug().Str("guild_id", guild.ID).Msg("Subscribing to guild")
 			dat := discordgo.GuildSubscribeData{
 				GuildID:    guild.ID,
 				Typing:     true,
@@ -685,7 +689,7 @@ func (user *User) subscribeGuilds(delay time.Duration) {
 			}
 			err := user.Session.SubscribeGuild(dat)
 			if err != nil {
-				user.log.Warnfln("Failed to subscribe to %s: %v", guild.ID, err)
+				user.log.Warn().Err(err).Str("guild_id", guild.ID).Msg("Failed to subscribe to guild")
 			}
 			time.Sleep(delay)
 		}
@@ -693,7 +697,7 @@ func (user *User) subscribeGuilds(delay time.Duration) {
 }
 
 func (user *User) resumeHandler(_ *discordgo.Session, r *discordgo.Resumed) {
-	user.log.Debugln("Discord connection resumed")
+	user.log.Debug().Msg("Discord connection resumed")
 	user.subscribeGuilds(0 * time.Second)
 }
 
@@ -705,7 +709,9 @@ func (user *User) addPrivateChannelToSpace(portal *Portal) bool {
 		Via: []string{user.bridge.AS.HomeserverDomain},
 	})
 	if err != nil {
-		user.log.Errorfln("Failed to add DM room %s to user DM space: %v", portal.MXID, err)
+		user.log.Error().Err(err).
+			Str("room_id", portal.MXID.String()).
+			Msg("Failed to add DMM room to user DM space")
 		return false
 	} else {
 		return true
@@ -716,7 +722,9 @@ func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, 
 	if create && portal.MXID == "" {
 		err := portal.CreateMatrixRoom(user, meta)
 		if err != nil {
-			user.log.Errorfln("Failed to create portal for private channel %s in initial sync: %v", portal.Key.ChannelID, err)
+			user.log.Error().Err(err).
+				Str("channel_id", portal.Key.ChannelID).
+				Msg("Failed to create portal for private channel in create handler")
 		}
 	} else {
 		portal.UpdateInfo(user, meta)
@@ -735,7 +743,9 @@ func (user *User) addGuildToSpace(guild *Guild, isInSpace bool, timestamp time.T
 			Via: []string{user.bridge.AS.HomeserverDomain},
 		})
 		if err != nil {
-			user.log.Errorfln("Failed to add guild space %s to user space: %v", guild.MXID, err)
+			user.log.Error().Err(err).
+				Str("guild_space_id", guild.MXID.String()).
+				Msg("Failed to add guild space to user space")
 		} else {
 			isInSpace = true
 		}
@@ -778,7 +788,7 @@ func (user *User) handleGuildRoles(guildID string, newRoles []*discordgo.Role) {
 	}
 	txn, err := user.bridge.DB.Begin()
 	if err != nil {
-		user.log.Errorln("Failed to start transaction for guild role sync:", err)
+		user.log.Error().Err(err).Msg("Failed to start transaction for guild role sync")
 		panic(err)
 	}
 	for _, role := range newRoles {
@@ -793,10 +803,10 @@ func (user *User) handleGuildRoles(guildID string, newRoles []*discordgo.Role) {
 	}
 	err = txn.Commit()
 	if err != nil {
-		user.log.Errorln("Failed to commit guild role sync:", err)
+		user.log.Error().Err(err).Msg("Failed to commit guild role sync transaction")
 		rollbackErr := txn.Rollback()
 		if rollbackErr != nil {
-			user.log.Errorln("Failed to rollback errored guild role sync:", rollbackErr)
+			user.log.Error().Err(rollbackErr).Msg("Failed to rollback errored guild role sync transaction")
 		}
 		panic(err)
 	}
@@ -825,7 +835,10 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 			if guild.BridgingMode >= database.GuildBridgeEverything && portal.MXID == "" && user.channelIsBridgeable(ch) {
 				err := portal.CreateMatrixRoom(user, ch)
 				if err != nil {
-					user.log.Errorfln("Failed to create portal for guild channel %s/%s in initial sync: %v", guild.ID, ch.ID, err)
+					user.log.Error().Err(err).
+						Str("guild_id", guild.ID).
+						Str("channel_id", ch.ID).
+						Msg("Failed to create portal for guild channel in guild handler")
 				}
 			} else {
 				portal.UpdateInfo(user, ch)
@@ -841,7 +854,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 func (user *User) connectedHandler(_ *discordgo.Session, _ *discordgo.Connect) {
 	user.bridgeStateLock.Lock()
 	defer user.bridgeStateLock.Unlock()
-	user.log.Debugln("Connected to Discord")
+	user.log.Debug().Msg("Connected to Discord")
 	if user.wasDisconnected {
 		user.wasDisconnected = false
 		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
@@ -852,10 +865,10 @@ func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconn
 	user.bridgeStateLock.Lock()
 	defer user.bridgeStateLock.Unlock()
 	if user.wasLoggedOut {
-		user.log.Debugln("Disconnected from Discord (not updating bridge state as user was just logged out)")
+		user.log.Debug().Msg("Disconnected from Discord (not updating bridge state as user was just logged out)")
 		return
 	}
-	user.log.Debugln("Disconnected from Discord")
+	user.log.Debug().Msg("Disconnected from Discord")
 	user.wasDisconnected = true
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-transient-disconnect", Message: "Temporarily disconnected from Discord, trying to reconnect"})
 }
@@ -863,44 +876,52 @@ func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconn
 func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidAuth) {
 	user.bridgeStateLock.Lock()
 	defer user.bridgeStateLock.Unlock()
-	user.log.Infoln("Got logged out from Discord due to invalid token")
+	user.log.Info().Msg("Got logged out from Discord due to invalid token")
 	user.wasLoggedOut = true
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004", Message: "Discord access token is no longer valid, please log in again"})
 	go user.Logout(false)
 }
 
 func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {
-	user.log.Infofln("Got guild create event for %s (name: %s, unavailable: %t)", g.ID, g.Name, g.Unavailable)
+	user.log.Info().
+		Str("guild_id", g.ID).
+		Str("name", g.Name).
+		Bool("unavailable", g.Unavailable).
+		Msg("Got guild create event")
 	user.handleGuild(g.Guild, time.Now(), false)
 }
 
 func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDelete) {
-	user.log.Infoln("Got guild delete event for", g.ID)
+	user.log.Info().Str("guild_id", g.ID).Msg("Got guild delete event")
 	user.MarkNotInPortal(g.ID)
 	guild := user.bridge.GetGuildByID(g.ID, false)
 	if guild == nil || guild.MXID == "" {
 		return
 	}
 	if user.bridge.Config.Bridge.DeleteGuildOnLeave && !user.PortalHasOtherUsers(g.ID) {
-		user.log.Debugfln("No other users in %s, cleaning up all portals", g.ID)
+		user.log.Debug().Str("guild_id", g.ID).Msg("No other users in guild, cleaning up all portals")
 		err := user.unbridgeGuild(g.ID)
 		if err != nil {
-			user.log.Warnfln("Failed to unbridge guild that was deleted: %v", err)
+			user.log.Warn().Err(err).Msg("Failed to unbridge guild that was deleted")
 		}
 	}
 }
 
 func (user *User) guildUpdateHandler(_ *discordgo.Session, g *discordgo.GuildUpdate) {
-	user.log.Debugln("Got guild update event for", g.ID)
+	user.log.Debug().Str("guild_id", g.ID).Msg("Got guild update event")
 	user.handleGuild(g.Guild, time.Now(), user.IsInSpace(g.ID))
 }
 
 func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.ChannelCreate) {
 	if user.getGuildBridgingMode(c.GuildID) < database.GuildBridgeEverything {
-		user.log.Debugfln("Ignoring channel create event in unbridged guild %s/%s", c.GuildID, c.ID)
+		user.log.Debug().
+			Str("guild_id", c.GuildID).Str("channel_id", c.ID).
+			Msg("Ignoring channel create event in unbridged guild")
 		return
 	}
-	user.log.Infofln("Got channel create event for %s/%s", c.GuildID, c.ID)
+	user.log.Info().
+		Str("guild_id", c.GuildID).Str("channel_id", c.ID).
+		Msg("Got channel create event")
 	portal := user.GetPortalByMeta(c.Channel)
 	if portal.MXID != "" {
 		return
@@ -910,30 +931,40 @@ func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.Channe
 	} else if user.channelIsBridgeable(c.Channel) {
 		err := portal.CreateMatrixRoom(user, c.Channel)
 		if err != nil {
-			user.log.Errorfln("Error creating Matrix room for %s on channel create event: %v", c.ID, err)
+			user.log.Error().Err(err).
+				Str("guild_id", c.GuildID).Str("channel_id", c.ID).
+				Msg("Error creating Matrix room after channel create event")
 		}
 	} else {
-		user.log.Debugfln("Got channel create event for %s, but it's not bridgeable, ignoring", c.ID)
+		user.log.Debug().
+			Str("guild_id", c.GuildID).Str("channel_id", c.ID).
+			Msg("Got channel create event, but it's not bridgeable, ignoring")
 	}
 }
 
 func (user *User) channelDeleteHandler(_ *discordgo.Session, c *discordgo.ChannelDelete) {
 	portal := user.GetExistingPortalByID(c.ID)
 	if portal == nil {
-		user.log.Debugfln("Ignoring delete of unknown channel %s/%s", c.GuildID, c.ID)
+		user.log.Debug().
+			Str("guild_id", c.GuildID).Str("channel_id", c.ID).
+			Msg("Ignoring channel delete event of unknown channel")
 		return
 	}
-	user.log.Infofln("Got channel delete event for %s/%s, cleaning up portal", c.GuildID, c.ID)
+	user.log.Info().
+		Str("guild_id", c.GuildID).Str("channel_id", c.ID).
+		Msg("Got channel delete event, cleaning up portal")
 	portal.Delete()
 	portal.cleanup(!user.bridge.Config.Bridge.DeletePortalOnChannelDelete)
 	if c.GuildID == "" {
 		user.MarkNotInPortal(portal.Key.ChannelID)
 	}
-	user.log.Debugfln("Completed cleaning up %s/%s", c.GuildID, c.ID)
+	user.log.Debug().
+		Str("guild_id", c.GuildID).Str("channel_id", c.ID).
+		Msg("Completed cleaning up channel")
 }
 
 func (user *User) channelPinsUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelPinsUpdate) {
-	user.log.Debugln("channel pins update")
+	user.log.Debug().Msg("channel pins update")
 }
 
 func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelUpdate) {
@@ -957,23 +988,25 @@ func (user *User) findPortal(channelID string) (*Portal, *Thread) {
 	if !user.Session.IsUser {
 		channel, _ := user.Session.State.Channel(channelID)
 		if channel == nil {
-			user.log.Debugfln("Fetching info of unknown channel %s to handle message", channelID)
+			user.log.Debug().Str("channel_id", channelID).Msg("Fetching info of unknown channel to handle message")
 			var err error
 			channel, err = user.Session.Channel(channelID)
 			if err != nil {
-				user.log.Warnfln("Failed to get info of unknown channel %s: %v", channelID, err)
+				user.log.Warn().Err(err).Str("channel_id", channelID).Msg("Failed to get info of unknown channel")
 			} else {
-				user.log.Debugfln("Got info for channel %s to handle message", channelID)
+				user.log.Debug().Str("channel_id", channelID).Msg("Got info for channel to handle message")
 				_ = user.Session.State.ChannelAdd(channel)
 			}
 		}
 		if channel != nil && user.channelIsBridgeable(channel) {
-			user.log.Debugfln("Creating portal and updating info for %s to handle message", channelID)
+			user.log.Debug().Str("channel_id", channelID).Msg("Creating portal and updating info to handle message")
 			portal = user.GetPortalByMeta(channel)
 			if channel.GuildID == "" {
 				user.handlePrivateChannel(portal, channel, time.Now(), false, false)
 			} else {
-				user.log.Warnfln("Unexpected unknown guild channel %s/%s", channel.GuildID, channel.ID)
+				user.log.Warn().
+					Str("channel_id", channel.ID).Str("guild_id", channel.GuildID).
+					Msg("Unexpected unknown guild channel")
 			}
 			return portal, nil
 		}
@@ -989,7 +1022,11 @@ func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildI
 
 	portal, thread := user.findPortal(channelID)
 	if portal == nil {
-		user.log.Debugfln("Dropping %s in unknown channel %s/%s", typeName, guildID, channelID)
+		user.log.Debug().
+			Str("discord_event", typeName).
+			Str("guild_id", guildID).
+			Str("channel_id", channelID).
+			Msg("Dropping event in unknown channel")
 		return
 	}
 	if mode := user.getGuildBridgingMode(portal.GuildID); mode <= database.GuildBridgeNothing || (portal.MXID == "" && mode <= database.GuildBridgeIfPortalExists) {
@@ -1058,14 +1095,20 @@ func (user *User) messageAckHandler(_ *discordgo.Session, m *discordgo.MessageAc
 	}
 	msg := user.bridge.DB.Message.GetLastByDiscordID(portal.Key, m.MessageID)
 	if msg == nil {
-		user.log.Debugfln("Dropping message ack event for unknown message %s/%s", m.ChannelID, m.MessageID)
+		user.log.Debug().
+			Str("channel_id", m.ChannelID).Str("message_id", m.MessageID).
+			Msg("Dropping message ack event for unknown message")
 		return
 	}
 	err := dp.CustomIntent().SetReadMarkers(portal.MXID, user.makeReadMarkerContent(msg.MXID))
 	if err != nil {
-		user.log.Warnfln("Failed to mark %s/%s as read: %v", msg.MXID, msg.DiscordID, err)
+		user.log.Error().Err(err).
+			Str("event_id", msg.MXID.String()).Str("message_id", msg.DiscordID).
+			Msg("Failed to mark event as read")
 	} else {
-		user.log.Debugfln("Marked %s/%s as read after Discord message ack event", msg.MXID, msg.DiscordID)
+		user.log.Debug().
+			Str("event_id", msg.MXID.String()).Str("message_id", msg.DiscordID).
+			Msg("Marked event as read after Discord message ack")
 		if user.ReadStateVersion < m.Version {
 			user.ReadStateVersion = m.Version
 			// TODO maybe don't update every time?
@@ -1087,9 +1130,9 @@ func (user *User) interactionSuccessHandler(_ *discordgo.Session, s *discordgo.I
 	defer user.pendingInteractionsLock.Unlock()
 	ce, ok := user.pendingInteractions[s.Nonce]
 	if !ok {
-		user.log.Debugfln("Got interaction success for unknown interaction %s/%s", s.Nonce, s.ID)
+		user.log.Debug().Str("nonce", s.Nonce).Str("id", s.ID).Msg("Got interaction success for unknown interaction")
 	} else {
-		user.log.Infofln("Got interaction success for pending interaction %s/%s", s.Nonce, s.ID)
+		user.log.Debug().Str("nonce", s.Nonce).Str("id", s.ID).Msg("Got interaction success for pending interaction")
 		ce.React("✅")
 		delete(user.pendingInteractions, s.Nonce)
 	}
@@ -1121,7 +1164,7 @@ func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, 
 		user.bridge.StateStore.SetMembership(roomID, user.MXID, event.MembershipJoin)
 		ret = true
 	} else if err != nil {
-		user.log.Warnfln("Failed to invite user to %s: %v", roomID, err)
+		user.log.Error().Err(err).Str("room_id", roomID.String()).Msg("Failed to invite user to room")
 	} else {
 		ret = true
 	}
@@ -1129,7 +1172,7 @@ func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, 
 	if customPuppet != nil && customPuppet.CustomIntent() != nil {
 		err = customPuppet.CustomIntent().EnsureJoined(roomID, appservice.EnsureJoinedParams{IgnoreCache: true})
 		if err != nil {
-			user.log.Warnfln("Failed to auto-join %s: %v", roomID, err)
+			user.log.Warn().Err(err).Str("room_id", roomID.String()).Msg("Failed to auto-join room")
 			ret = false
 		} else {
 			ret = true
@@ -1175,7 +1218,7 @@ func (user *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
 		method = http.MethodPut
 	}
 
-	user.log.Debugln("Updating m.direct list on homeserver")
+	user.log.Debug().Msg("Updating m.direct list on homeserver")
 
 	var err error
 	if user.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareAsmux {
@@ -1191,8 +1234,7 @@ func (user *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
 
 		err = intent.GetAccountData(event.AccountDataDirectChats.Type, &existingChats)
 		if err != nil {
-			user.log.Warnln("Failed to get m.direct list to update it:", err)
-
+			user.log.Warn().Err(err).Msg("Failed to get m.direct event to update it")
 			return
 		}
 
@@ -1210,7 +1252,7 @@ func (user *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
 	}
 
 	if err != nil {
-		user.log.Warnln("Failed to update m.direct list:", err)
+		user.log.Warn().Err(err).Msg("Failed to update m.direct event")
 	}
 }
 
@@ -1224,13 +1266,15 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	if err != nil {
 		return err
 	}
+	log := user.log.With().Str("guild_id", guild.ID).Logger()
 	user.addGuildToSpace(guild, false, time.Now())
 	for _, ch := range meta.Channels {
 		portal := user.GetPortalByMeta(ch)
 		if (everything && user.channelIsBridgeable(ch)) || ch.Type == discordgo.ChannelTypeGuildCategory {
 			err = portal.CreateMatrixRoom(user, ch)
 			if err != nil {
-				user.log.Warnfln("Error creating room for guild channel %s: %v", ch.ID, err)
+				log.Error().Err(err).Str("channel_id", ch.ID).
+					Msg("Failed to create room for guild channel while bridging guild")
 			}
 		}
 	}
@@ -1240,7 +1284,7 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	guild.Update()
 
 	if user.Session.IsUser {
-		user.log.Debugfln("Subscribing to guild %s after bridging", guild.ID)
+		log.Debug().Msg("Subscribing to guild after bridging")
 		err = user.Session.SubscribeGuild(discordgo.GuildSubscribeData{
 			GuildID:    guild.ID,
 			Typing:     true,
@@ -1248,7 +1292,7 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 			Threads:    true,
 		})
 		if err != nil {
-			user.log.Warnfln("Failed to subscribe to %s: %v", guild.ID, err)
+			log.Warn().Err(err).Msg("Failed to subscribe to guild")
 		}
 	}
 

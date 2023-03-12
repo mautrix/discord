@@ -78,7 +78,8 @@ func (thread *Thread) Join(user *User) {
 	if user.IsInPortal(thread.ID) {
 		return
 	}
-	user.log.Debugfln("Joining thread %s@%s", thread.ID, thread.ParentID)
+	log := user.log.With().Str("thread_id", thread.ID).Str("channel_id", thread.ParentID).Logger()
+	log.Debug().Msg("Joining thread")
 	var err error
 	if user.Session.IsUser {
 		err = user.Session.ThreadJoinWithLocation(thread.ID, discordgo.ThreadJoinLocationContextMenu)
@@ -86,7 +87,7 @@ func (thread *Thread) Join(user *User) {
 		err = user.Session.ThreadJoin(thread.ID)
 	}
 	if err != nil {
-		user.log.Errorfln("Error joining thread %s@%s: %v", thread.ID, thread.ParentID, err)
+		log.Error().Err(err).Msg("Error joining thread")
 	} else {
 		user.MarkInPortal(database.UserPortal{
 			DiscordID: thread.ID,

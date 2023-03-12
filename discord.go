@@ -18,30 +18,35 @@ func (user *User) channelIsBridgeable(channel *discordgo.Channel) bool {
 		return false
 	}
 
+	log := user.log.With().Str("guild_id", channel.GuildID).Str("channel_id", channel.ID).Logger()
+
 	member, err := user.Session.State.Member(channel.GuildID, user.DiscordID)
 	if errors.Is(err, discordgo.ErrStateNotFound) {
-		user.log.Debugfln("Fetching own membership in %s to check own roles", channel.GuildID)
+		log.Debug().Msg("Fetching own membership in guild to check roles")
 		member, err = user.Session.GuildMember(channel.GuildID, user.DiscordID)
 		if err != nil {
-			user.log.Warnfln("Failed to get own membership in %s from server to determine own roles for bridging %s: %v", channel.GuildID, channel.ID, err)
+			log.Warn().Err(err).Msg("Failed to get own membership in guild from server")
 		} else {
 			err = user.Session.State.MemberAdd(member)
 			if err != nil {
-				user.log.Warnfln("Failed to add own membership in %s to cache: %v", channel.GuildID, err)
+				log.Warn().Err(err).Msg("Failed to add own membership in guild to cache")
 			}
 		}
 	} else if err != nil {
-		user.log.Warnfln("Failed to get own membership in %s from cache to determine own roles for bridging %s: %v", channel.GuildID, channel.ID, err)
+		log.Warn().Err(err).Msg("Failed to get own membership in guild from cache")
 	}
 	err = user.Session.State.ChannelAdd(channel)
 	if err != nil {
-		user.log.Warnfln("Failed to add channel %s/%s to cache: %v", channel.GuildID, channel.ID, err)
+		log.Warn().Err(err).Msg("Failed to add channel to cache")
 	}
 	perms, err := user.Session.State.UserChannelPermissions(user.DiscordID, channel.ID)
 	if err != nil {
-		user.log.Warnfln("Failed to get permissions in %s/%s to determine if it's bridgeable: %v", channel.GuildID, channel.ID, err)
+		log.Warn().Err(err).Msg("Failed to get permissions in channel to determine if it's bridgeable")
 		return true
 	}
-	user.log.Debugfln("Computed permissions in %s/%s: %d (view channel: %t)", channel.GuildID, channel.ID, perms, perms&discordgo.PermissionViewChannel > 0)
+	log.Debug().
+		Int64("permissions", perms).
+		Bool("view_channel", perms&discordgo.PermissionViewChannel > 0).
+		Msg("Computed permissions in channel")
 	return perms&discordgo.PermissionViewChannel > 0
 }

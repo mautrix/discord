@@ -5,9 +5,8 @@ import (
 	"regexp"
 	"sync"
 
-	log "maunium.net/go/maulogger/v2"
-
 	"github.com/bwmarrin/discordgo"
+	"github.com/rs/zerolog"
 
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
@@ -20,7 +19,7 @@ type Puppet struct {
 	*database.Puppet
 
 	bridge *DiscordBridge
-	log    log.Logger
+	log    zerolog.Logger
 
 	MXID id.UserID
 
@@ -43,7 +42,7 @@ func (br *DiscordBridge) NewPuppet(dbPuppet *database.Puppet) *Puppet {
 	return &Puppet{
 		Puppet: dbPuppet,
 		bridge: br,
-		log:    br.Log.Sub(fmt.Sprintf("Puppet/%s", dbPuppet.ID)),
+		log:    br.ZLog.With().Str("discord_user_id", dbPuppet.ID).Logger(),
 
 		MXID: br.FormatPuppetMXID(dbPuppet.ID),
 	}
@@ -202,7 +201,7 @@ func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
 	puppet.NameSet = false
 	err := puppet.DefaultIntent().SetDisplayName(newName)
 	if err != nil {
-		puppet.log.Warnln("Failed to update displayname:", err)
+		puppet.log.Warn().Err(err).Msg("Failed to update displayname")
 	} else {
 		go puppet.updatePortalMeta(func(portal *Portal) {
 			if portal.UpdateNameDirect(puppet.Name) {
@@ -228,7 +227,7 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 	if puppet.Avatar != "" && (puppet.AvatarURL.IsEmpty() || avatarChanged) {
 		url, err := uploadAvatar(puppet.DefaultIntent(), info.AvatarURL(""))
 		if err != nil {
-			puppet.log.Warnfln("Failed to reupload user avatar %s: %v", puppet.Avatar, err)
+			puppet.log.Warn().Err(err).Str("avatar_id", puppet.Avatar).Msg("Failed to reupload user avatar")
 			return true
 		}
 		puppet.AvatarURL = url
@@ -236,7 +235,7 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 
 	err := puppet.DefaultIntent().SetAvatarURL(puppet.AvatarURL)
 	if err != nil {
-		puppet.log.Warnln("Failed to update avatar:", err)
+		puppet.log.Warn().Err(err).Msg("Failed to update avatar")
 	} else {
 		go puppet.updatePortalMeta(func(portal *Portal) {
 			if portal.UpdateAvatarFromPuppet(puppet) {
@@ -258,17 +257,17 @@ func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User) {
 			return
 		}
 		var err error
-		puppet.log.Debugfln("Fetching info through %s to update", source.DiscordID)
+		puppet.log.Debug().Str("source_user", source.DiscordID).Msg("Fetching info through user to update puppet")
 		info, err = source.Session.User(puppet.ID)
 		if err != nil {
-			puppet.log.Errorfln("Failed to fetch info through %s: %v", source.DiscordID, err)
+			puppet.log.Error().Err(err).Str("source_user", source.DiscordID).Msg("Failed to fetch info through user")
 			return
 		}
 	}
 
 	err := puppet.DefaultIntent().EnsureRegistered()
 	if err != nil {
-		puppet.log.Errorln("Failed to ensure registered:", err)
+		puppet.log.Error().Err(err).Msg("Failed to ensure registered")
 	}
 
 	changed := false

@@ -1,4 +1,4 @@
-# v0.2.0 (unreleased)
+# v0.2.0 (2023-03-16)
 
 * Switched to zerolog for logging.
   * The basic log config will be migrated automatically, but you may want to

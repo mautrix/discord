@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/bwmarrin/discordgo v0.27.0
-	github.com/gabriel-vasile/mimetype v1.4.1
+	github.com/gabriel-vasile/mimetype v1.4.2
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
@@ -12,10 +12,10 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/rs/zerolog v1.29.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
 	github.com/yuin/goldmark v1.5.4
 	maunium.net/go/maulogger/v2 v2.4.1
-	maunium.net/go/mautrix v0.15.0-beta.2.0.20230315141952-7b3389a2c155
+	maunium.net/go/mautrix v0.15.0
 )
 
 require (
@@ -30,8 +30,8 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.mau.fi/zeroconfig v0.1.2 // indirect
 	golang.org/x/crypto v0.6.0 // indirect
-	golang.org/x/net v0.6.0 // indirect
-	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/net v0.8.0 // indirect
+	golang.org/x/sys v0.6.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	maunium.net/go/mauflag v1.0.0 // indirect

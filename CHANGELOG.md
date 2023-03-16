@@ -8,11 +8,14 @@
   have been updated with instructions for creating a bot.
 * Added support for relaying messages for unauthenticated users using a webhook.
   See [docs](https://docs.mau.fi/bridges/go/discord/relay.html) for instructions.
+* Added commands to bridge and unbridge channels manually.
 * Added `ping` command.
 * Added support for gif stickers from Discord.
 * Changed mention bridging so mentions for users logged into the bridge use the
   Matrix user's MXID even if double puppeting is not enabled.
 * Actually fixed ghost user info not being synced when receiving reactions.
+* Fixed uncommon bug with sending messages that only occurred after login
+  before restarting the bridge.
 * Fixed guild name not being synced immediately after joining a new guild.
 * Fixed variation selectors when bridging emojis to Discord.
 

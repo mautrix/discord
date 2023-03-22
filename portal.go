@@ -1346,10 +1346,10 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 	intent := portal.MainIntent()
 	if portal.bridge.SpecVersions.UnstableFeatures["com.beeper.room_yeeting"] {
 		err := intent.BeeperDeleteRoom(portal.MXID)
-		if err == nil || errors.Is(err, mautrix.MNotFound) {
-			return
+		if err != nil && !errors.Is(err, mautrix.MNotFound) {
+			portal.log.Errorfln("Failed to delete %s using hungryserv yeet endpoint: %v", portal.MXID, err)
 		}
-		portal.log.Warnfln("Failed to delete %s using hungryserv yeet endpoint, falling back to normal behavior: %v", portal.MXID, err)
+		return
 	}
 
 	if portal.IsPrivateChat() {

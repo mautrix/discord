@@ -1968,11 +1968,24 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 	return meta
 }
 
-func (portal *Portal) ForwardBackfill(source *User) error {
+func (portal *Portal) ForwardBackfill(source *User, meta *discordgo.Channel) error {
 	portal.log.Debugln("Checking for missing messages to fill")
 	lastMessage := portal.bridge.DB.Message.GetLast(portal.Key)
 	if lastMessage == nil {
-		portal.log.Debugln("No last message in portal, can't forward backfill")
+		return nil
+	}
+
+	metaLastMessageID, err := strconv.ParseInt(meta.LastMessageID, 10, 0)
+	if err != nil {
+		portal.log.Errorfln("Last message ID %s isn't integer", meta.LastMessageID)
+		return err
+	}
+	dbLastMessageID, err := strconv.ParseInt(lastMessage.DiscordID, 10, 0)
+	if err != nil {
+		portal.log.Errorfln("Last message ID %s isn't integer", lastMessage.DiscordID)
+		return err
+	}
+	if metaLastMessageID <= dbLastMessageID {
 		return nil
 	}
 
@@ -1995,14 +2008,11 @@ func (portal *Portal) ForwardBackfill(source *User) error {
 
 		if len(messages) < 100 {
 			// Assume that was all the missing messages
-			break
+			return nil
 		}
 		lastMessage = portal.bridge.DB.Message.GetLast(portal.Key)
 		if lastMessage == nil {
-			portal.log.Debugln("No last message in portal, can't forward backfill")
 			return nil
 		}
 	}
-
-	return nil
 }

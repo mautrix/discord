@@ -1,5 +1,5 @@
 // mautrix-discord - A Matrix-Discord puppeting bridge.
-// Copyright (C) 2022 Tulir Asokan
+// Copyright (C) 2023 Tulir Asokan
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as published by
@@ -31,7 +31,15 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Str, "bridge", "displayname_template")
 	helper.Copy(up.Str, "bridge", "channel_name_template")
 	helper.Copy(up.Str, "bridge", "guild_name_template")
-	helper.Copy(up.Bool, "bridge", "private_chat_portal_meta")
+	if legacyPrivateChatPortalMeta, ok := helper.Get(up.Bool, "bridge", "private_chat_portal_meta"); ok {
+		updatedPrivateChatPortalMeta := "default"
+		if legacyPrivateChatPortalMeta == "true" {
+			updatedPrivateChatPortalMeta = "always"
+		}
+		helper.Set(up.Str, updatedPrivateChatPortalMeta, "bridge", "private_chat_portal_meta")
+	} else {
+		helper.Copy(up.Str, "bridge", "private_chat_portal_meta")
+	}
 	helper.Copy(up.Int, "bridge", "startup_private_channel_create_limit")
 	helper.Copy(up.Int, "bridge", "portal_message_buffer")
 	helper.Copy(up.Bool, "bridge", "delivery_receipts")

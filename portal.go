@@ -336,6 +336,12 @@ func (portal *Portal) UpdateBridgeInfo() {
 	}
 }
 
+func (portal *Portal) shouldSetDMRoomMetadata() bool {
+	return !portal.IsPrivateChat() ||
+		portal.bridge.Config.Bridge.PrivateChatPortalMeta == "always" ||
+		(portal.IsEncrypted() && portal.bridge.Config.Bridge.PrivateChatPortalMeta != "never")
+}
+
 func (portal *Portal) GetEncryptionEventContent() (evt *event.EncryptionEventContent) {
 	evt = &event.EncryptionEventContent{Algorithm: id.AlgorithmMegolmV1}
 	if rot := portal.bridge.Config.Bridge.Encryption.Rotation; rot.EnableCustom {
@@ -375,13 +381,32 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		StateKey: &bridgeInfoStateKey,
 	}}
 
-	if !portal.AvatarURL.IsEmpty() {
+	var invite []id.UserID
+
+	if portal.bridge.Config.Bridge.Encryption.Default {
+		initialState = append(initialState, &event.Event{
+			Type: event.StateEncryption,
+			Content: event.Content{
+				Parsed: portal.GetEncryptionEventContent(),
+			},
+		})
+		portal.Encrypted = true
+
+		if portal.IsPrivateChat() {
+			invite = append(invite, portal.bridge.Bot.UserID)
+		}
+	}
+
+	if !portal.AvatarURL.IsEmpty() && portal.shouldSetDMRoomMetadata() {
 		initialState = append(initialState, &event.Event{
 			Type: event.StateRoomAvatar,
 			Content: event.Content{Parsed: &event.RoomAvatarEventContent{
 				URL: portal.AvatarURL,
 			}},
 		})
+		portal.AvatarSet = true
+	} else {
+		portal.AvatarSet = false
 	}
 
 	creationContent := make(map[string]interface{})
@@ -417,23 +442,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		})
 	}
 
-	var invite []id.UserID
-
-	if portal.bridge.Config.Bridge.Encryption.Default {
-		initialState = append(initialState, &event.Event{
-			Type: event.StateEncryption,
-			Content: event.Content{
-				Parsed: portal.GetEncryptionEventContent(),
-			},
-		})
-		portal.Encrypted = true
-
-		if portal.IsPrivateChat() {
-			invite = append(invite, portal.bridge.Bot.UserID)
-		}
-	}
-
-	resp, err := intent.CreateRoom(&mautrix.ReqCreateRoom{
+	req := &mautrix.ReqCreateRoom{
 		Visibility:      "private",
 		Name:            portal.Name,
 		Topic:           portal.Topic,
@@ -442,15 +451,18 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		IsDirect:        portal.IsPrivateChat(),
 		InitialState:    initialState,
 		CreationContent: creationContent,
-	})
+	}
+	if !portal.shouldSetDMRoomMetadata() {
+		req.Name = ""
+	}
+	resp, err := intent.CreateRoom(req)
 	if err != nil {
 		portal.log.Warnln("Failed to create room:", err)
 		return err
 	}
 
-	portal.NameSet = true
-	portal.TopicSet = true
-	portal.AvatarSet = !portal.AvatarURL.IsEmpty()
+	portal.NameSet = len(req.Name) > 0
+	portal.TopicSet = len(req.Topic) > 0
 	portal.MXID = resp.RoomID
 	portal.bridge.portalsLock.Lock()
 	portal.bridge.portalsByMXID[portal.MXID] = portal
@@ -1727,9 +1739,7 @@ func (portal *Portal) UpdateName(meta *discordgo.Channel) bool {
 }
 
 func (portal *Portal) UpdateNameDirect(name string) bool {
-	if portal.Name == name && (portal.NameSet || portal.MXID == "") {
-		return false
-	} else if !portal.Encrypted && !portal.bridge.Config.Bridge.PrivateChatPortalMeta && portal.IsPrivateChat() {
+	if portal.Name == name && (portal.NameSet || portal.MXID == "" || !portal.shouldSetDMRoomMetadata()) {
 		return false
 	}
 	portal.log.Debugfln("Updating name %q -> %q", portal.Name, name)
@@ -1740,7 +1750,7 @@ func (portal *Portal) UpdateNameDirect(name string) bool {
 }
 
 func (portal *Portal) updateRoomName() {
-	if portal.MXID != "" {
+	if portal.MXID != "" && portal.shouldSetDMRoomMetadata() {
 		_, err := portal.MainIntent().SetRoomName(portal.MXID, portal.Name)
 		if err != nil {
 			portal.log.Warnln("Failed to update room name:", err)
@@ -1751,9 +1761,7 @@ func (portal *Portal) updateRoomName() {
 }
 
 func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
-	if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && (portal.AvatarSet || portal.MXID == "") {
-		return false
-	} else if !portal.Encrypted && !portal.bridge.Config.Bridge.PrivateChatPortalMeta && portal.IsPrivateChat() {
+	if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && (portal.AvatarSet || portal.MXID == "" || !portal.shouldSetDMRoomMetadata()) {
 		return false
 	}
 	portal.log.Debugfln("Updating avatar from puppet %q -> %q", portal.Avatar, puppet.Avatar)
@@ -1786,7 +1794,7 @@ func (portal *Portal) UpdateGroupDMAvatar(iconID string) bool {
 }
 
 func (portal *Portal) updateRoomAvatar() {
-	if portal.MXID == "" || portal.AvatarURL.IsEmpty() {
+	if portal.MXID == "" || portal.AvatarURL.IsEmpty() || !portal.shouldSetDMRoomMetadata() {
 		return
 	}
 	_, err := portal.MainIntent().SetRoomAvatar(portal.MXID, portal.AvatarURL)

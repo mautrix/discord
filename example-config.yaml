@@ -97,9 +97,11 @@ bridge:
     # Available variables:
     #   .Name - Guild name
     guild_name_template: '{{.Name}}'
-    # Should the bridge explicitly set the avatar and room name for DM portal rooms?
-    # This is implicitly enabled in encrypted rooms.
-    private_chat_portal_meta: false
+    # Whether to explicitly set the avatar and room name for private chat portal rooms.
+    # If set to `default`, this will be enabled in encrypted rooms and disabled in unencrypted rooms.
+    # If set to `always`, all DM rooms will have explicit names and avatars set.
+    # If set to `never`, DM rooms will never have names and avatars set.
+    private_chat_portal_meta: default
 
     portal_message_buffer: 128
 

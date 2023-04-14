@@ -1976,9 +1976,9 @@ func (portal *Portal) ForwardBackfill(source *User) error {
 		return nil
 	}
 
-	// Get up to 100 messages at a time until everything is fetched
+	// Get up to 50 messages at a time until everything is fetched
 	for {
-		messages, err := source.Session.ChannelMessages(portal.Key.ChannelID, 100, "", lastMessage.DiscordID, "")
+		messages, err := source.Session.ChannelMessages(portal.Key.ChannelID, 50, "", lastMessage.DiscordID, "")
 		if err != nil {
 			portal.log.Debugln("Error getting messages to forward backfill", err)
 			return err

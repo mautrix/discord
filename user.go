@@ -728,6 +728,7 @@ func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, 
 		}
 	} else {
 		portal.UpdateInfo(user, meta)
+		portal.ForwardBackfill(user)
 	}
 	user.MarkInPortal(database.UserPortal{
 		DiscordID: portal.Key.ChannelID,
@@ -842,6 +843,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 				}
 			} else {
 				portal.UpdateInfo(user, ch)
+				portal.ForwardBackfill(user)
 			}
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1965,4 +1966,43 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		portal.Update()
 	}
 	return meta
+}
+
+func (portal *Portal) ForwardBackfill(source *User) error {
+	portal.log.Debugln("Checking for missing messages to fill")
+	lastMessage := portal.bridge.DB.Message.GetLast(portal.Key)
+	if lastMessage == nil {
+		portal.log.Debugln("No last message in portal, can't forward backfill")
+		return nil
+	}
+
+	// Get up to 100 messages at a time until everything is fetched
+	for {
+		messages, err := source.Session.ChannelMessages(portal.Key.ChannelID, 100, "", lastMessage.DiscordID, "")
+		if err != nil {
+			portal.log.Debugln("Error getting messages to forward backfill", err)
+			return err
+		}
+		// Discord seems to return messages in reverse order,
+		// but no specific order is guaranteed by their API docs?
+		sort.Slice(messages, func(i, j int) bool {
+			return messages[i].Timestamp.Before(messages[j].Timestamp)
+		})
+
+		for _, msg := range messages {
+			portal.handleDiscordMessageCreate(source, msg, nil)
+		}
+
+		if len(messages) < 100 {
+			// Assume that was all the missing messages
+			break
+		}
+		lastMessage = portal.bridge.DB.Message.GetLast(portal.Key)
+		if lastMessage == nil {
+			portal.log.Debugln("No last message in portal, can't forward backfill")
+			return nil
+		}
+	}
+
+	return nil
 }

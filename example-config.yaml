@@ -186,6 +186,20 @@ bridge:
         # Optional extra text sent when joining a management room.
         additional_help: ""
 
+    backfill:
+        # Should backfill be enabled at all?
+        enabled: false
+        # Limits for backfilling. Set to 0 to disable that type of backfill, or -1 for unlimited.
+        limits:
+            # Initial backfill (when creating portal).
+            initial:
+                dm: 50
+                channel: 0
+            # Missed message backfill (on startup).
+            missed:
+                dm: 50
+                channel: 0
+
     # End-to-bridge encryption support options.
     #
     # See https://docs.mau.fi/bridges/general/end-to-bridge-encryption.html for more info.

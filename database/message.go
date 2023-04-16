@@ -95,6 +95,36 @@ func (mq *MessageQuery) GetByMXID(key PortalKey, mxid id.EventID) *Message {
 	return mq.New().Scan(row)
 }
 
+func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	valueStringFormat := "($%d, $%d, $1, $2, $%d, $%d, $%d, $%d, $%d)"
+	if mq.db.Dialect == dbutil.SQLite {
+		valueStringFormat = strings.ReplaceAll(valueStringFormat, "$", "?")
+	}
+	params := make([]interface{}, 2+len(msgs)*7)
+	placeholders := make([]string, len(msgs))
+	params[0] = key.ChannelID
+	params[1] = key.Receiver
+	for i, msg := range msgs {
+		baseIndex := 2 + i*7
+		params[baseIndex] = msg.DiscordID
+		params[baseIndex+1] = msg.AttachmentID
+		params[baseIndex+2] = msg.EditIndex
+		params[baseIndex+3] = msg.SenderID
+		params[baseIndex+4] = msg.Timestamp
+		params[baseIndex+5] = msg.ThreadID
+		params[baseIndex+6] = msg.MXID
+		placeholders[i] = fmt.Sprintf(valueStringFormat, baseIndex+1, baseIndex+2, baseIndex+3, baseIndex+4, baseIndex+5, baseIndex+6, baseIndex+7)
+	}
+	_, err := mq.db.Exec(fmt.Sprintf(messageMassInsertTemplate, strings.Join(placeholders, ", ")), params...)
+	if err != nil {
+		mq.log.Warnfln("Failed to insert %d messages: %v", len(msgs), err)
+		panic(err)
+	}
+}
+
 type Message struct {
 	db  *Database
 	log log.Logger
@@ -152,7 +182,7 @@ type MessagePart struct {
 	MXID         id.EventID
 }
 
-func (m *Message) MassInsert(msgs []MessagePart) {
+func (m *Message) MassInsertParts(msgs []MessagePart) {
 	if len(msgs) == 0 {
 		return
 	}

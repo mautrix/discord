@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,8 +12,10 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/rs/zerolog"
+	"maunium.net/go/maulogger/v2/maulogadapt"
 
-	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/maulogger/v2"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -52,7 +53,9 @@ type Portal struct {
 	Guild  *Guild
 
 	bridge *DiscordBridge
-	log    log.Logger
+	// Deprecated
+	log  maulogger.Logger
+	zlog zerolog.Logger
 
 	roomCreateLock sync.Mutex
 	encryptLock    sync.Mutex
@@ -64,6 +67,8 @@ type Portal struct {
 
 	commands     map[string]*discordgo.ApplicationCommand
 	commandsLock sync.RWMutex
+
+	forwardBackfillLock sync.Mutex
 
 	currentlyTyping     []id.UserID
 	currentlyTypingLock sync.Mutex
@@ -233,7 +238,10 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 	portal := &Portal{
 		Portal: dbPortal,
 		bridge: br,
-		log:    br.Log.Sub(fmt.Sprintf("Portal/%s", dbPortal.Key)),
+		zlog: br.ZLog.With().
+			Str("channel_id", dbPortal.Key.ChannelID).
+			Str("channel_receiver", dbPortal.Key.Receiver).
+			Logger(),
 
 		discordMessages: make(chan portalDiscordMessage, br.Config.Bridge.PortalMessageBuffer),
 		matrixMessages:  make(chan portalMatrixMessage, br.Config.Bridge.PortalMessageBuffer),
@@ -242,6 +250,7 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 
 		commands: make(map[string]*discordgo.ApplicationCommand),
 	}
+	portal.log = maulogadapt.ZeroAsMau(&portal.zlog)
 
 	go portal.messageLoop()
 
@@ -252,10 +261,13 @@ func (portal *Portal) messageLoop() {
 	for {
 		select {
 		case msg := <-portal.matrixMessages:
+			portal.forwardBackfillLock.Lock()
 			portal.handleMatrixMessages(msg)
 		case msg := <-portal.discordMessages:
+			portal.forwardBackfillLock.Lock()
 			portal.handleDiscordMessages(msg)
 		}
+		portal.forwardBackfillLock.Unlock()
 	}
 }
 
@@ -549,7 +561,7 @@ func (portal *Portal) markMessageHandled(discordID string, editIndex int, author
 	msg.SenderID = authorID
 	msg.Timestamp = timestamp
 	msg.ThreadID = threadID
-	msg.MassInsert(parts)
+	msg.MassInsertParts(parts)
 }
 
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
@@ -578,7 +590,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	intent := puppet.IntentFor(portal)
 
 	var discordThreadID string
-	var threadRootEvent, lastThreadEvent, replyToEvent id.EventID
+	var threadRootEvent, lastThreadEvent id.EventID
 	if thread != nil {
 		discordThreadID = thread.ID
 		threadRootEvent = thread.RootMXID
@@ -588,30 +600,25 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			lastThreadEvent = lastInThread.MXID
 		}
 	}
-
-	if msg.MessageReference != nil {
-		// This could be used to find cross-channel replies, but Matrix doesn't support those currently.
-		//key := database.PortalKey{msg.MessageReference.ChannelID, user.ID}
-		replyToMsg := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.MessageReference.MessageID)
-		if len(replyToMsg) > 0 {
-			replyToEvent = replyToMsg[0].MXID
-		}
-	}
+	replyTo := portal.getReplyTarget(user, msg.MessageReference, false)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 	parts := portal.convertDiscordMessage(intent, msg)
 	dbParts := make([]database.MessagePart, 0, len(parts))
 	for i, part := range parts {
-		if (replyToEvent != "" || threadRootEvent != "") && part.Content.RelatesTo == nil {
+		if (replyTo != nil || threadRootEvent != "") && part.Content.RelatesTo == nil {
 			part.Content.RelatesTo = &event.RelatesTo{}
 		}
 		if threadRootEvent != "" {
 			part.Content.RelatesTo.SetThread(threadRootEvent, lastThreadEvent)
 		}
-		if replyToEvent != "" {
-			part.Content.RelatesTo.SetReplyTo(replyToEvent)
+		if replyTo != nil {
+			part.Content.RelatesTo.SetReplyTo(replyTo.EventID)
+			if replyTo.UnstableRoomID != "" {
+				part.Content.RelatesTo.InReplyTo.UnstableRoomID = replyTo.UnstableRoomID
+			}
 			// Only set reply for first event
-			replyToEvent = ""
+			replyTo = nil
 		}
 		resp, err := portal.sendMatrixMessage(intent, part.Type, part.Content, part.Extra, ts.UnixMilli())
 		if err != nil {
@@ -628,6 +635,42 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	} else {
 		portal.markMessageHandled(msg.ID, 0, msg.Author.ID, ts, discordThreadID, dbParts)
 	}
+}
+
+func (portal *Portal) getReplyTarget(source *User, ref *discordgo.MessageReference, allowNonExistent bool) *event.InReplyTo {
+	if ref == nil {
+		return nil
+	}
+	isHungry := portal.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry
+	if !isHungry {
+		allowNonExistent = false
+	}
+	// TODO add config option for cross-room replies
+	crossRoomReplies := isHungry
+
+	targetPortal := portal
+	if ref.ChannelID != portal.Key.ChannelID && crossRoomReplies {
+		targetPortal = portal.bridge.GetExistingPortalByID(database.PortalKey{ChannelID: ref.ChannelID, Receiver: source.DiscordID})
+		if targetPortal == nil {
+			return nil
+		}
+	}
+	replyToMsg := portal.bridge.DB.Message.GetByDiscordID(targetPortal.Key, ref.MessageID)
+	if len(replyToMsg) > 0 {
+		if !crossRoomReplies {
+			return &event.InReplyTo{EventID: replyToMsg[0].MXID}
+		}
+		return &event.InReplyTo{
+			EventID:        replyToMsg[0].MXID,
+			UnstableRoomID: targetPortal.MXID,
+		}
+	} else if allowNonExistent {
+		return &event.InReplyTo{
+			EventID:        targetPortal.deterministicEventID(ref.MessageID, ""),
+			UnstableRoomID: targetPortal.MXID,
+		}
+	}
+	return nil
 }
 
 const JoinThreadReaction = "join thread"
@@ -1066,9 +1109,9 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 		evtDescription += fmt.Sprintf(" of %s", evt.Redacts)
 	}
 	if err != nil {
-		level := log.LevelError
+		level := maulogger.LevelError
 		if part == "Ignoring" {
-			level = log.LevelDebug
+			level = maulogger.LevelDebug
 		}
 		portal.log.Logfln(level, "%s %s %s from %s: %v", part, msgType, evtDescription, evt.Sender, err)
 		reason, statusCode, isCertain, sendNotice, _ := errorToStatusReason(err)
@@ -1376,7 +1419,7 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 	portal.bridge.cleanupRoom(intent, portal.MXID, puppetsOnly, portal.log)
 }
 
-func (br *DiscordBridge) cleanupRoom(intent *appservice.IntentAPI, mxid id.RoomID, puppetsOnly bool, log log.Logger) {
+func (br *DiscordBridge) cleanupRoom(intent *appservice.IntentAPI, mxid id.RoomID, puppetsOnly bool, log maulogger.Logger) {
 	members, err := intent.JoinedMembers(mxid)
 	if err != nil {
 		log.Errorln("Failed to get portal members for cleanup:", err)
@@ -1974,53 +2017,4 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		portal.Update()
 	}
 	return meta
-}
-
-func (portal *Portal) ForwardBackfill(source *User, meta *discordgo.Channel) error {
-	portal.log.Debugln("Checking for missing messages to fill")
-	lastMessage := portal.bridge.DB.Message.GetLast(portal.Key)
-	if lastMessage == nil {
-		return nil
-	}
-
-	metaLastMessageID, err := strconv.ParseInt(meta.LastMessageID, 10, 0)
-	if err != nil {
-		portal.log.Errorfln("Last message ID %s isn't integer", meta.LastMessageID)
-		return err
-	}
-	dbLastMessageID, err := strconv.ParseInt(lastMessage.DiscordID, 10, 0)
-	if err != nil {
-		portal.log.Errorfln("Last message ID %s isn't integer", lastMessage.DiscordID)
-		return err
-	}
-	if metaLastMessageID <= dbLastMessageID {
-		return nil
-	}
-
-	// Get up to 50 messages at a time until everything is fetched
-	for {
-		messages, err := source.Session.ChannelMessages(portal.Key.ChannelID, 50, "", lastMessage.DiscordID, "")
-		if err != nil {
-			portal.log.Debugln("Error getting messages to forward backfill", err)
-			return err
-		}
-		// Discord seems to return messages in reverse order,
-		// but no specific order is guaranteed by their API docs?
-		sort.Slice(messages, func(i, j int) bool {
-			return messages[i].Timestamp.Before(messages[j].Timestamp)
-		})
-
-		for _, msg := range messages {
-			portal.handleDiscordMessageCreate(source, msg, nil)
-		}
-
-		if len(messages) < 100 {
-			// Assume that was all the missing messages
-			return nil
-		}
-		lastMessage = portal.bridge.DB.Message.GetLast(portal.Key)
-		if lastMessage == nil {
-			return nil
-		}
-	}
 }

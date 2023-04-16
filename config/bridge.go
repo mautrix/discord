@@ -66,6 +66,14 @@ type BridgeConfig struct {
 	CommandPrefix      string                           `yaml:"command_prefix"`
 	ManagementRoomText bridgeconfig.ManagementRoomTexts `yaml:"management_room_text"`
 
+	Backfill struct {
+		Enabled bool `yaml:"enabled"`
+		Limits  struct {
+			Initial BackfillLimitPart `yaml:"initial"`
+			Missed  BackfillLimitPart `yaml:"missed"`
+		} `yaml:"limits"`
+	} `yaml:"backfill"`
+
 	Encryption bridgeconfig.EncryptionConfig `yaml:"encryption"`
 
 	Provisioning struct {
@@ -79,6 +87,11 @@ type BridgeConfig struct {
 	displaynameTemplate *template.Template `yaml:"-"`
 	channelNameTemplate *template.Template `yaml:"-"`
 	guildNameTemplate   *template.Template `yaml:"-"`
+}
+
+type BackfillLimitPart struct {
+	DM      int `yaml:"dm"`
+	Channel int `yaml:"channel"`
 }
 
 func (bc *BridgeConfig) GetResendBridgeInfo() bool {

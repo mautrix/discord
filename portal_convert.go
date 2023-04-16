@@ -137,9 +137,20 @@ func (portal *Portal) convertDiscordAttachment(intent *appservice.IntentAPI, att
 		content.FileName = att.Filename
 	}
 
+	var extra map[string]any
+
 	switch strings.ToLower(strings.Split(att.ContentType, "/")[0]) {
 	case "audio":
 		content.MsgType = event.MsgAudio
+		if att.Waveform != nil {
+			// TODO convert waveform
+			extra = map[string]any{
+				"org.matrix.1767.audio": map[string]any{
+					"duration": int(att.DurationSeconds * 1000),
+				},
+				"org.matrix.msc3245.voice": map[string]any{},
+			}
+		}
 	case "image":
 		content.MsgType = event.MsgImage
 	case "video":
@@ -152,6 +163,7 @@ func (portal *Portal) convertDiscordAttachment(intent *appservice.IntentAPI, att
 		AttachmentID: att.ID,
 		Type:         event.EventMessage,
 		Content:      content,
+		Extra:        extra,
 	}
 }
 

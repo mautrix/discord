@@ -72,6 +72,7 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Int, "bridge", "backfill", "forward_limits", "initial", "channel")
 	helper.Copy(up.Int, "bridge", "backfill", "forward_limits", "missed", "dm")
 	helper.Copy(up.Int, "bridge", "backfill", "forward_limits", "missed", "channel")
+	helper.Copy(up.Int, "bridge", "backfill", "max_guild_members")
 	helper.Copy(up.Bool, "bridge", "encryption", "allow")
 	helper.Copy(up.Bool, "bridge", "encryption", "default")
 	helper.Copy(up.Bool, "bridge", "encryption", "require")

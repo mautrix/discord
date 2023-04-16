@@ -71,6 +71,7 @@ type BridgeConfig struct {
 			Initial BackfillLimitPart `yaml:"initial"`
 			Missed  BackfillLimitPart `yaml:"missed"`
 		} `yaml:"forward_limits"`
+		MaxGuildMembers int `yaml:"max_guild_members"`
 	} `yaml:"backfill"`
 
 	Encryption bridgeconfig.EncryptionConfig `yaml:"encryption"`

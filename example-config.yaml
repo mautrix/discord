@@ -186,6 +186,7 @@ bridge:
         # Optional extra text sent when joining a management room.
         additional_help: ""
 
+    # Settings for backfilling messages.
     backfill:
         # Limits for forward backfilling.
         forward_limits:
@@ -202,6 +203,10 @@ bridge:
             missed:
                 dm: 0
                 channel: 0
+        # Maximum members in a guild to enable backfilling. Set to -1 to disable limit.
+        # This can be used as a rough heuristic to disable backfilling in channels that are too active.
+        # Currently only applies to missed message backfill.
+        max_guild_members: -1
 
     # End-to-bridge encryption support options.
     #

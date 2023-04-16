@@ -843,7 +843,9 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 				}
 			} else {
 				portal.UpdateInfo(user, ch)
-				portal.ForwardBackfillMissed(user, ch)
+				if user.bridge.Config.Bridge.Backfill.MaxGuildMembers < 0 || meta.MemberCount < user.bridge.Config.Bridge.Backfill.MaxGuildMembers {
+					portal.ForwardBackfillMissed(user, ch)
+				}
 			}
 		}
 	}

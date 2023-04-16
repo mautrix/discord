@@ -1,3 +1,10 @@
+# v0.3.0 (2023-04-16)
+
+* Added support for backfilling on room creation and missed messages on startup.
+* Added options to automatically ratchet/delete megolm sessions to minimize
+  access to old messages.
+* Added basic support for incoming voice messages.
+
 # v0.2.0 (2023-03-16)
 
 * Switched to zerolog for logging.

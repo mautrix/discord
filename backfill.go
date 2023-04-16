@@ -33,6 +33,7 @@ func (portal *Portal) forwardBackfillInitial(source *User) {
 
 	log := portal.zlog.With().
 		Str("action", "initial backfill").
+		Str("room_id", portal.MXID.String()).
 		Int("limit", limit).
 		Logger()
 
@@ -40,6 +41,10 @@ func (portal *Portal) forwardBackfillInitial(source *User) {
 }
 
 func (portal *Portal) ForwardBackfillMissed(source *User, meta *discordgo.Channel) {
+	if portal.MXID == "" {
+		return
+	}
+
 	limit := portal.bridge.Config.Bridge.Backfill.Limits.Missed.Channel
 	if portal.GuildID == "" {
 		limit = portal.bridge.Config.Bridge.Backfill.Limits.Missed.DM
@@ -49,6 +54,7 @@ func (portal *Portal) ForwardBackfillMissed(source *User, meta *discordgo.Channe
 	}
 	log := portal.zlog.With().
 		Str("action", "missed event backfill").
+		Str("room_id", portal.MXID.String()).
 		Int("limit", limit).
 		Logger()
 
@@ -110,6 +116,7 @@ func (portal *Portal) collectBackfillMessages(log zerolog.Logger, source *User, 
 		before = newMessages[len(newMessages)-1].ID
 	}
 	if len(messages) > limit {
+		foundAll = false
 		messages = messages[:limit]
 	}
 	return messages, foundAll, nil
@@ -202,7 +209,7 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 			if i == 0 {
 				partName = ""
 			}
-			evts = append(evts, &event.Event{
+			evt := &event.Event{
 				ID:        portal.deterministicEventID(msg.ID, partName),
 				Type:      part.Type,
 				Sender:    intent.UserID,
@@ -211,7 +218,15 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 					Parsed: part.Content,
 					Raw:    part.Extra,
 				},
-			})
+			}
+			var err error
+			evt.Type, err = portal.encrypt(intent, &evt.Content, evt.Type)
+			if err != nil {
+				log.Err(err).Msg("Failed to encrypt event")
+				continue
+			}
+			intent.AddDoublePuppetValue(&evt.Content)
+			evts = append(evts, evt)
 			dbMessages = append(dbMessages, database.Message{
 				Channel:      portal.Key,
 				DiscordID:    msg.ID,
@@ -221,7 +236,11 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 			})
 		}
 	}
-	log.Info().Int("parts", len(evts)).Msg("Converted messages to backfill")
+	if len(evts) == 0 {
+		log.Warn().Msg("Didn't get any events to backfill")
+		return
+	}
+	log.Info().Int("events", len(evts)).Msg("Converted messages to backfill")
 	resp, err := portal.MainIntent().BatchSend(portal.MXID, &mautrix.ReqBatchSend{
 		BeeperNewMessages: true,
 		Events:            evts,

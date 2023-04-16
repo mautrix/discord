@@ -67,11 +67,10 @@ type BridgeConfig struct {
 	ManagementRoomText bridgeconfig.ManagementRoomTexts `yaml:"management_room_text"`
 
 	Backfill struct {
-		Enabled bool `yaml:"enabled"`
-		Limits  struct {
+		Limits struct {
 			Initial BackfillLimitPart `yaml:"initial"`
 			Missed  BackfillLimitPart `yaml:"missed"`
-		} `yaml:"limits"`
+		} `yaml:"forward_limits"`
 	} `yaml:"backfill"`
 
 	Encryption bridgeconfig.EncryptionConfig `yaml:"encryption"`

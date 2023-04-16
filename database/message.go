@@ -99,7 +99,7 @@ func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	valueStringFormat := "($%d, $%d, $1, $2, $%d, $%d, $%d, $%d, $%d)"
+	valueStringFormat := "($%d, $%d, $%d, $1, $2, $%d, $%d, $%d, $%d)"
 	if mq.db.Dialect == dbutil.SQLite {
 		valueStringFormat = strings.ReplaceAll(valueStringFormat, "$", "?")
 	}
@@ -113,7 +113,7 @@ func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
 		params[baseIndex+1] = msg.AttachmentID
 		params[baseIndex+2] = msg.EditIndex
 		params[baseIndex+3] = msg.SenderID
-		params[baseIndex+4] = msg.Timestamp
+		params[baseIndex+4] = msg.Timestamp.UnixMilli()
 		params[baseIndex+5] = msg.ThreadID
 		params[baseIndex+6] = msg.MXID
 		placeholders[i] = fmt.Sprintf(valueStringFormat, baseIndex+1, baseIndex+2, baseIndex+3, baseIndex+4, baseIndex+5, baseIndex+6, baseIndex+7)

@@ -261,13 +261,10 @@ func (portal *Portal) messageLoop() {
 	for {
 		select {
 		case msg := <-portal.matrixMessages:
-			portal.forwardBackfillLock.Lock()
 			portal.handleMatrixMessages(msg)
 		case msg := <-portal.discordMessages:
-			portal.forwardBackfillLock.Lock()
 			portal.handleDiscordMessages(msg)
 		}
-		portal.forwardBackfillLock.Unlock()
 	}
 }
 
@@ -468,6 +465,16 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	if !portal.shouldSetDMRoomMetadata() {
 		req.Name = ""
 	}
+
+	var backfillStarted bool
+	portal.forwardBackfillLock.Lock()
+	defer func() {
+		if !backfillStarted {
+			portal.log.Debugln("Backfill wasn't started, unlocking forward backfill lock")
+			portal.forwardBackfillLock.Unlock()
+		}
+	}()
+
 	resp, err := intent.CreateRoom(req)
 	if err != nil {
 		portal.log.Warnln("Failed to create room:", err)
@@ -515,6 +522,9 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		portal.Update()
 	}
 
+	go portal.forwardBackfillInitial(user)
+	backfillStarted = true
+
 	return nil
 }
 
@@ -532,6 +542,8 @@ func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 			return
 		}
 	}
+	portal.forwardBackfillLock.Lock()
+	defer portal.forwardBackfillLock.Unlock()
 
 	switch convertedMsg := msg.msg.(type) {
 	case *discordgo.MessageCreate:
@@ -918,6 +930,8 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 }
 
 func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
+	portal.forwardBackfillLock.Lock()
+	defer portal.forwardBackfillLock.Unlock()
 	switch msg.evt.Type {
 	case event.EventMessage, event.EventSticker:
 		portal.handleMatrixMessage(msg.user, msg.evt)

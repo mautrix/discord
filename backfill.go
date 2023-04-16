@@ -16,6 +16,29 @@ import (
 	"go.mau.fi/mautrix-discord/database"
 )
 
+func (portal *Portal) forwardBackfillInitial(source *User) {
+	defer portal.forwardBackfillLock.Unlock()
+	// This should only be called from CreateMatrixRoom which locks forwardBackfillLock before creating the room.
+	if portal.forwardBackfillLock.TryLock() {
+		panic("forwardBackfillInitial() called without locking forwardBackfillLock")
+	}
+
+	limit := portal.bridge.Config.Bridge.Backfill.Limits.Initial.Channel
+	if portal.GuildID == "" {
+		limit = portal.bridge.Config.Bridge.Backfill.Limits.Initial.DM
+	}
+	if limit == 0 {
+		return
+	}
+
+	log := portal.zlog.With().
+		Str("action", "initial backfill").
+		Int("limit", limit).
+		Logger()
+
+	portal.backfillLimited(log, source, limit, "")
+}
+
 func (portal *Portal) ForwardBackfillMissed(source *User, meta *discordgo.Channel) {
 	limit := portal.bridge.Config.Bridge.Backfill.Limits.Missed.Channel
 	if portal.GuildID == "" {
@@ -50,7 +73,7 @@ func (portal *Portal) ForwardBackfillMissed(source *User, meta *discordgo.Channe
 	if limit < 0 {
 		portal.backfillUnlimitedMissed(log, source, lastMessage.DiscordID)
 	} else {
-		portal.backfillLimitedMissed(log, source, limit, lastMessage.DiscordID)
+		portal.backfillLimited(log, source, limit, lastMessage.DiscordID)
 	}
 }
 
@@ -66,15 +89,17 @@ func (portal *Portal) collectBackfillMessages(log zerolog.Logger, source *User, 
 		if err != nil {
 			return nil, false, err
 		}
-		for i, msg := range newMessages {
-			if compareMessageIDs(msg.ID, until) <= 0 {
-				log.Debug().
-					Str("message_id", msg.ID).
-					Str("until_id", until).
-					Msg("Found message that was already bridged")
-				newMessages = newMessages[:i]
-				foundAll = true
-				break
+		if until != "" {
+			for i, msg := range newMessages {
+				if compareMessageIDs(msg.ID, until) <= 0 {
+					log.Debug().
+						Str("message_id", msg.ID).
+						Str("until_id", until).
+						Msg("Found message that was already bridged")
+					newMessages = newMessages[:i]
+					foundAll = true
+					break
+				}
 			}
 		}
 		messages = append(messages, newMessages...)
@@ -90,7 +115,7 @@ func (portal *Portal) collectBackfillMessages(log zerolog.Logger, source *User, 
 	return messages, foundAll, nil
 }
 
-func (portal *Portal) backfillLimitedMissed(log zerolog.Logger, source *User, limit int, after string) {
+func (portal *Portal) backfillLimited(log zerolog.Logger, source *User, limit int, after string) {
 	messages, foundAll, err := portal.collectBackfillMessages(log, source, limit, after)
 	if err != nil {
 		log.Err(err).Msg("Error collecting messages to forward backfill")

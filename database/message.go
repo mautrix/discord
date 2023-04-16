@@ -70,6 +70,11 @@ func (mq *MessageQuery) GetLastInThread(key PortalKey, threadID string) *Message
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID))
 }
 
+func (mq *MessageQuery) GetLast(key PortalKey) *Message {
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_edit_index=0 ORDER BY timestamp DESC LIMIT 1"
+	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver))
+}
+
 func (mq *MessageQuery) DeleteAll(key PortalKey) {
 	query := "DELETE FROM message WHERE dc_chan_id=$1 AND dc_chan_receiver=$2"
 	_, err := mq.db.Exec(query, key.ChannelID, key.Receiver)

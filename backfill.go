@@ -182,6 +182,28 @@ func (portal *Portal) sendBackfillBatch(log zerolog.Logger, source *User, messag
 }
 
 func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, messages []*discordgo.Message) {
+	evts, dbMessages := portal.convertMessageBatch(log, source, messages)
+	if len(evts) == 0 {
+		log.Warn().Msg("Didn't get any events to backfill")
+		return
+	}
+	log.Info().Int("events", len(evts)).Msg("Converted messages to backfill")
+	resp, err := portal.MainIntent().BatchSend(portal.MXID, &mautrix.ReqBatchSend{
+		BeeperNewMessages: true,
+		Events:            evts,
+	})
+	if err != nil {
+		log.Err(err).Msg("Error sending backfill batch")
+		return
+	}
+	for i, evtID := range resp.EventIDs {
+		dbMessages[i].MXID = evtID
+	}
+	portal.bridge.DB.Message.MassInsert(portal.Key, dbMessages)
+	log.Info().Msg("Inserted backfilled batch to database")
+}
+
+func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, messages []*discordgo.Message) ([]*event.Event, []database.Message) {
 	evts := make([]*event.Event, 0, len(messages))
 	dbMessages := make([]database.Message, 0, len(messages))
 	for _, msg := range messages {
@@ -236,24 +258,7 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 			})
 		}
 	}
-	if len(evts) == 0 {
-		log.Warn().Msg("Didn't get any events to backfill")
-		return
-	}
-	log.Info().Int("events", len(evts)).Msg("Converted messages to backfill")
-	resp, err := portal.MainIntent().BatchSend(portal.MXID, &mautrix.ReqBatchSend{
-		BeeperNewMessages: true,
-		Events:            evts,
-	})
-	if err != nil {
-		log.Err(err).Msg("Error sending backfill batch")
-		return
-	}
-	for i, evtID := range resp.EventIDs {
-		dbMessages[i].MXID = evtID
-	}
-	portal.bridge.DB.Message.MassInsert(portal.Key, dbMessages)
-	log.Info().Msg("Inserted backfilled batch to database")
+	return evts, dbMessages
 }
 
 func (portal *Portal) deterministicEventID(messageID, partName string) id.EventID {

@@ -1,4 +1,4 @@
--- v0 -> v15: Latest revision
+-- v0 -> v16: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -62,11 +62,12 @@ CREATE TABLE thread (
 CREATE TABLE puppet (
     id TEXT PRIMARY KEY,
 
-    name       TEXT NOT NULL,
-    name_set   BOOLEAN NOT NULL,
-    avatar     TEXT NOT NULL,
-    avatar_url TEXT NOT NULL,
-    avatar_set BOOLEAN NOT NULL,
+    name             TEXT NOT NULL,
+    name_set         BOOLEAN NOT NULL DEFAULT false,
+    avatar           TEXT NOT NULL,
+    avatar_url       TEXT NOT NULL,
+    avatar_set       BOOLEAN NOT NULL DEFAULT false,
+    contact_info_set BOOLEAN NOT NULL DEFAULT false,
 
     custom_mxid  TEXT,
     access_token TEXT,

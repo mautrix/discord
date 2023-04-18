@@ -11,7 +11,7 @@ import (
 
 const (
 	puppetSelect = "SELECT id, name, name_set, avatar, avatar_url, avatar_set," +
-		" custom_mxid, access_token, next_batch" +
+		" contact_info_set, custom_mxid, access_token, next_batch" +
 		" FROM puppet "
 )
 
@@ -66,12 +66,13 @@ type Puppet struct {
 	db  *Database
 	log log.Logger
 
-	ID        string
-	Name      string
-	NameSet   bool
-	Avatar    string
-	AvatarURL id.ContentURI
-	AvatarSet bool
+	ID             string
+	Name           string
+	NameSet        bool
+	Avatar         string
+	AvatarURL      id.ContentURI
+	AvatarSet      bool
+	ContactInfoSet bool
 
 	CustomMXID  id.UserID
 	AccessToken string
@@ -82,7 +83,7 @@ func (p *Puppet) Scan(row dbutil.Scannable) *Puppet {
 	var avatarURL string
 	var customMXID, accessToken, nextBatch sql.NullString
 
-	err := row.Scan(&p.ID, &p.Name, &p.NameSet, &p.Avatar, &avatarURL, &p.AvatarSet,
+	err := row.Scan(&p.ID, &p.Name, &p.NameSet, &p.Avatar, &avatarURL, &p.AvatarSet, &p.ContactInfoSet,
 		&customMXID, &accessToken, &nextBatch)
 
 	if err != nil {
@@ -104,10 +105,10 @@ func (p *Puppet) Scan(row dbutil.Scannable) *Puppet {
 
 func (p *Puppet) Insert() {
 	query := `
-		INSERT INTO puppet (id, name, name_set, avatar, avatar_url, avatar_set, custom_mxid, access_token, next_batch)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO puppet (id, name, name_set, avatar, avatar_url, avatar_set, contact_info_set, custom_mxid, access_token, next_batch)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
-	_, err := p.db.Exec(query, p.ID, p.Name, p.NameSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+	_, err := p.db.Exec(query, p.ID, p.Name, p.NameSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet, p.ContactInfoSet,
 		strPtr(string(p.CustomMXID)), strPtr(p.AccessToken), strPtr(p.NextBatch))
 
 	if err != nil {
@@ -119,11 +120,11 @@ func (p *Puppet) Insert() {
 func (p *Puppet) Update() {
 	query := `
 		UPDATE puppet SET name=$1, name_set=$2, avatar=$3, avatar_url=$4, avatar_set=$5,
-		                  custom_mxid=$6, access_token=$7, next_batch=$8
-		WHERE id=$9
+		                  contact_info_set=$6, custom_mxid=$7, access_token=$8, next_batch=$9
+		WHERE id=$10
 	`
 	_, err := p.db.Exec(query, p.Name, p.NameSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
-		strPtr(string(p.CustomMXID)), strPtr(p.AccessToken), strPtr(p.NextBatch),
+		p.ContactInfoSet, strPtr(string(p.CustomMXID)), strPtr(p.AccessToken), strPtr(p.NextBatch),
 		p.ID)
 
 	if err != nil {

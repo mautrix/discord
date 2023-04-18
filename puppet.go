@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
+	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/database"
@@ -248,32 +250,75 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 	return true
 }
 
+func (puppet *Puppet) getUserInfo(source *User, info *discordgo.User) (*discordgo.User, error) {
+	if info != nil && len(info.Username) > 0 && len(info.Discriminator) > 0 {
+		return info, nil
+	}
+
+	if puppet.Name == "" || source == nil {
+		return nil, errors.New("puppet has no name or source is nil")
+	}
+
+	puppet.log.Debug().
+		Str("source_user", source.DiscordID).
+		Msg("Fetching info through user to update puppet")
+	return source.Session.User(puppet.ID)
+}
+
 func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User) {
 	puppet.syncLock.Lock()
 	defer puppet.syncLock.Unlock()
 
-	if info == nil || len(info.Username) == 0 || len(info.Discriminator) == 0 {
-		if puppet.Name != "" || source == nil {
-			return
-		}
-		var err error
-		puppet.log.Debug().Str("source_user", source.DiscordID).Msg("Fetching info through user to update puppet")
-		info, err = source.Session.User(puppet.ID)
-		if err != nil {
-			puppet.log.Error().Err(err).Str("source_user", source.DiscordID).Msg("Failed to fetch info through user")
-			return
-		}
+	info, err := puppet.getUserInfo(source, info)
+	if err != nil {
+		puppet.log.Warn().Err(err).Str("source_user", source.DiscordID).Msg("Failed to fetch info through user")
+		return
 	}
 
-	err := puppet.DefaultIntent().EnsureRegistered()
+	err = puppet.DefaultIntent().EnsureRegistered()
 	if err != nil {
 		puppet.log.Error().Err(err).Msg("Failed to ensure registered")
 	}
 
-	changed := false
+	changed := puppet.UpdateContactInfo(source, info)
 	changed = puppet.UpdateName(info) || changed
 	changed = puppet.UpdateAvatar(info) || changed
 	if changed {
 		puppet.Update()
+	}
+}
+
+func (puppet *Puppet) UpdateContactInfo(source *User, info *discordgo.User) bool {
+	if puppet.bridge.Config.Homeserver.Software != bridgeconfig.SoftwareHungry {
+		return false
+	}
+
+	if puppet.ContactInfoSet {
+		return false
+	}
+
+	info, err := puppet.getUserInfo(source, info)
+	if err != nil {
+		puppet.log.Error().Err(err).Str("source_user", source.DiscordID).Msg("Failed to fetch info through user")
+		return false
+	}
+
+	contactInfo := map[string]any{
+		"com.beeper.bridge.identifiers": []string{
+			fmt.Sprintf("discord:%s#%s", info.Username, info.Discriminator),
+		},
+		"com.beeper.bridge.remote_id":     puppet.ID,
+		"com.beeper.bridge.service":       puppet.bridge.BeeperServiceName,
+		"com.beeper.bridge.network":       puppet.bridge.BeeperNetworkName,
+		"com.beeper.bridge.is_bridge_bot": false,
+		"com.beeper.bridge.is_bot":        info.Bot,
+	}
+	err = puppet.DefaultIntent().BeeperUpdateProfile(contactInfo)
+	if err != nil {
+		puppet.log.Warn().Err(err).Msg("Failed to store custom contact info in profile")
+		return false
+	} else {
+		puppet.ContactInfoSet = true
+		return true
 	}
 }

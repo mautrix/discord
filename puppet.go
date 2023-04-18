@@ -292,11 +292,10 @@ func (puppet *Puppet) UpdateContactInfo(source *User, info *discordgo.User) bool
 		"com.beeper.bridge.identifiers": []string{
 			fmt.Sprintf("discord:%s#%s", info.Username, info.Discriminator),
 		},
-		"com.beeper.bridge.remote_id":     puppet.ID,
-		"com.beeper.bridge.service":       puppet.bridge.BeeperServiceName,
-		"com.beeper.bridge.network":       puppet.bridge.BeeperNetworkName,
-		"com.beeper.bridge.is_bridge_bot": false,
-		"com.beeper.bridge.is_bot":        info.Bot,
+		"com.beeper.bridge.remote_id":      puppet.ID,
+		"com.beeper.bridge.service":        puppet.bridge.BeeperServiceName,
+		"com.beeper.bridge.network":        puppet.bridge.BeeperNetworkName,
+		"com.beeper.bridge.is_network_bot": info.Bot,
 	}
 	err := puppet.DefaultIntent().BeeperUpdateProfile(contactInfo)
 	if err != nil {

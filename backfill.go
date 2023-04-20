@@ -110,7 +110,7 @@ func (portal *Portal) collectBackfillMessages(log zerolog.Logger, source *User, 
 		}
 		messages = append(messages, newMessages...)
 		log.Debug().Int("count", len(newMessages)).Msg("Added messages to backfill collection")
-		if len(newMessages) <= messageFetchChunkSize || len(messages) >= limit {
+		if len(newMessages) < messageFetchChunkSize || len(messages) >= limit {
 			break
 		}
 		before = newMessages[len(newMessages)-1].ID

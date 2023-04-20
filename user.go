@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -619,6 +620,23 @@ func (user *User) getGuildBridgingMode(guildID string) database.GuildBridgingMod
 	return guild.BridgingMode
 }
 
+type ChannelSlice []*discordgo.Channel
+
+func (s ChannelSlice) Len() int {
+	return len(s)
+}
+
+func (s ChannelSlice) Less(i, j int) bool {
+	if s[i].Position != 0 || s[j].Position != 0 {
+		return s[i].Position < s[j].Position
+	}
+	return compareMessageIDs(s[i].LastMessageID, s[j].LastMessageID) == 1
+}
+
+func (s ChannelSlice) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
 func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	user.log.Debug().Msg("Discord connection ready")
 	user.bridgeStateLock.Lock()
@@ -650,6 +668,8 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	for _, guild := range r.Guilds {
 		user.handleGuild(guild, updateTS, portalsInSpace[guild.ID])
 	}
+	// The private channel list doesn't seem to be sorted by default, so sort it by message IDs (highest=newest first)
+	sort.Sort(ChannelSlice(r.PrivateChannels))
 	for i, ch := range r.PrivateChannels {
 		portal := user.GetPortalByMeta(ch)
 		user.handlePrivateChannel(portal, ch, updateTS, i < user.bridge.Config.Bridge.PrivateChannelCreateLimit, portalsInSpace[portal.Key.ChannelID])

@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -1050,7 +1054,8 @@ var (
 	errCantStartThread             = errors.New("can't create thread without being logged into Discord")
 )
 
-func errorToStatusReason(err error) (reason event.MessageStatusReason, status event.MessageStatus, isCertain, sendNotice bool, humanMessage string) {
+func errorToStatusReason(err error) (reason event.MessageStatusReason, status event.MessageStatus, isCertain, sendNotice bool, humanMessage string, checkpointError error) {
+	var restErr *discordgo.RESTError
 	switch {
 	case errors.Is(err, errUnknownMsgType),
 		errors.Is(err, errUnknownRelationType),
@@ -1060,20 +1065,65 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		errors.Is(err, attachment.UnsupportedVersion),
 		errors.Is(err, attachment.UnsupportedAlgorithm),
 		errors.Is(err, errCantStartThread):
-		return event.MessageStatusUnsupported, event.MessageStatusFail, true, true, ""
+		return event.MessageStatusUnsupported, event.MessageStatusFail, true, true, "", nil
 	case errors.Is(err, attachment.HashMismatch),
 		errors.Is(err, attachment.InvalidKey),
 		errors.Is(err, attachment.InvalidInitVector):
-		return event.MessageStatusUndecryptable, event.MessageStatusFail, true, true, ""
+		return event.MessageStatusUndecryptable, event.MessageStatusFail, true, true, "", nil
 	case errors.Is(err, errUserNotReceiver), errors.Is(err, errUserNotLoggedIn):
-		return event.MessageStatusNoPermission, event.MessageStatusFail, true, false, ""
+		return event.MessageStatusNoPermission, event.MessageStatusFail, true, false, "", nil
 	case errors.Is(err, errUnknownEditTarget):
-		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, ""
+		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, "", nil
 	case errors.Is(err, errTargetNotFound):
-		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, ""
+		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, "", nil
+	case errors.As(err, &restErr):
+		if restErr.Message != nil {
+			reason, humanMessage = restErrorToStatusReason(restErr.Message)
+			status = event.MessageStatusFail
+			isCertain = true
+			sendNotice = true
+			checkpointError = fmt.Errorf("HTTP %d: %d: %s", restErr.Response.StatusCode, restErr.Message.Code, restErr.Message.Message)
+			if len(restErr.Message.Errors) > 0 {
+				jsonExtraErrors, _ := json.Marshal(restErr.Message.Errors)
+				checkpointError = fmt.Errorf("%w (%s)", checkpointError, jsonExtraErrors)
+			}
+			return
+		} else if restErr.Response.StatusCode == http.StatusBadRequest && bytes.HasPrefix(restErr.ResponseBody, []byte(`{"captcha_key"`)) {
+			return event.MessageStatusGenericError, event.MessageStatusRetriable, true, true, "Captcha error", errors.New("captcha required")
+		} else if restErr.Response != nil && (restErr.Response.StatusCode == http.StatusServiceUnavailable || restErr.Response.StatusCode == http.StatusBadGateway || restErr.Response.StatusCode == http.StatusGatewayTimeout) {
+			return event.MessageStatusGenericError, event.MessageStatusRetriable, true, true, fmt.Sprintf("HTTP %s", restErr.Response.Status), fmt.Errorf("HTTP %d", restErr.Response.StatusCode)
+		}
+		fallthrough
+	case errors.Is(err, context.DeadlineExceeded):
+		return event.MessageStatusTooOld, event.MessageStatusRetriable, false, true, "", context.DeadlineExceeded
+	case strings.HasSuffix(err.Error(), "(Client.Timeout exceeded while awaiting headers)"):
+		return event.MessageStatusTooOld, event.MessageStatusRetriable, false, true, "", errors.New("HTTP request timed out")
+	case errors.Is(err, syscall.ECONNRESET):
+		return event.MessageStatusGenericError, event.MessageStatusRetriable, false, true, "", errors.New("connection reset")
 	default:
-		return event.MessageStatusGenericError, event.MessageStatusRetriable, false, true, ""
+		return event.MessageStatusGenericError, event.MessageStatusRetriable, false, true, "", nil
 	}
+}
+
+func restErrorToStatusReason(msg *discordgo.APIErrorMessage) (reason event.MessageStatusReason, humanMessage string) {
+	switch msg.Code {
+	case discordgo.ErrCodeRequestEntityTooLarge:
+		return event.MessageStatusUnsupported, "Attachment is too large"
+	case discordgo.ErrCodeUnknownEmoji:
+		return event.MessageStatusUnsupported, "Unsupported emoji"
+	case discordgo.ErrCodeMissingPermissions, discordgo.ErrCodeMissingAccess:
+		return event.MessageStatusUnsupported, "You don't have the permissions to do that"
+	case discordgo.ErrCodeCannotSendMessagesToThisUser:
+		return event.MessageStatusUnsupported, "You can't send messages to this user"
+	case discordgo.ErrCodeCannotSendMessagesInVoiceChannel:
+		return event.MessageStatusUnsupported, "You can't send messages in a non-text channel"
+	case discordgo.ErrCodeInvalidFormBody:
+		contentErrs := msg.Errors["content"].Errors
+		if len(contentErrs) == 1 && contentErrs[0].Code == "BASE_TYPE_MAX_LENGTH" {
+			return event.MessageStatusUnsupported, "Message is too long: " + contentErrs[0].Message
+		}
+	}
+	return event.MessageStatusGenericError, fmt.Sprintf("%d: %s", msg.Code, msg.Message)
 }
 
 func (portal *Portal) sendStatusEvent(evtID id.EventID, err error) {
@@ -1097,8 +1147,13 @@ func (portal *Portal) sendStatusEvent(evtID id.EventID, err error) {
 	if err == nil {
 		content.Status = event.MessageStatusSuccess
 	} else {
-		content.Reason, content.Status, _, _, content.Message = errorToStatusReason(err)
-		content.Error = err.Error()
+		var checkpointErr error
+		content.Reason, content.Status, _, _, content.Message, checkpointErr = errorToStatusReason(err)
+		if checkpointErr != nil {
+			content.Error = checkpointErr.Error()
+		} else {
+			content.Error = err.Error()
+		}
 	}
 	_, err = intent.SendMessageEvent(portal.MXID, event.BeeperMessageStatus, &content)
 	if err != nil {
@@ -1128,11 +1183,17 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 			level = maulogger.LevelDebug
 		}
 		portal.log.Logfln(level, "%s %s %s from %s: %v", part, msgType, evtDescription, evt.Sender, err)
-		reason, statusCode, isCertain, sendNotice, _ := errorToStatusReason(err)
+		reason, statusCode, isCertain, sendNotice, humanMessage, checkpointErr := errorToStatusReason(err)
+		if checkpointErr == nil {
+			checkpointErr = err
+		}
 		checkpointStatus := status.ReasonToCheckpointStatus(reason, statusCode)
-		portal.bridge.SendMessageCheckpoint(evt, status.MsgStepRemote, err, checkpointStatus, 0)
+		portal.bridge.SendMessageCheckpoint(evt, status.MsgStepRemote, checkpointErr, checkpointStatus, 0)
 		if sendNotice {
-			portal.sendErrorMessage(msgType, err.Error(), isCertain)
+			if humanMessage == "" {
+				humanMessage = err.Error()
+			}
+			portal.sendErrorMessage(msgType, humanMessage, isCertain)
 		}
 		portal.sendStatusEvent(evt.ID, err)
 	} else {

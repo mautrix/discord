@@ -201,8 +201,18 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	var proxyURL string
 	if embed.Video != nil {
 		proxyURL = embed.Video.ProxyURL
-	} else {
+	} else if embed.Thumbnail != nil {
 		proxyURL = embed.Thumbnail.ProxyURL
+	} else {
+		zerolog.Ctx(ctx).Error().Str("embed_url", embed.URL).Msg("failed to bridge media")
+		return &ConvertedMessage{
+			AttachmentID: attachmentID,
+			Type:         event.EventMessage,
+			Content: &event.MessageEventContent{
+				Body:    "failed to bridge media",
+				MsgType: event.MsgNotice,
+			},
+		}
 	}
 	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, proxyURL, portal.Encrypted, NoMeta)
 	if err != nil {

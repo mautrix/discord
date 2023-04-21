@@ -1,4 +1,4 @@
--- v0 -> v16: Latest revision
+-- v0 -> v17: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -29,6 +29,7 @@ CREATE TABLE portal (
     plain_name TEXT NOT NULL,
     name       TEXT NOT NULL,
     name_set   BOOLEAN NOT NULL,
+    friend_nick BOOLEAN NOT NULL,
     topic      TEXT NOT NULL,
     topic_set  BOOLEAN NOT NULL,
     avatar     TEXT NOT NULL,

@@ -62,6 +62,8 @@ type User struct {
 	pendingInteractionsLock sync.Mutex
 
 	nextDiscordUploadID atomic.Int32
+
+	relationships map[string]*discordgo.Relationship
 }
 
 func (user *User) GetRemoteID() string {
@@ -189,6 +191,8 @@ func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 		PermissionLevel: br.Config.Bridge.Permissions.Get(dbUser.MXID),
 
 		pendingInteractions: make(map[string]*WrappedCommandEvent),
+
+		relationships: make(map[string]*discordgo.Relationship),
 	}
 	user.nextDiscordUploadID.Store(rand.Int31n(100))
 	user.BridgeState = br.NewBridgeStateQueue(user)
@@ -581,6 +585,10 @@ func (user *User) Connect() error {
 	user.Session.AddHandler(user.channelPinsUpdateHandler)
 	user.Session.AddHandler(user.channelUpdateHandler)
 
+	user.Session.AddHandler(user.relationshipAddHandler)
+	user.Session.AddHandler(user.relationshipRemoveHandler)
+	user.Session.AddHandler(user.relationshipUpdateHandler)
+
 	user.Session.AddHandler(user.messageCreateHandler)
 	user.Session.AddHandler(user.messageDeleteHandler)
 	user.Session.AddHandler(user.messageUpdateHandler)
@@ -660,6 +668,10 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBackfilling})
 	user.tryAutomaticDoublePuppeting()
 
+	for _, relationship := range r.Relationships {
+		user.relationships[relationship.ID] = relationship
+	}
+
 	updateTS := time.Now()
 	portalsInSpace := make(map[string]bool)
 	for _, guild := range user.GetPortals() {
@@ -735,6 +747,55 @@ func (user *User) addPrivateChannelToSpace(portal *Portal) bool {
 		return false
 	} else {
 		return true
+	}
+}
+
+func (user *User) relationshipAddHandler(_ *discordgo.Session, r *discordgo.RelationshipAdd) {
+	user.log.Debug().Interface("relationship", r.Relationship).Msg("Relationship added")
+	user.relationships[r.ID] = r.Relationship
+	user.handleRelationshipChange(r.ID, r.Nickname)
+}
+
+func (user *User) relationshipUpdateHandler(_ *discordgo.Session, r *discordgo.RelationshipUpdate) {
+	user.log.Debug().Interface("relationship", r.Relationship).Msg("Relationship update")
+	user.relationships[r.ID] = r.Relationship
+	user.handleRelationshipChange(r.ID, r.Nickname)
+}
+
+func (user *User) relationshipRemoveHandler(_ *discordgo.Session, r *discordgo.RelationshipRemove) {
+	user.log.Debug().Str("other_user_id", r.ID).Msg("Relationship removed")
+	delete(user.relationships, r.ID)
+	user.handleRelationshipChange(r.ID, "")
+}
+
+func (user *User) handleRelationshipChange(userID, nickname string) {
+	puppet := user.bridge.GetPuppetByID(userID)
+	portal := user.FindPrivateChatWith(userID)
+	if portal == nil || puppet == nil {
+		return
+	}
+
+	updated := portal.FriendNick == (nickname != "")
+	portal.FriendNick = nickname != ""
+	if nickname != "" {
+		updated = portal.UpdateNameDirect(nickname, true)
+	} else if portal.Name != puppet.Name {
+		if portal.shouldSetDMRoomMetadata() {
+			updated = portal.UpdateNameDirect(puppet.Name, false)
+		} else if portal.NameSet {
+			_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateRoomName, "", map[string]any{})
+			if err != nil {
+				portal.zlog.Warn().Err(err).Msg("Failed to clear room name after friend nickname was removed")
+			} else {
+				portal.zlog.Debug().Msg("Cleared room name after friend nickname was removed")
+				portal.NameSet = false
+				portal.Update()
+				updated = true
+			}
+		}
+	}
+	if !updated {
+		portal.Update()
 	}
 }
 

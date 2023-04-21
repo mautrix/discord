@@ -15,7 +15,7 @@ import (
 const (
 	portalSelect = `
 		SELECT dcid, receiver, type, other_user_id, dc_guild_id, dc_parent_id, mxid,
-		       plain_name, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
+		       plain_name, name, name_set, friend_nick, topic, topic_set, avatar, avatar_url, avatar_set,
 		       encrypted, in_space, first_event_id, relay_webhook_id, relay_webhook_secret
 		FROM portal
 	`
@@ -68,6 +68,10 @@ func (pq *PortalQuery) GetByMXID(mxid id.RoomID) *Portal {
 	return pq.get(portalSelect+" WHERE mxid=$1", mxid)
 }
 
+func (pq *PortalQuery) FindPrivateChatBetween(id, receiver string) *Portal {
+	return pq.get(portalSelect+" WHERE other_user_id=$1 AND receiver=$2 AND type=$3", id, receiver, discordgo.ChannelTypeDM)
+}
+
 func (pq *PortalQuery) FindPrivateChatsWith(id string) []*Portal {
 	return pq.getAll(portalSelect+" WHERE other_user_id=$1 AND type=$2", id, discordgo.ChannelTypeDM)
 }
@@ -109,16 +113,17 @@ type Portal struct {
 
 	MXID id.RoomID
 
-	PlainName string
-	Name      string
-	NameSet   bool
-	Topic     string
-	TopicSet  bool
-	Avatar    string
-	AvatarURL id.ContentURI
-	AvatarSet bool
-	Encrypted bool
-	InSpace   id.RoomID
+	PlainName  string
+	Name       string
+	NameSet    bool
+	FriendNick bool
+	Topic      string
+	TopicSet   bool
+	Avatar     string
+	AvatarURL  id.ContentURI
+	AvatarSet  bool
+	Encrypted  bool
+	InSpace    id.RoomID
 
 	FirstEventID id.EventID
 
@@ -132,7 +137,7 @@ func (p *Portal) Scan(row dbutil.Scannable) *Portal {
 	var avatarURL string
 
 	err := row.Scan(&p.Key.ChannelID, &p.Key.Receiver, &chanType, &otherUserID, &guildID, &parentID,
-		&mxid, &p.PlainName, &p.Name, &p.NameSet, &p.Topic, &p.TopicSet, &p.Avatar, &avatarURL, &p.AvatarSet,
+		&mxid, &p.PlainName, &p.Name, &p.NameSet, &p.FriendNick, &p.Topic, &p.TopicSet, &p.Avatar, &avatarURL, &p.AvatarSet,
 		&p.Encrypted, &p.InSpace, &firstEventID, &relayWebhookID, &relayWebhookSecret)
 
 	if err != nil {
@@ -160,13 +165,13 @@ func (p *Portal) Scan(row dbutil.Scannable) *Portal {
 func (p *Portal) Insert() {
 	query := `
 		INSERT INTO portal (dcid, receiver, type, other_user_id, dc_guild_id, dc_parent_id, mxid,
-		                    plain_name, name, name_set, topic, topic_set, avatar, avatar_url, avatar_set,
+		                    plain_name, name, name_set, friend_nick, topic, topic_set, avatar, avatar_url, avatar_set,
 		                    encrypted, in_space, first_event_id, relay_webhook_id, relay_webhook_secret)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 	`
 	_, err := p.db.Exec(query, p.Key.ChannelID, p.Key.Receiver, p.Type,
 		strPtr(p.OtherUserID), strPtr(p.GuildID), strPtr(p.ParentID), strPtr(string(p.MXID)),
-		p.PlainName, p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
+		p.PlainName, p.Name, p.NameSet, p.FriendNick, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
 		p.Encrypted, p.InSpace, p.FirstEventID.String(), strPtr(p.RelayWebhookID), strPtr(p.RelayWebhookSecret))
 
 	if err != nil {
@@ -179,14 +184,16 @@ func (p *Portal) Update() {
 	query := `
 		UPDATE portal
 		SET type=$1, other_user_id=$2, dc_guild_id=$3, dc_parent_id=$4, mxid=$5,
-			plain_name=$6, name=$7, name_set=$8, topic=$9, topic_set=$10, avatar=$11, avatar_url=$12, avatar_set=$13,
-			encrypted=$14, in_space=$15, first_event_id=$16, relay_webhook_id=$17, relay_webhook_secret=$18
-		WHERE dcid=$19 AND receiver=$20
+			plain_name=$6, name=$7, name_set=$8, friend_nick=$9, topic=$10, topic_set=$11,
+			avatar=$12, avatar_url=$13, avatar_set=$14, encrypted=$15, in_space=$16, first_event_id=$17,
+			relay_webhook_id=$18, relay_webhook_secret=$19
+		WHERE dcid=$20 AND receiver=$21
 	`
 	_, err := p.db.Exec(query,
 		p.Type, strPtr(p.OtherUserID), strPtr(p.GuildID), strPtr(p.ParentID), strPtr(string(p.MXID)),
-		p.PlainName, p.Name, p.NameSet, p.Topic, p.TopicSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet,
-		p.Encrypted, p.InSpace, p.FirstEventID.String(), strPtr(p.RelayWebhookID), strPtr(p.RelayWebhookSecret),
+		p.PlainName, p.Name, p.NameSet, p.FriendNick, p.Topic, p.TopicSet,
+		p.Avatar, p.AvatarURL.String(), p.AvatarSet, p.Encrypted, p.InSpace, p.FirstEventID.String(),
+		strPtr(p.RelayWebhookID), strPtr(p.RelayWebhookSecret),
 		p.Key.ChannelID, p.Key.Receiver)
 
 	if err != nil {

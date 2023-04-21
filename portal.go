@@ -165,6 +165,20 @@ func (user *User) GetPortalByID(id string, chanType discordgo.ChannelType) *Port
 	return user.bridge.GetPortalByID(database.NewPortalKey(id, user.DiscordID), chanType)
 }
 
+func (user *User) FindPrivateChatWith(userID string) *Portal {
+	user.bridge.portalsLock.Lock()
+	defer user.bridge.portalsLock.Unlock()
+	dbPortal := user.bridge.DB.Portal.FindPrivateChatBetween(userID, user.DiscordID)
+	if dbPortal == nil {
+		return nil
+	}
+	existing, ok := user.bridge.portalsByID[dbPortal.Key]
+	if ok {
+		return existing
+	}
+	return user.bridge.loadPortal(dbPortal, nil, discordgo.ChannelTypeDM)
+}
+
 func (br *DiscordBridge) GetExistingPortalByID(key database.PortalKey) *Portal {
 	br.portalsLock.Lock()
 	defer br.portalsLock.Unlock()
@@ -466,7 +480,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		InitialState:    initialState,
 		CreationContent: creationContent,
 	}
-	if !portal.shouldSetDMRoomMetadata() {
+	if !portal.shouldSetDMRoomMetadata() && !portal.FriendNick {
 		req.Name = ""
 	}
 
@@ -1854,11 +1868,13 @@ func (portal *Portal) UpdateName(meta *discordgo.Channel) bool {
 		GuildName:  guildName,
 		NSFW:       meta.NSFW,
 		Type:       meta.Type,
-	})) || plainNameChanged
+	}), false) || plainNameChanged
 }
 
-func (portal *Portal) UpdateNameDirect(name string) bool {
-	if portal.Name == name && (portal.NameSet || portal.MXID == "" || !portal.shouldSetDMRoomMetadata()) {
+func (portal *Portal) UpdateNameDirect(name string, isFriendNick bool) bool {
+	if portal.FriendNick && !isFriendNick {
+		return false
+	} else if portal.Name == name && (portal.NameSet || portal.MXID == "" || (!portal.shouldSetDMRoomMetadata() && !isFriendNick)) {
 		return false
 	}
 	portal.log.Debugfln("Updating name %q -> %q", portal.Name, name)
@@ -1869,7 +1885,7 @@ func (portal *Portal) UpdateNameDirect(name string) bool {
 }
 
 func (portal *Portal) updateRoomName() {
-	if portal.MXID != "" && portal.shouldSetDMRoomMetadata() {
+	if portal.MXID != "" && (portal.shouldSetDMRoomMetadata() || portal.FriendNick) {
 		_, err := portal.MainIntent().SetRoomName(portal.MXID, portal.Name)
 		if err != nil {
 			portal.log.Warnln("Failed to update room name:", err)
@@ -2073,7 +2089,13 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		if portal.OtherUserID != "" {
 			puppet := portal.bridge.GetPuppetByID(portal.OtherUserID)
 			changed = portal.UpdateAvatarFromPuppet(puppet) || changed
-			changed = portal.UpdateNameDirect(puppet.Name) || changed
+			if rel, ok := source.relationships[portal.OtherUserID]; ok && rel.Nickname != "" {
+				portal.FriendNick = true
+				changed = portal.UpdateNameDirect(rel.Nickname, true) || changed
+			} else {
+				portal.FriendNick = false
+				changed = portal.UpdateNameDirect(puppet.Name, false) || changed
+			}
 		}
 	case discordgo.ChannelTypeGroupDM:
 		changed = portal.UpdateGroupDMAvatar(meta.Icon) || changed

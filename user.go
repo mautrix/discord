@@ -79,20 +79,24 @@ func (user *User) GetRemoteName() string {
 
 var discordLog zerolog.Logger
 
+func discordToZeroLevel(level int) zerolog.Level {
+	switch level {
+	case discordgo.LogError:
+		return zerolog.ErrorLevel
+	case discordgo.LogWarning:
+		return zerolog.WarnLevel
+	case discordgo.LogInformational:
+		return zerolog.InfoLevel
+	case discordgo.LogDebug:
+		fallthrough
+	default:
+		return zerolog.DebugLevel
+	}
+}
+
 func init() {
 	discordgo.Logger = func(msgL, caller int, format string, a ...interface{}) {
-		var level zerolog.Level
-		switch msgL {
-		case discordgo.LogError:
-			level = zerolog.ErrorLevel
-		case discordgo.LogWarning:
-			level = zerolog.WarnLevel
-		case discordgo.LogInformational:
-			level = zerolog.InfoLevel
-		case discordgo.LogDebug:
-			level = zerolog.DebugLevel
-		}
-		discordLog.WithLevel(level).Caller(caller+1).Msgf(strings.TrimSpace(format), a...)
+		discordLog.WithLevel(discordToZeroLevel(msgL)).Caller(caller+1).Msgf(strings.TrimSpace(format), a...)
 	}
 }
 
@@ -562,6 +566,10 @@ func (user *User) Connect() error {
 		session.LogLevel = discordgo.LogDebug
 	} else {
 		session.LogLevel = discordgo.LogInformational
+	}
+	userDiscordLog := user.log.With().Str("component", "discordgo").Logger()
+	session.Logger = func(msgL, caller int, format string, a ...interface{}) {
+		userDiscordLog.WithLevel(discordToZeroLevel(msgL)).Caller(caller+1).Msgf(strings.TrimSpace(format), a...)
 	}
 	if !session.IsUser {
 		session.Identify.Intents = BotIntents

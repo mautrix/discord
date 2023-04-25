@@ -288,13 +288,19 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 }
 
 func (portal *Portal) getEmojiMXCByDiscordID(emojiID, name string, animated bool) id.ContentURI {
-	var url, mimeType string
+	var url, mimeType, ext string
 	if animated {
 		url = discordgo.EndpointEmojiAnimated(emojiID)
 		mimeType = "image/gif"
+		ext = "gif"
 	} else {
 		url = discordgo.EndpointEmoji(emojiID)
 		mimeType = "image/png"
+		ext = "png"
+	}
+	mxc := portal.bridge.Config.Bridge.MediaPatterns.Emoji(emojiID, ext)
+	if !mxc.IsEmpty() {
+		return mxc
 	}
 	dbFile, err := portal.bridge.copyAttachmentToMatrix(portal.MainIntent(), url, false, AttachmentMeta{
 		AttachmentID: emojiID,

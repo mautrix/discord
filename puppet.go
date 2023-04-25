@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
@@ -224,12 +225,21 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 	puppet.AvatarSet = false
 	puppet.AvatarURL = id.ContentURI{}
 
-	// TODO should we just use discord's default avatars for users with no avatar?
 	if puppet.Avatar != "" && (puppet.AvatarURL.IsEmpty() || avatarChanged) {
-		url, err := uploadAvatar(puppet.DefaultIntent(), info.AvatarURL(""))
-		if err != nil {
-			puppet.log.Warn().Err(err).Str("avatar_id", puppet.Avatar).Msg("Failed to reupload user avatar")
-			return true
+		downloadURL := discordgo.EndpointUserAvatar(info.ID, info.Avatar)
+		ext := "png"
+		if strings.HasPrefix(info.Avatar, "a_") {
+			downloadURL = discordgo.EndpointUserAvatarAnimated(info.ID, info.Avatar)
+			ext = "gif"
+		}
+		url := puppet.bridge.Config.Bridge.MediaPatterns.Avatar(info.ID, info.Avatar, ext)
+		if url.IsEmpty() {
+			var err error
+			url, err = uploadAvatar(puppet.DefaultIntent(), downloadURL)
+			if err != nil {
+				puppet.log.Warn().Err(err).Str("avatar_id", puppet.Avatar).Msg("Failed to reupload user avatar")
+				return true
+			}
 		}
 		puppet.AvatarURL = url
 	}

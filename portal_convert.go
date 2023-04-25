@@ -66,10 +66,6 @@ func (portal *Portal) convertDiscordFile(typeName string, intent *appservice.Int
 		content.Info.Width = dbFile.Width
 		content.Info.Height = dbFile.Height
 	}
-	if content.Info.Width == 0 && content.Info.Height == 0 && typeName == "sticker" {
-		content.Info.Width = DiscordStickerSize
-		content.Info.Height = DiscordStickerSize
-	}
 	if dbFile.DecryptionInfo != nil {
 		content.File = &event.EncryptedFileInfo{
 			EncryptedFile: *dbFile.DecryptionInfo,
@@ -78,8 +74,14 @@ func (portal *Portal) convertDiscordFile(typeName string, intent *appservice.Int
 	} else {
 		content.URL = dbFile.MXC.CUString()
 	}
+	return content
+}
 
-	if typeName == "sticker" && (content.Info.Width > DiscordStickerSize || content.Info.Height > DiscordStickerSize) {
+func (portal *Portal) cleanupConvertedStickerInfo(content *event.MessageEventContent) {
+	if content.Info.Width == 0 && content.Info.Height == 0 {
+		content.Info.Width = DiscordStickerSize
+		content.Info.Height = DiscordStickerSize
+	} else if content.Info.Width > DiscordStickerSize || content.Info.Height > DiscordStickerSize {
 		if content.Info.Width > content.Info.Height {
 			content.Info.Height /= content.Info.Width / DiscordStickerSize
 			content.Info.Width = DiscordStickerSize
@@ -91,32 +93,44 @@ func (portal *Portal) convertDiscordFile(typeName string, intent *appservice.Int
 			content.Info.Height = DiscordStickerSize
 		}
 	}
-	return content
 }
 
 func (portal *Portal) convertDiscordSticker(intent *appservice.IntentAPI, sticker *discordgo.Sticker) *ConvertedMessage {
-	var mime string
+	var mime, ext string
 	switch sticker.FormatType {
 	case discordgo.StickerFormatTypePNG:
 		mime = "image/png"
+		ext = "png"
 	case discordgo.StickerFormatTypeAPNG:
 		mime = "image/apng"
+		ext = "png"
 	case discordgo.StickerFormatTypeLottie:
 		mime = "application/json"
+		ext = "json"
 	case discordgo.StickerFormatTypeGIF:
 		mime = "image/gif"
+		ext = "gif"
 	default:
 		portal.log.Warnfln("Unknown sticker format %d in %s", sticker.FormatType, sticker.ID)
 	}
+	content := &event.MessageEventContent{
+		Body: sticker.Name, // TODO find description from somewhere?
+		Info: &event.FileInfo{
+			MimeType: mime,
+		},
+	}
+
+	mxc := portal.bridge.Config.Bridge.MediaPatterns.Sticker(sticker.ID, ext)
+	if mxc.IsEmpty() {
+		content = portal.convertDiscordFile("sticker", intent, sticker.ID, sticker.URL(), content)
+	} else {
+		content.URL = mxc.CUString()
+	}
+	portal.cleanupConvertedStickerInfo(content)
 	return &ConvertedMessage{
 		AttachmentID: sticker.ID,
 		Type:         event.EventSticker,
-		Content: portal.convertDiscordFile("sticker", intent, sticker.ID, sticker.URL(), &event.MessageEventContent{
-			Body: sticker.Name, // TODO find description from somewhere?
-			Info: &event.FileInfo{
-				MimeType: mime,
-			},
-		}),
+		Content:      content,
 	}
 }
 
@@ -158,7 +172,12 @@ func (portal *Portal) convertDiscordAttachment(intent *appservice.IntentAPI, att
 	default:
 		content.MsgType = event.MsgFile
 	}
-	content = portal.convertDiscordFile("attachment", intent, att.ID, att.URL, content)
+	mxc := portal.bridge.Config.Bridge.MediaPatterns.Attachment(portal.Key.ChannelID, att.ID, att.Filename)
+	if mxc.IsEmpty() {
+		content = portal.convertDiscordFile("attachment", intent, att.ID, att.URL, content)
+	} else {
+		content.URL = mxc.CUString()
+	}
 	return &ConvertedMessage{
 		AttachmentID: att.ID,
 		Type:         event.EventMessage,

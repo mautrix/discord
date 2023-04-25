@@ -145,6 +145,20 @@ bridge:
     # Whether or not created rooms should have federation enabled.
     # If false, created portal rooms will never be federated.
     federate_rooms: true
+    # Patterns for converting Discord media to custom mxc:// URIs instead of reuploading.
+    # Each of the patterns can be set to null to disable custom URIs for that type of media.
+    # More details can be found at https://docs.mau.fi/bridges/go/discord/direct-media.html
+    media_patterns:
+        # Should custom mxc:// URIs be used instead of reuploading media?
+        enabled: false
+        # Pattern for normal message attachments.
+        attachments: mxc://discord-media.mau.dev/attachments|{{.ChannelID}}|{{.AttachmentID}}|{{.FileName}}
+        # Pattern for custom emojis.
+        emojis: mxc://discord-media.mau.dev/emojis|{{.ID}}.{{.Ext}}
+        # Pattern for stickers. Note that animated lottie stickers will not be converted if this is enabled.
+        stickers: mxc://discord-media.mau.dev/stickers|{{.ID}}.{{.Ext}}
+        # Pattern for static user avatars.
+        avatars: mxc://discord-media.mau.dev/avatars|{{.UserID}}|{{.AvatarID}}.{{.Ext}}
     # Settings for converting animated stickers.
     animated_sticker:
         # Format to which animated stickers should be converted.

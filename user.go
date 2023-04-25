@@ -560,6 +560,8 @@ func (user *User) Connect() error {
 	// TODO move to config
 	if os.Getenv("DISCORD_DEBUG") == "1" {
 		session.LogLevel = discordgo.LogDebug
+	} else {
+		session.LogLevel = discordgo.LogInformational
 	}
 	if !session.IsUser {
 		session.Identify.Intents = BotIntents

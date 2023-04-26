@@ -281,7 +281,8 @@ func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User) {
 		puppet.log.Error().Err(err).Msg("Failed to ensure registered")
 	}
 
-	changed := puppet.UpdateContactInfo(source, info)
+	changed := false
+	changed = puppet.UpdateContactInfo(info) || changed
 	changed = puppet.UpdateName(info) || changed
 	changed = puppet.UpdateAvatar(info) || changed
 	if changed {
@@ -289,30 +290,45 @@ func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User) {
 	}
 }
 
-func (puppet *Puppet) UpdateContactInfo(source *User, info *discordgo.User) bool {
-	if puppet.bridge.Config.Homeserver.Software != bridgeconfig.SoftwareHungry {
-		return false
+func (puppet *Puppet) UpdateContactInfo(info *discordgo.User) bool {
+	changed := false
+	if puppet.Username != info.Username {
+		puppet.Username = info.Username
+		changed = true
 	}
-
-	if puppet.ContactInfoSet {
-		return false
+	if puppet.Discriminator != info.Discriminator {
+		puppet.Discriminator = info.Discriminator
+		changed = true
 	}
+	if puppet.IsBot != info.Bot {
+		puppet.IsBot = info.Bot
+		changed = true
+	}
+	if changed {
+		puppet.ContactInfoSet = false
+		puppet.ResendContactInfo()
+		return true
+	}
+	return false
+}
 
+func (puppet *Puppet) ResendContactInfo() {
+	if puppet.bridge.Config.Homeserver.Software != bridgeconfig.SoftwareHungry || puppet.ContactInfoSet {
+		return
+	}
 	contactInfo := map[string]any{
 		"com.beeper.bridge.identifiers": []string{
-			fmt.Sprintf("discord:%s#%s", info.Username, info.Discriminator),
+			fmt.Sprintf("discord:%s#%s", puppet.Username, puppet.Discriminator),
 		},
 		"com.beeper.bridge.remote_id":      puppet.ID,
 		"com.beeper.bridge.service":        puppet.bridge.BeeperServiceName,
 		"com.beeper.bridge.network":        puppet.bridge.BeeperNetworkName,
-		"com.beeper.bridge.is_network_bot": info.Bot,
+		"com.beeper.bridge.is_network_bot": puppet.IsBot,
 	}
 	err := puppet.DefaultIntent().BeeperUpdateProfile(contactInfo)
 	if err != nil {
 		puppet.log.Warn().Err(err).Msg("Failed to store custom contact info in profile")
-		return false
 	} else {
 		puppet.ContactInfoSet = true
-		return true
 	}
 }

@@ -1,4 +1,4 @@
--- v0 -> v17: Latest revision
+-- v0 -> v18: Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -68,7 +68,12 @@ CREATE TABLE puppet (
     avatar           TEXT NOT NULL,
     avatar_url       TEXT NOT NULL,
     avatar_set       BOOLEAN NOT NULL DEFAULT false,
+
     contact_info_set BOOLEAN NOT NULL DEFAULT false,
+
+    username      TEXT NOT NULL DEFAULT '',
+    discriminator TEXT NOT NULL DEFAULT '',
+    is_bot        BOOLEAN NOT NULL DEFAULT false,
 
     custom_mxid  TEXT,
     access_token TEXT,

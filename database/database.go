@@ -68,9 +68,10 @@ func New(baseDB *dbutil.Database, log maulogger.Logger) *Database {
 	return db
 }
 
-func strPtr(val string) *string {
+func strPtr[T ~string](val T) *string {
 	if val == "" {
 		return nil
 	}
-	return &val
+	valStr := string(val)
+	return &valStr
 }

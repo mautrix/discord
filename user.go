@@ -595,6 +595,9 @@ func (user *User) Connect() error {
 	user.Session.AddHandler(user.channelPinsUpdateHandler)
 	user.Session.AddHandler(user.channelUpdateHandler)
 
+	user.Session.AddHandler(user.channelRecipientAdd)
+	user.Session.AddHandler(user.channelRecipientRemove)
+
 	user.Session.AddHandler(user.relationshipAddHandler)
 	user.Session.AddHandler(user.relationshipRemoveHandler)
 	user.Session.AddHandler(user.relationshipUpdateHandler)
@@ -1068,6 +1071,20 @@ func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.Channe
 		user.handlePrivateChannel(portal, c.Channel, time.Now(), true, user.IsInSpace(portal.Key.String()))
 	} else {
 		portal.UpdateInfo(user, c.Channel)
+	}
+}
+
+func (user *User) channelRecipientAdd(_ *discordgo.Session, c *discordgo.ChannelRecipientAdd) {
+	portal := user.GetExistingPortalByID(c.ChannelID)
+	if portal != nil {
+		portal.syncParticipant(user, c.User, false)
+	}
+}
+
+func (user *User) channelRecipientRemove(_ *discordgo.Session, c *discordgo.ChannelRecipientRemove) {
+	portal := user.GetExistingPortalByID(c.ChannelID)
+	if portal != nil {
+		portal.syncParticipant(user, c.User, true)
 	}
 }
 

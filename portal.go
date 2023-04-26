@@ -898,6 +898,32 @@ func (portal *Portal) handleDiscordTyping(evt *discordgo.TypingStart) {
 	}
 }
 
+func (portal *Portal) syncParticipant(source *User, participant *discordgo.User, remove bool) {
+	puppet := portal.bridge.GetPuppetByID(participant.ID)
+	puppet.UpdateInfo(source, participant)
+	log := portal.zlog.With().Str("participant_id", participant.ID).
+		Str("ghost_mxid", puppet.MXID.String()).
+		Str("room_id", portal.MXID.String()).
+		Logger()
+
+	user := portal.bridge.GetUserByID(participant.ID)
+	if user != nil {
+		log.Debug().Msg("Ensuring Matrix user is invited or joined to room")
+		portal.ensureUserInvited(user)
+	}
+
+	if remove {
+		_, err := puppet.DefaultIntent().LeaveRoom(portal.MXID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to make ghost leave room after member remove event")
+		}
+	} else if user == nil || !puppet.IntentFor(portal).IsCustomPuppet {
+		if err := puppet.IntentFor(portal).EnsureJoined(portal.MXID); err != nil {
+			log.Warn().Err(err).Msg("Failed to add ghost to room")
+		}
+	}
+}
+
 func (portal *Portal) syncParticipants(source *User, participants []*discordgo.User) {
 	for _, participant := range participants {
 		puppet := portal.bridge.GetPuppetByID(participant.ID)
@@ -2097,8 +2123,14 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 				changed = portal.UpdateNameDirect(puppet.Name, false) || changed
 			}
 		}
+		if portal.MXID != "" {
+			portal.syncParticipants(source, meta.Recipients)
+		}
 	case discordgo.ChannelTypeGroupDM:
 		changed = portal.UpdateGroupDMAvatar(meta.Icon) || changed
+		if portal.MXID != "" {
+			portal.syncParticipants(source, meta.Recipients)
+		}
 		fallthrough
 	default:
 		changed = portal.UpdateName(meta) || changed

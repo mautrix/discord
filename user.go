@@ -16,6 +16,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix/util/dbutil"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -250,7 +251,7 @@ func (user *User) startupTryConnect(retryCount int) {
 		user.log.Error().Err(err).Msg("Error connecting on startup")
 		closeErr := &websocket.CloseError{}
 		if errors.As(err, &closeErr) && closeErr.Code == 4004 {
-			user.invalidAuthHandler(nil, nil)
+			user.invalidAuthHandler(nil)
 		} else if retryCount < 6 {
 			user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-unknown-websocket-error", Message: err.Error()})
 			retryInSeconds := 2 << retryCount
@@ -574,45 +575,78 @@ func (user *User) Connect() error {
 	if !session.IsUser {
 		session.Identify.Intents = BotIntents
 	}
+	session.EventHandler = user.eventHandlerSync
 
 	user.Session = session
 
-	user.Session.AddHandler(user.readyHandler)
-	user.Session.AddHandler(user.resumeHandler)
-	user.Session.AddHandler(user.connectedHandler)
-	user.Session.AddHandler(user.disconnectedHandler)
-	user.Session.AddHandler(user.invalidAuthHandler)
-
-	user.Session.AddHandler(user.guildCreateHandler)
-	user.Session.AddHandler(user.guildDeleteHandler)
-	user.Session.AddHandler(user.guildUpdateHandler)
-	user.Session.AddHandler(user.guildRoleCreateHandler)
-	user.Session.AddHandler(user.guildRoleUpdateHandler)
-	user.Session.AddHandler(user.guildRoleDeleteHandler)
-
-	user.Session.AddHandler(user.channelCreateHandler)
-	user.Session.AddHandler(user.channelDeleteHandler)
-	user.Session.AddHandler(user.channelPinsUpdateHandler)
-	user.Session.AddHandler(user.channelUpdateHandler)
-
-	user.Session.AddHandler(user.channelRecipientAdd)
-	user.Session.AddHandler(user.channelRecipientRemove)
-
-	user.Session.AddHandler(user.relationshipAddHandler)
-	user.Session.AddHandler(user.relationshipRemoveHandler)
-	user.Session.AddHandler(user.relationshipUpdateHandler)
-
-	user.Session.AddHandler(user.messageCreateHandler)
-	user.Session.AddHandler(user.messageDeleteHandler)
-	user.Session.AddHandler(user.messageUpdateHandler)
-	user.Session.AddHandler(user.reactionAddHandler)
-	user.Session.AddHandler(user.reactionRemoveHandler)
-	user.Session.AddHandler(user.messageAckHandler)
-	user.Session.AddHandler(user.typingStartHandler)
-
-	user.Session.AddHandler(user.interactionSuccessHandler)
-
 	return user.Session.Open()
+}
+
+func (user *User) eventHandlerSync(rawEvt any) {
+	go user.eventHandler(rawEvt)
+}
+
+func (user *User) eventHandler(rawEvt any) {
+	switch evt := rawEvt.(type) {
+	case *discordgo.Ready:
+		user.readyHandler(evt)
+	case *discordgo.Resumed:
+		user.resumeHandler(evt)
+	case *discordgo.Connect:
+		user.connectedHandler(evt)
+	case *discordgo.Disconnect:
+		user.disconnectedHandler(evt)
+	case *discordgo.InvalidAuth:
+		user.invalidAuthHandler(evt)
+	case *discordgo.GuildCreate:
+		user.guildCreateHandler(evt)
+	case *discordgo.GuildDelete:
+		user.guildDeleteHandler(evt)
+	case *discordgo.GuildUpdate:
+		user.guildUpdateHandler(evt)
+	case *discordgo.GuildRoleCreate:
+		user.discordRoleToDB(evt.GuildID, evt.Role, nil, nil)
+	case *discordgo.GuildRoleUpdate:
+		user.discordRoleToDB(evt.GuildID, evt.Role, nil, nil)
+	case *discordgo.GuildRoleDelete:
+		user.bridge.DB.Role.DeleteByID(evt.GuildID, evt.RoleID)
+	case *discordgo.ChannelCreate:
+		user.channelCreateHandler(evt)
+	case *discordgo.ChannelDelete:
+		user.channelDeleteHandler(evt)
+	case *discordgo.ChannelUpdate:
+		user.channelUpdateHandler(evt)
+	case *discordgo.ChannelRecipientAdd:
+		user.channelRecipientAdd(evt)
+	case *discordgo.ChannelRecipientRemove:
+		user.channelRecipientRemove(evt)
+	case *discordgo.RelationshipAdd:
+		user.relationshipAddHandler(evt)
+	case *discordgo.RelationshipRemove:
+		user.relationshipRemoveHandler(evt)
+	case *discordgo.RelationshipUpdate:
+		user.relationshipUpdateHandler(evt)
+	case *discordgo.MessageCreate:
+		user.pushPortalMessage(evt, "message create", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessageDelete:
+		user.pushPortalMessage(evt, "message delete", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessageUpdate:
+		user.pushPortalMessage(evt, "message update", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessageReactionAdd:
+		user.pushPortalMessage(evt, "reaction add", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessageReactionRemove:
+		user.pushPortalMessage(evt, "reaction remove", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessageAck:
+		user.messageAckHandler(evt)
+	case *discordgo.TypingStart:
+		user.typingStartHandler(evt)
+	case *discordgo.InteractionSuccess:
+		user.interactionSuccessHandler(evt)
+	case *discordgo.Event:
+		// Ignore
+	default:
+		user.log.Debug().Type("event_type", evt).Msg("Unhandled event")
+	}
 }
 
 func (user *User) Disconnect() error {
@@ -658,7 +692,7 @@ func (s ChannelSlice) Swap(i, j int) {
 	s[i], s[j] = s[j], s[i]
 }
 
-func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
+func (user *User) readyHandler(r *discordgo.Ready) {
 	user.log.Debug().Msg("Discord connection ready")
 	user.bridgeStateLock.Lock()
 	user.wasLoggedOut = false
@@ -704,7 +738,7 @@ func (user *User) readyHandler(_ *discordgo.Session, r *discordgo.Ready) {
 	if r.ReadState != nil && r.ReadState.Version > user.ReadStateVersion {
 		// TODO can we figure out which read states are actually new?
 		for _, entry := range r.ReadState.Entries {
-			user.messageAckHandler(nil, &discordgo.MessageAck{
+			user.messageAckHandler(&discordgo.MessageAck{
 				MessageID: string(entry.LastMessageID),
 				ChannelID: entry.ID,
 			})
@@ -741,7 +775,7 @@ func (user *User) subscribeGuilds(delay time.Duration) {
 	}
 }
 
-func (user *User) resumeHandler(_ *discordgo.Session, r *discordgo.Resumed) {
+func (user *User) resumeHandler(r *discordgo.Resumed) {
 	user.log.Debug().Msg("Discord connection resumed")
 	user.subscribeGuilds(0 * time.Second)
 }
@@ -763,19 +797,19 @@ func (user *User) addPrivateChannelToSpace(portal *Portal) bool {
 	}
 }
 
-func (user *User) relationshipAddHandler(_ *discordgo.Session, r *discordgo.RelationshipAdd) {
+func (user *User) relationshipAddHandler(r *discordgo.RelationshipAdd) {
 	user.log.Debug().Interface("relationship", r.Relationship).Msg("Relationship added")
 	user.relationships[r.ID] = r.Relationship
 	user.handleRelationshipChange(r.ID, r.Nickname)
 }
 
-func (user *User) relationshipUpdateHandler(_ *discordgo.Session, r *discordgo.RelationshipUpdate) {
+func (user *User) relationshipUpdateHandler(r *discordgo.RelationshipUpdate) {
 	user.log.Debug().Interface("relationship", r.Relationship).Msg("Relationship update")
 	user.relationships[r.ID] = r.Relationship
 	user.handleRelationshipChange(r.ID, r.Nickname)
 }
 
-func (user *User) relationshipRemoveHandler(_ *discordgo.Session, r *discordgo.RelationshipRemove) {
+func (user *User) relationshipRemoveHandler(r *discordgo.RelationshipRemove) {
 	user.log.Debug().Str("other_user_id", r.ID).Msg("Relationship removed")
 	delete(user.relationships, r.ID)
 	user.handleRelationshipChange(r.ID, "")
@@ -854,7 +888,7 @@ func (user *User) addGuildToSpace(guild *Guild, isInSpace bool, timestamp time.T
 	return isInSpace
 }
 
-func (user *User) discordRoleToDB(guildID string, role *discordgo.Role, dbRole *database.Role) (*database.Role, bool) {
+func (user *User) discordRoleToDB(guildID string, role *discordgo.Role, dbRole *database.Role, txn dbutil.Execable) bool {
 	var changed bool
 	if dbRole == nil {
 		dbRole = user.bridge.DB.Role.New()
@@ -872,7 +906,10 @@ func (user *User) discordRoleToDB(guildID string, role *discordgo.Role, dbRole *
 			dbRole.Permissions != role.Permissions
 	}
 	dbRole.Role = *role
-	return dbRole, changed
+	if changed {
+		dbRole.Upsert(txn)
+	}
+	return changed
 }
 
 func (user *User) handleGuildRoles(guildID string, newRoles []*discordgo.Role) {
@@ -887,11 +924,8 @@ func (user *User) handleGuildRoles(guildID string, newRoles []*discordgo.Role) {
 		panic(err)
 	}
 	for _, role := range newRoles {
-		dbRole, changed := user.discordRoleToDB(guildID, role, existingRoleMap[role.ID])
+		user.discordRoleToDB(guildID, role, existingRoleMap[role.ID], txn)
 		delete(existingRoleMap, role.ID)
-		if changed {
-			dbRole.Upsert(txn)
-		}
 	}
 	for _, removeRole := range existingRoleMap {
 		removeRole.Delete(txn)
@@ -905,20 +939,6 @@ func (user *User) handleGuildRoles(guildID string, newRoles []*discordgo.Role) {
 		}
 		panic(err)
 	}
-}
-
-func (user *User) guildRoleCreateHandler(_ *discordgo.Session, r *discordgo.GuildRoleCreate) {
-	dbRole, _ := user.discordRoleToDB(r.GuildID, r.Role, nil)
-	dbRole.Upsert(nil)
-}
-
-func (user *User) guildRoleUpdateHandler(_ *discordgo.Session, r *discordgo.GuildRoleUpdate) {
-	dbRole, _ := user.discordRoleToDB(r.GuildID, r.Role, nil)
-	dbRole.Upsert(nil)
-}
-
-func (user *User) guildRoleDeleteHandler(_ *discordgo.Session, r *discordgo.GuildRoleDelete) {
-	user.bridge.DB.Role.DeleteByID(r.GuildID, r.RoleID)
 }
 
 func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSpace bool) {
@@ -949,7 +969,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 	user.addGuildToSpace(guild, isInSpace, timestamp)
 }
 
-func (user *User) connectedHandler(_ *discordgo.Session, _ *discordgo.Connect) {
+func (user *User) connectedHandler(_ *discordgo.Connect) {
 	user.bridgeStateLock.Lock()
 	defer user.bridgeStateLock.Unlock()
 	user.log.Debug().Msg("Connected to Discord")
@@ -959,7 +979,7 @@ func (user *User) connectedHandler(_ *discordgo.Session, _ *discordgo.Connect) {
 	}
 }
 
-func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconnect) {
+func (user *User) disconnectedHandler(_ *discordgo.Disconnect) {
 	user.bridgeStateLock.Lock()
 	defer user.bridgeStateLock.Unlock()
 	if user.wasLoggedOut {
@@ -971,7 +991,7 @@ func (user *User) disconnectedHandler(_ *discordgo.Session, _ *discordgo.Disconn
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateTransientDisconnect, Error: "dc-transient-disconnect", Message: "Temporarily disconnected from Discord, trying to reconnect"})
 }
 
-func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidAuth) {
+func (user *User) invalidAuthHandler(_ *discordgo.InvalidAuth) {
 	user.bridgeStateLock.Lock()
 	defer user.bridgeStateLock.Unlock()
 	user.log.Info().Msg("Got logged out from Discord due to invalid token")
@@ -980,7 +1000,7 @@ func (user *User) invalidAuthHandler(_ *discordgo.Session, _ *discordgo.InvalidA
 	go user.Logout(false)
 }
 
-func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCreate) {
+func (user *User) guildCreateHandler(g *discordgo.GuildCreate) {
 	user.log.Info().
 		Str("guild_id", g.ID).
 		Str("name", g.Name).
@@ -989,7 +1009,7 @@ func (user *User) guildCreateHandler(_ *discordgo.Session, g *discordgo.GuildCre
 	user.handleGuild(g.Guild, time.Now(), false)
 }
 
-func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDelete) {
+func (user *User) guildDeleteHandler(g *discordgo.GuildDelete) {
 	user.log.Info().Str("guild_id", g.ID).Msg("Got guild delete event")
 	user.MarkNotInPortal(g.ID)
 	guild := user.bridge.GetGuildByID(g.ID, false)
@@ -1005,12 +1025,12 @@ func (user *User) guildDeleteHandler(_ *discordgo.Session, g *discordgo.GuildDel
 	}
 }
 
-func (user *User) guildUpdateHandler(_ *discordgo.Session, g *discordgo.GuildUpdate) {
+func (user *User) guildUpdateHandler(g *discordgo.GuildUpdate) {
 	user.log.Debug().Str("guild_id", g.ID).Msg("Got guild update event")
 	user.handleGuild(g.Guild, time.Now(), user.IsInSpace(g.ID))
 }
 
-func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.ChannelCreate) {
+func (user *User) channelCreateHandler(c *discordgo.ChannelCreate) {
 	if user.getGuildBridgingMode(c.GuildID) < database.GuildBridgeEverything {
 		user.log.Debug().
 			Str("guild_id", c.GuildID).Str("channel_id", c.ID).
@@ -1040,7 +1060,7 @@ func (user *User) channelCreateHandler(_ *discordgo.Session, c *discordgo.Channe
 	}
 }
 
-func (user *User) channelDeleteHandler(_ *discordgo.Session, c *discordgo.ChannelDelete) {
+func (user *User) channelDeleteHandler(c *discordgo.ChannelDelete) {
 	portal := user.GetExistingPortalByID(c.ID)
 	if portal == nil {
 		user.log.Debug().
@@ -1061,11 +1081,7 @@ func (user *User) channelDeleteHandler(_ *discordgo.Session, c *discordgo.Channe
 		Msg("Completed cleaning up channel")
 }
 
-func (user *User) channelPinsUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelPinsUpdate) {
-	user.log.Debug().Msg("channel pins update")
-}
-
-func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.ChannelUpdate) {
+func (user *User) channelUpdateHandler(c *discordgo.ChannelUpdate) {
 	portal := user.GetPortalByMeta(c.Channel)
 	if c.GuildID == "" {
 		user.handlePrivateChannel(portal, c.Channel, time.Now(), true, user.IsInSpace(portal.Key.String()))
@@ -1074,14 +1090,14 @@ func (user *User) channelUpdateHandler(_ *discordgo.Session, c *discordgo.Channe
 	}
 }
 
-func (user *User) channelRecipientAdd(_ *discordgo.Session, c *discordgo.ChannelRecipientAdd) {
+func (user *User) channelRecipientAdd(c *discordgo.ChannelRecipientAdd) {
 	portal := user.GetExistingPortalByID(c.ChannelID)
 	if portal != nil {
 		portal.syncParticipant(user, c.User, false)
 	}
 }
 
-func (user *User) channelRecipientRemove(_ *discordgo.Session, c *discordgo.ChannelRecipientRemove) {
+func (user *User) channelRecipientRemove(c *discordgo.ChannelRecipientRemove) {
 	portal := user.GetExistingPortalByID(c.ChannelID)
 	if portal != nil {
 		portal.syncParticipant(user, c.User, true)
@@ -1152,26 +1168,6 @@ func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildI
 	}
 }
 
-func (user *User) messageCreateHandler(_ *discordgo.Session, m *discordgo.MessageCreate) {
-	user.pushPortalMessage(m, "message create", m.ChannelID, m.GuildID)
-}
-
-func (user *User) messageDeleteHandler(_ *discordgo.Session, m *discordgo.MessageDelete) {
-	user.pushPortalMessage(m, "message delete", m.ChannelID, m.GuildID)
-}
-
-func (user *User) messageUpdateHandler(_ *discordgo.Session, m *discordgo.MessageUpdate) {
-	user.pushPortalMessage(m, "message update", m.ChannelID, m.GuildID)
-}
-
-func (user *User) reactionAddHandler(_ *discordgo.Session, m *discordgo.MessageReactionAdd) {
-	user.pushPortalMessage(m, "reaction add", m.ChannelID, m.GuildID)
-}
-
-func (user *User) reactionRemoveHandler(_ *discordgo.Session, m *discordgo.MessageReactionRemove) {
-	user.pushPortalMessage(m, "reaction remove", m.ChannelID, m.GuildID)
-}
-
 type CustomReadReceipt struct {
 	Timestamp          int64  `json:"ts,omitempty"`
 	DoublePuppetSource string `json:"fi.mau.double_puppet_source,omitempty"`
@@ -1196,7 +1192,7 @@ func (user *User) makeReadMarkerContent(eventID id.EventID) *CustomReadMarkers {
 	}
 }
 
-func (user *User) messageAckHandler(_ *discordgo.Session, m *discordgo.MessageAck) {
+func (user *User) messageAckHandler(m *discordgo.MessageAck) {
 	portal := user.GetExistingPortalByID(m.ChannelID)
 	if portal == nil || portal.MXID == "" {
 		return
@@ -1229,7 +1225,7 @@ func (user *User) messageAckHandler(_ *discordgo.Session, m *discordgo.MessageAc
 	}
 }
 
-func (user *User) typingStartHandler(_ *discordgo.Session, t *discordgo.TypingStart) {
+func (user *User) typingStartHandler(t *discordgo.TypingStart) {
 	portal := user.GetExistingPortalByID(t.ChannelID)
 	if portal == nil || portal.MXID == "" {
 		return
@@ -1237,7 +1233,7 @@ func (user *User) typingStartHandler(_ *discordgo.Session, t *discordgo.TypingSt
 	portal.handleDiscordTyping(t)
 }
 
-func (user *User) interactionSuccessHandler(_ *discordgo.Session, s *discordgo.InteractionSuccess) {
+func (user *User) interactionSuccessHandler(s *discordgo.InteractionSuccess) {
 	user.pendingInteractionsLock.Lock()
 	defer user.pendingInteractionsLock.Unlock()
 	ce, ok := user.pendingInteractions[s.Nonce]

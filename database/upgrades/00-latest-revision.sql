@@ -1,4 +1,4 @@
--- v0 -> v18: Latest revision
+-- v0 -> v18 (compatible with v15+): Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,

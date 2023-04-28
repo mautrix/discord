@@ -439,7 +439,7 @@ func (user *User) syncChatDoublePuppetDetails(portal *Portal, justCreated bool) 
 	}
 
 	// TODO sync mute status properly
-	if portal.GuildID != "" && user.bridge.Config.Bridge.MuteChannelsOnCreate {
+	if portal.GuildID != "" && user.bridge.Config.Bridge.MuteChannelsOnCreate && justCreated {
 		user.mutePortal(doublePuppetIntent, portal, false)
 	}
 }
@@ -775,7 +775,7 @@ func (user *User) subscribeGuilds(delay time.Duration) {
 	}
 }
 
-func (user *User) resumeHandler(r *discordgo.Resumed) {
+func (user *User) resumeHandler(_ *discordgo.Resumed) {
 	user.log.Debug().Msg("Discord connection resumed")
 	user.subscribeGuilds(0 * time.Second)
 }

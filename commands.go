@@ -371,10 +371,10 @@ func fnRejoinSpace(ce *WrappedCommandEvent) {
 	}
 	user := ce.User
 	if ce.Args[0] == "main" {
-		user.ensureInvited(nil, user.GetSpaceRoom(), false)
+		user.ensureInvited(nil, user.GetSpaceRoom(), false, true)
 		ce.Reply("Invited you to your main space ([link](%s))", user.GetSpaceRoom().URI(ce.Bridge.AS.HomeserverDomain).MatrixToURL())
 	} else if ce.Args[0] == "dms" {
-		user.ensureInvited(nil, user.GetDMSpaceRoom(), false)
+		user.ensureInvited(nil, user.GetDMSpaceRoom(), false, true)
 		ce.Reply("Invited you to your DM space ([link](%s))", user.GetDMSpaceRoom().URI(ce.Bridge.AS.HomeserverDomain).MatrixToURL())
 	} else if _, err := strconv.Atoi(ce.Args[0]); err == nil {
 		ce.Reply("Rejoining guild spaces is not yet implemented")

@@ -383,6 +383,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()
 	if portal.MXID != "" {
+		portal.ensureUserInvited(user, false)
 		return nil
 	}
 	portal.log.Infoln("Creating Matrix room for channel")
@@ -520,7 +521,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	} else {
 		portal.updateSpace()
 	}
-	portal.ensureUserInvited(user)
+	portal.ensureUserInvited(user, true)
 	user.syncChatDoublePuppetDetails(portal, true)
 
 	portal.syncParticipants(user, channel.Recipients)
@@ -579,8 +580,8 @@ func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	}
 }
 
-func (portal *Portal) ensureUserInvited(user *User) bool {
-	return user.ensureInvited(portal.MainIntent(), portal.MXID, portal.IsPrivateChat())
+func (portal *Portal) ensureUserInvited(user *User, ignoreCache bool) bool {
+	return user.ensureInvited(portal.MainIntent(), portal.MXID, portal.IsPrivateChat(), ignoreCache)
 }
 
 func (portal *Portal) markMessageHandled(discordID string, editIndex int, authorID string, timestamp time.Time, threadID string, parts []database.MessagePart) {
@@ -909,7 +910,7 @@ func (portal *Portal) syncParticipant(source *User, participant *discordgo.User,
 	user := portal.bridge.GetUserByID(participant.ID)
 	if user != nil {
 		log.Debug().Msg("Ensuring Matrix user is invited or joined to room")
-		portal.ensureUserInvited(user)
+		portal.ensureUserInvited(user, false)
 	}
 
 	if remove {
@@ -931,7 +932,7 @@ func (portal *Portal) syncParticipants(source *User, participants []*discordgo.U
 
 		user := portal.bridge.GetUserByID(participant.ID)
 		if user != nil {
-			portal.ensureUserInvited(user)
+			portal.ensureUserInvited(user, false)
 		}
 
 		if user == nil || !puppet.IntentFor(portal).IsCustomPuppet {
@@ -2134,6 +2135,9 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		fallthrough
 	default:
 		changed = portal.UpdateName(meta) || changed
+		if portal.MXID != "" {
+			portal.ensureUserInvited(source, false)
+		}
 	}
 	changed = portal.UpdateTopic(meta.Topic) || changed
 	changed = portal.UpdateParent(meta.ParentID) || changed

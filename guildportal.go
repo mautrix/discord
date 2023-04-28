@@ -219,7 +219,7 @@ func (guild *Guild) CreateMatrixRoom(user *User, meta *discordgo.Guild) error {
 	guild.bridge.guildsLock.Unlock()
 	guild.log.Infoln("Matrix room created:", guild.MXID)
 
-	user.ensureInvited(nil, guild.MXID, false)
+	user.ensureInvited(nil, guild.MXID, false, true)
 
 	return nil
 }
@@ -236,6 +236,7 @@ func (guild *Guild) UpdateInfo(source *User, meta *discordgo.Guild) *discordgo.G
 		guild.UpdateBridgeInfo()
 		guild.Update()
 	}
+	source.ensureInvited(nil, guild.MXID, false, false)
 	return meta
 }
 

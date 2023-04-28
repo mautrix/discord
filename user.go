@@ -333,7 +333,7 @@ func (user *User) getSpaceRoom(ptr *id.RoomID, name, topic string, parent id.Roo
 	} else {
 		*ptr = resp.RoomID
 		user.Update()
-		user.ensureInvited(nil, *ptr, false)
+		user.ensureInvited(nil, *ptr, false, true)
 
 		if parent != "" {
 			_, err = user.bridge.Bot.SendStateEvent(parent, event.StateSpaceChild, resp.RoomID.String(), &event.SpaceChildEventContent{
@@ -1246,9 +1246,15 @@ func (user *User) interactionSuccessHandler(s *discordgo.InteractionSuccess) {
 	}
 }
 
-func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isDirect bool) bool {
+func (user *User) ensureInvited(intent *appservice.IntentAPI, roomID id.RoomID, isDirect, ignoreCache bool) bool {
+	if roomID == "" {
+		return false
+	}
 	if intent == nil {
 		intent = user.bridge.Bot
+	}
+	if !ignoreCache && intent.StateStore.IsInvited(roomID, user.MXID) {
+		return true
 	}
 	ret := false
 

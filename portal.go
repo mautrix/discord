@@ -17,10 +17,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/rs/zerolog"
-	"maunium.net/go/maulogger/v2/maulogadapt"
-
-	"maunium.net/go/maulogger/v2"
-
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
@@ -57,9 +53,7 @@ type Portal struct {
 	Guild  *Guild
 
 	bridge *DiscordBridge
-	// Deprecated
-	log  maulogger.Logger
-	zlog zerolog.Logger
+	log    zerolog.Logger
 
 	roomCreateLock sync.Mutex
 	encryptLock    sync.Mutex
@@ -256,9 +250,10 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 	portal := &Portal{
 		Portal: dbPortal,
 		bridge: br,
-		zlog: br.ZLog.With().
+		log: br.ZLog.With().
 			Str("channel_id", dbPortal.Key.ChannelID).
 			Str("channel_receiver", dbPortal.Key.Receiver).
+			Str("room_id", dbPortal.MXID.String()).
 			Logger(),
 
 		discordMessages: make(chan portalDiscordMessage, br.Config.Bridge.PortalMessageBuffer),
@@ -268,7 +263,6 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 
 		commands: make(map[string]*discordgo.ApplicationCommand),
 	}
-	portal.log = maulogadapt.ZeroAsMau(&portal.zlog)
 
 	go portal.messageLoop()
 
@@ -348,19 +342,19 @@ func (portal *Portal) getBridgeInfo() (string, CustomBridgeInfoContent) {
 
 func (portal *Portal) UpdateBridgeInfo() {
 	if len(portal.MXID) == 0 {
-		portal.log.Debugln("Not updating bridge info: no Matrix room created")
+		portal.log.Debug().Msg("Not updating bridge info: no Matrix room created")
 		return
 	}
-	portal.log.Debugln("Updating bridge info...")
+	portal.log.Debug().Msg("Updating bridge info...")
 	stateKey, content := portal.getBridgeInfo()
 	_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateBridge, stateKey, content)
 	if err != nil {
-		portal.log.Warnln("Failed to update m.bridge:", err)
+		portal.log.Warn().Err(err).Msg("Failed to update m.bridge")
 	}
 	// TODO remove this once https://github.com/matrix-org/matrix-doc/pull/2346 is in spec
 	_, err = portal.MainIntent().SendStateEvent(portal.MXID, event.StateHalfShotBridge, stateKey, content)
 	if err != nil {
-		portal.log.Warnln("Failed to update uk.half-shot.bridge:", err)
+		portal.log.Warn().Err(err).Msg("Failed to update uk.half-shot.bridge")
 	}
 }
 
@@ -386,7 +380,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		portal.ensureUserInvited(user, false)
 		return nil
 	}
-	portal.log.Infoln("Creating Matrix room for channel")
+	portal.log.Info().Msg("Creating Matrix room for channel")
 
 	channel = portal.UpdateInfo(user, channel)
 	if channel == nil {
@@ -489,30 +483,35 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	portal.forwardBackfillLock.Lock()
 	defer func() {
 		if !backfillStarted {
-			portal.log.Debugln("Backfill wasn't started, unlocking forward backfill lock")
+			portal.log.Debug().Msg("Backfill wasn't started, unlocking forward backfill lock")
 			portal.forwardBackfillLock.Unlock()
 		}
 	}()
 
 	resp, err := intent.CreateRoom(req)
 	if err != nil {
-		portal.log.Warnln("Failed to create room:", err)
+		portal.log.Warn().Err(err).Msg("Failed to create room")
 		return err
 	}
 
 	portal.NameSet = len(req.Name) > 0
 	portal.TopicSet = len(req.Topic) > 0
 	portal.MXID = resp.RoomID
+	portal.log = portal.bridge.ZLog.With().
+		Str("channel_id", portal.Key.ChannelID).
+		Str("channel_receiver", portal.Key.Receiver).
+		Str("room_id", portal.MXID.String()).
+		Logger()
 	portal.bridge.portalsLock.Lock()
 	portal.bridge.portalsByMXID[portal.MXID] = portal
 	portal.bridge.portalsLock.Unlock()
 	portal.Update()
-	portal.log.Infoln("Matrix room created:", portal.MXID)
+	portal.log.Info().Msg("Matrix room created")
 
 	if portal.Encrypted && portal.IsPrivateChat() {
 		err = portal.bridge.Bot.EnsureJoined(portal.MXID, appservice.EnsureJoinedParams{BotOverride: portal.MainIntent().Client})
 		if err != nil {
-			portal.log.Errorfln("Failed to ensure bridge bot is joined to private chat portal: %v", err)
+			portal.log.Err(err).Msg("Failed to ensure bridge bot is joined to encrypted private chat portal")
 		}
 	}
 
@@ -535,7 +534,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 
 	firstEventResp, err := portal.MainIntent().SendMessageEvent(portal.MXID, portalCreationDummyEvent, struct{}{})
 	if err != nil {
-		portal.log.Errorln("Failed to send dummy event to mark portal creation:", err)
+		portal.log.Err(err).Msg("Failed to send dummy event to mark portal creation")
 	} else {
 		portal.FirstEventID = firstEventResp.EventID
 		portal.Update()
@@ -551,13 +550,13 @@ func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	if portal.MXID == "" {
 		_, ok := msg.msg.(*discordgo.MessageCreate)
 		if !ok {
-			portal.log.Warnln("Can't create Matrix room from non new message event")
+			portal.log.Warn().Msg("Can't create Matrix room from non new message event")
 			return
 		}
 
-		portal.log.Debugln("Creating Matrix room from incoming message")
+		portal.log.Debug().Msg("Creating Matrix room from incoming message")
 		if err := portal.CreateMatrixRoom(msg.user, nil); err != nil {
-			portal.log.Errorln("Failed to create portal room:", err)
+			portal.log.Err(err).Msg("Failed to create portal room")
 			return
 		}
 	}
@@ -576,7 +575,7 @@ func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	case *discordgo.MessageReactionRemove:
 		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, false, msg.thread, nil)
 	default:
-		portal.log.Warnln("unknown message type")
+		portal.log.Warn().Type("message_type", msg.msg).Msg("Unknown message type in handleDiscordMessages")
 	}
 }
 
@@ -602,14 +601,22 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		return
 	}
 
+	log := portal.log.With().
+		Str("message_id", msg.ID).
+		Int("message_type", int(msg.Type)).
+		Str("author_id", msg.Author.ID).
+		Str("action", "discord message create").
+		Logger()
+	ctx := log.WithContext(context.Background())
+
 	portal.recentMessages.Push(msg.ID, msg)
 
 	existing := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.ID)
 	if existing != nil {
-		portal.log.Debugln("Dropping duplicate message", msg.ID)
+		log.Debug().Msg("Dropping duplicate message")
 		return
 	}
-	portal.log.Debugfln("Starting handling of %s by %s", msg.ID, msg.Author.ID)
+	log.Debug().Msg("Starting handling of Discord message")
 
 	for _, mention := range msg.Mentions {
 		puppet := portal.bridge.GetPuppetByID(mention.ID)
@@ -634,7 +641,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	replyTo := portal.getReplyTarget(user, msg.MessageReference, false)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	parts := portal.convertDiscordMessage(intent, msg)
+	parts := portal.convertDiscordMessage(ctx, intent, msg)
 	dbParts := make([]database.MessagePart, 0, len(parts))
 	for i, part := range parts {
 		if (replyTo != nil || threadRootEvent != "") && part.Content.RelatesTo == nil {
@@ -653,16 +660,19 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 		resp, err := portal.sendMatrixMessage(intent, part.Type, part.Content, part.Extra, ts.UnixMilli())
 		if err != nil {
-			portal.log.Errorfln("Failed to send part #%d (attachment ID %q) of message %s to Matrix: %v", i+1, part.AttachmentID, msg.ID, err)
+			log.Err(err).
+				Int("part_index", i).
+				Str("attachment_id", part.AttachmentID).
+				Msg("Failed to send part of message to Matrix")
 			continue
 		}
 		lastThreadEvent = resp.EventID
 		dbParts = append(dbParts, database.MessagePart{AttachmentID: part.AttachmentID, MXID: resp.EventID})
 	}
 	if len(parts) == 0 {
-		portal.log.Warnfln("Unhandled message %s (type %d)", msg.ID, msg.Type)
+		log.Warn().Msg("Unhandled message")
 	} else if len(dbParts) == 0 {
-		portal.log.Warnfln("All parts of message %s failed to send to Matrix", msg.ID)
+		log.Warn().Msg("All parts of message failed to send to Matrix")
 	} else {
 		portal.markMessageHandled(msg.ID, 0, msg.Author.ID, ts, discordThreadID, dbParts)
 	}
@@ -706,7 +716,7 @@ func (portal *Portal) getReplyTarget(source *User, ref *discordgo.MessageReferen
 
 const JoinThreadReaction = "join thread"
 
-func (portal *Portal) sendThreadCreationNotice(thread *Thread) {
+func (portal *Portal) sendThreadCreationNotice(ctx context.Context, thread *Thread) {
 	thread.creationNoticeLock.Lock()
 	defer thread.creationNoticeLock.Unlock()
 	if thread.CreationNoticeMXID != "" {
@@ -716,13 +726,14 @@ func (portal *Portal) sendThreadCreationNotice(thread *Thread) {
 	if portal.bridge.Config.Bridge.AutojoinThreadOnOpen {
 		creationNotice = "Thread created. Opening this thread will auto-join you to it on Discord."
 	}
+	log := zerolog.Ctx(ctx)
 	resp, err := portal.sendMatrixMessage(portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
 		Body:      creationNotice,
 		MsgType:   event.MsgNotice,
 		RelatesTo: (&event.RelatesTo{}).SetThread(thread.RootMXID, thread.RootMXID),
 	}, nil, time.Now().UnixMilli())
 	if err != nil {
-		portal.log.Errorfln("Failed to send thread creation notice: %v", err)
+		log.Err(err).Msg("Failed to send thread creation notice")
 		return
 	}
 	portal.bridge.threadsLock.Lock()
@@ -730,7 +741,9 @@ func (portal *Portal) sendThreadCreationNotice(thread *Thread) {
 	portal.bridge.threadsByCreationNoticeMXID[resp.EventID] = thread
 	portal.bridge.threadsLock.Unlock()
 	thread.Update()
-	portal.log.Debugfln("Sent notice %s about thread for %s being created", thread.CreationNoticeMXID, thread.ID)
+	log.Debug().
+		Str("creation_notice_mxid", thread.CreationNoticeMXID.String()).
+		Msg("Sent thread creation notice")
 
 	resp, err = portal.MainIntent().SendMessageEvent(portal.MXID, event.EventReaction, &event.ReactionEventContent{
 		RelatesTo: event.RelatesTo{
@@ -740,42 +753,50 @@ func (portal *Portal) sendThreadCreationNotice(thread *Thread) {
 		},
 	})
 	if err != nil {
-		portal.log.Errorfln("Failed to send prefilled reaction to thread creation notice: %v", err)
+		log.Err(err).Msg("Failed to send prefilled reaction to thread creation notice")
 	} else {
-		portal.log.Debugfln("Sent prefilled reaction %s to thread creation notice %s", resp.EventID, thread.CreationNoticeMXID)
+		log.Debug().
+			Str("reaction_event_id", resp.EventID.String()).
+			Str("creation_notice_mxid", thread.CreationNoticeMXID.String()).
+			Msg("Sent prefilled reaction to thread creation notice")
 	}
 }
 
 func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Message) {
+	log := portal.log.With().
+		Str("message_id", msg.ID).
+		Str("action", "discord message update").
+		Logger()
+	ctx := log.WithContext(context.Background())
 	if portal.MXID == "" {
-		portal.log.Warnln("handle message called without a valid portal")
+		log.Warn().Msg("handle message called without a valid portal")
 		return
 	}
 
 	existing := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.ID)
 	if existing == nil {
-		portal.log.Warnfln("Dropping update of unknown message %s", msg.ID)
+		log.Warn().Msg("Dropping update of unknown message")
 		return
 	}
 
 	if msg.Flags == discordgo.MessageFlagsHasThread {
 		thread := portal.bridge.GetThreadByID(msg.ID, existing[0])
-		portal.log.Debugfln("Marked %s as a thread root", msg.ID)
+		log.Debug().Msg("Marked message as thread root")
 		if thread.CreationNoticeMXID == "" {
-			portal.sendThreadCreationNotice(thread)
+			portal.sendThreadCreationNotice(ctx, thread)
 		}
 	}
 
 	if msg.Author == nil {
 		creationMessage, ok := portal.recentMessages.Get(msg.ID)
 		if !ok {
-			portal.log.Debugfln("Dropping edit with no author of non-recent message %s", msg.ID)
+			log.Debug().Msg("Dropping edit with no author of non-recent message")
 			return
 		} else if creationMessage.Type == discordgo.MessageTypeCall {
-			portal.log.Debugfln("Dropping edit of call message %s", msg.ID)
+			log.Debug().Msg("Dropping edit with of call message")
 			return
 		}
-		portal.log.Debugfln("Found original message %s in cache for edit without author", msg.ID)
+		log.Debug().Msg("Found original message in cache for edit without author")
 		if len(msg.Embeds) > 0 {
 			creationMessage.Embeds = msg.Embeds
 		}
@@ -822,7 +843,9 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	for _, deletedAttachment := range attachmentMap {
 		_, err := intent.RedactEvent(portal.MXID, deletedAttachment.MXID)
 		if err != nil {
-			portal.log.Warnfln("Failed to remove attachment %s: %v", deletedAttachment.MXID, err)
+			log.Warn().Err(err).
+				Str("event_id", deletedAttachment.MXID.String()).
+				Msg("Failed to redact attachment")
 		}
 		deletedAttachment.Delete()
 	}
@@ -831,12 +854,15 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	// Slightly hacky special case: messages with gif links will get an embed with the gif.
 	// The link isn't rendered on Discord, so just edit the link message into a gif message on Matrix too.
 	if isPlainGifMessage(msg) {
-		converted = portal.convertDiscordVideoEmbed(intent, msg.Embeds[0])
+		converted = portal.convertDiscordVideoEmbed(ctx, intent, msg.Embeds[0])
 	} else {
-		converted = portal.convertDiscordTextMessage(intent, msg)
+		converted = portal.convertDiscordTextMessage(ctx, intent, msg)
 	}
 	if converted == nil {
-		portal.log.Debugfln("Dropping non-text edit to %s (message on matrix: %t, text on discord: %t)", msg.ID, existing[0].AttachmentID == "", len(msg.Content) > 0)
+		log.Debug().
+			Bool("has_message_on_matrix", existing[0].AttachmentID == "").
+			Bool("has_text_on_discord", len(msg.Content) > 0).
+			Msg("Dropping non-text edit")
 		return
 	}
 	converted.Content.SetEdit(existing[0].MXID)
@@ -853,7 +879,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	// TODO figure out some way to deduplicate outgoing edits
 	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, converted.Content, converted.Extra, editTS)
 	if err != nil {
-		portal.log.Warnfln("Failed to send message %s to matrix: %v", msg.ID, err)
+		log.Err(err).Msg("Failed to send edit to Matrix")
 		return
 	}
 
@@ -870,7 +896,10 @@ func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Mess
 	for _, dbMsg := range existing {
 		resp, err := intent.RedactEvent(portal.MXID, dbMsg.MXID)
 		if err != nil {
-			portal.log.Warnfln("Failed to redact message %s: %v", dbMsg.MXID, err)
+			portal.log.Err(err).
+				Str("message_id", msg.ID).
+				Str("event_id", dbMsg.MXID.String()).
+				Msg("Failed to redact Matrix message")
 		} else if resp != nil && resp.EventID != "" {
 			lastResp = resp.EventID
 		}
@@ -887,24 +916,28 @@ func (portal *Portal) handleDiscordTyping(evt *discordgo.TypingStart) {
 		// Puppet hasn't been synced yet
 		return
 	}
+	log := portal.log.With().
+		Str("ghost_mxid", puppet.MXID.String()).
+		Str("action", "discord typing").
+		Logger()
 	intent := puppet.IntentFor(portal)
 	err := intent.EnsureJoined(portal.MXID)
 	if err != nil {
-		portal.log.Warnfln("Failed to ensure %s is joined for typing notification: %v", puppet.MXID, portal.MXID, err)
+		log.Warn().Err(err).Msg("Failed to ensure ghost is joined for typing notification")
 		return
 	}
 	_, err = intent.UserTyping(portal.MXID, true, 12*time.Second)
 	if err != nil {
-		portal.log.Warnfln("Failed to mark %s as typing: %v", puppet.MXID, portal.MXID, err)
+		log.Warn().Err(err).Msg("Failed to send typing notification to Matrix")
 	}
 }
 
 func (portal *Portal) syncParticipant(source *User, participant *discordgo.User, remove bool) {
 	puppet := portal.bridge.GetPuppetByID(participant.ID)
 	puppet.UpdateInfo(source, participant)
-	log := portal.zlog.With().Str("participant_id", participant.ID).
+	log := portal.log.With().
+		Str("participant_id", participant.ID).
 		Str("ghost_mxid", puppet.MXID.String()).
-		Str("room_id", portal.MXID.String()).
 		Logger()
 
 	user := portal.bridge.GetUserByID(participant.ID)
@@ -937,7 +970,9 @@ func (portal *Portal) syncParticipants(source *User, participants []*discordgo.U
 
 		if user == nil || !puppet.IntentFor(portal).IsCustomPuppet {
 			if err := puppet.IntentFor(portal).EnsureJoined(portal.MXID); err != nil {
-				portal.log.Warnfln("Failed to make puppet of %s join %s: %v", participant.ID, portal.MXID, err)
+				portal.log.Warn().Err(err).
+					Str("participant_id", participant.ID).
+					Msg("Failed to add ghost to room")
 			}
 		}
 	}
@@ -985,7 +1020,7 @@ func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	case event.EventReaction:
 		portal.handleMatrixReaction(msg.user, msg.evt)
 	default:
-		portal.log.Debugln("unknown event type", msg.evt.Type)
+		portal.log.Warn().Str("event_type", msg.evt.Type.Type).Msg("Unknown event type in handleMatrixMessages")
 	}
 }
 
@@ -1058,7 +1093,10 @@ func (portal *Portal) startThreadFromMatrix(sender *User, threadRoot id.EventID)
 		if err != nil {
 			return "", fmt.Errorf("error starting thread: %v", err)
 		}
-		portal.log.Debugfln("Created Discord thread from %s/%s", threadRoot, ch.ID)
+		portal.log.Debug().
+			Str("thread_root_mxid", threadRoot.String()).
+			Str("thread_id", ch.ID).
+			Msg("Created Discord thread")
 		portal.bridge.GetThreadByID(existingMsg.DiscordID, existingMsg)
 		return ch.ID, nil
 	}
@@ -1077,7 +1115,7 @@ func (portal *Portal) sendErrorMessage(msgType, message string, confirmed bool) 
 		Body:    fmt.Sprintf("\u26a0 Your %s %s bridged: %v", msgType, certainty, message),
 	}, nil, 0)
 	if err != nil {
-		portal.log.Warnfln("Failed to send bridging error message:", err)
+		portal.log.Warn().Err(err).Msg("Failed to send bridging error message")
 		return ""
 	}
 	return resp.EventID
@@ -1198,7 +1236,7 @@ func (portal *Portal) sendStatusEvent(evtID id.EventID, err error) {
 	}
 	_, err = intent.SendMessageEvent(portal.MXID, event.BeeperMessageStatus, &content)
 	if err != nil {
-		portal.log.Warnln("Failed to send message status event:", err)
+		portal.log.Err(err).Str("event_id", evtID.String()).Msg("Failed to send message status event")
 	}
 }
 
@@ -1214,16 +1252,22 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 	default:
 		msgType = "unknown event"
 	}
-	evtDescription := evt.ID.String()
+	level := zerolog.DebugLevel
+	if err != nil && part != "Ignoring" {
+		level = zerolog.ErrorLevel
+	}
+	logEvt := portal.log.WithLevel(level).
+		Str("action", "send matrix message metrics").
+		Str("event_type", evt.Type.Type).
+		Str("event_id", evt.ID.String()).
+		Str("sender", evt.Sender.String())
 	if evt.Type == event.EventRedaction {
-		evtDescription += fmt.Sprintf(" of %s", evt.Redacts)
+		logEvt.Str("redacts", evt.Redacts.String())
 	}
 	if err != nil {
-		level := maulogger.LevelError
-		if part == "Ignoring" {
-			level = maulogger.LevelDebug
-		}
-		portal.log.Logfln(level, "%s %s %s from %s: %v", part, msgType, evtDescription, evt.Sender, err)
+		logEvt.Err(err).
+			Str("result", fmt.Sprintf("%s event", part)).
+			Msg("Matrix event not handled")
 		reason, statusCode, isCertain, sendNotice, humanMessage, checkpointErr := errorToStatusReason(err)
 		if checkpointErr == nil {
 			checkpointErr = err
@@ -1238,7 +1282,7 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 		}
 		portal.sendStatusEvent(evt.ID, err)
 	} else {
-		portal.log.Debugfln("Handled Matrix %s %s", msgType, evtDescription)
+		logEvt.Err(err).Msg("Matrix event handled successfully")
 		portal.sendDeliveryReceipt(evt.ID)
 		portal.bridge.SendMessageSuccessCheckpoint(evt, status.MsgStepRemote, 0)
 		portal.sendStatusEvent(evt.ID, nil)
@@ -1313,7 +1357,9 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			var err error
 			threadID, err = portal.startThreadFromMatrix(sender, threadRoot)
 			if err != nil {
-				portal.log.Warnfln("Failed to start thread from %s: %v", threadRoot, err)
+				portal.log.Warn().Err(err).
+					Str("thread_root_mxid", threadRoot.String()).
+					Msg("Failed to start thread from Matrix")
 			}
 		}
 	}
@@ -1399,7 +1445,9 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	} else if strings.Contains(sendReq.Content, "@everyone") || strings.Contains(sendReq.Content, "@here") {
 		powerLevels, err := portal.MainIntent().PowerLevels(portal.MXID)
 		if err != nil {
-			portal.log.Warnfln("Failed to get power levels in %s to check if %s can @everyone: %v", portal.MXID, sender.MXID, err)
+			portal.log.Warn().Err(err).
+				Str("user_id", sender.MXID.String()).
+				Msg("Failed to get power levels to check if user can use @everyone")
 		} else if powerLevels.GetUserLevel(sender.MXID) >= powerLevels.Notifications.Room() {
 			sendReq.AllowedMentions.Parse = append(sendReq.AllowedMentions.Parse, discordgo.AllowedMentionTypeEveryone)
 		}
@@ -1446,7 +1494,9 @@ func (portal *Portal) sendDeliveryReceipt(eventID id.EventID) {
 	if portal.bridge.Config.Bridge.DeliveryReceipts {
 		err := portal.bridge.Bot.MarkRead(portal.MXID, eventID)
 		if err != nil {
-			portal.log.Debugfln("Failed to send delivery receipt for %s: %v", eventID, err)
+			portal.log.Warn().Err(err).
+				Str("event_id", eventID.String()).
+				Msg("Failed to send delivery receipt")
 		}
 	}
 }
@@ -1454,7 +1504,7 @@ func (portal *Portal) sendDeliveryReceipt(eventID id.EventID) {
 func (portal *Portal) HandleMatrixLeave(brSender bridge.User) {
 	sender := brSender.(*User)
 	if portal.IsPrivateChat() && sender.DiscordID == portal.Key.Receiver {
-		portal.log.Debugln("User left private chat portal, cleaning up and deleting...")
+		portal.log.Debug().Msg("User left private chat portal, cleaning up and deleting...")
 		portal.cleanup(false)
 		portal.RemoveMXID()
 	} else {
@@ -1482,12 +1532,12 @@ func (portal *Portal) cleanupIfEmpty() {
 
 	users, err := portal.getMatrixUsers()
 	if err != nil {
-		portal.log.Errorfln("Failed to get Matrix user list to determine if portal needs to be cleaned up: %v", err)
+		portal.log.Err(err).Msg("Failed to get Matrix user list to determine if portal needs to be cleaned up")
 		return
 	}
 
 	if len(users) == 0 {
-		portal.log.Infoln("Room seems to be empty, cleaning up...")
+		portal.log.Info().Msg("Room seems to be empty, cleaning up...")
 		portal.cleanup(false)
 		portal.RemoveMXID()
 	}
@@ -1501,6 +1551,11 @@ func (portal *Portal) RemoveMXID() {
 	}
 	delete(portal.bridge.portalsByMXID, portal.MXID)
 	portal.MXID = ""
+	portal.log = portal.bridge.ZLog.With().
+		Str("channel_id", portal.Key.ChannelID).
+		Str("channel_receiver", portal.Key.Receiver).
+		Str("room_id", portal.MXID.String()).
+		Logger()
 	portal.AvatarSet = false
 	portal.NameSet = false
 	portal.TopicSet = false
@@ -1519,7 +1574,7 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 	if portal.bridge.SpecVersions.UnstableFeatures["com.beeper.room_yeeting"] {
 		err := intent.BeeperDeleteRoom(portal.MXID)
 		if err != nil && !errors.Is(err, mautrix.MNotFound) {
-			portal.log.Errorfln("Failed to delete %s using hungryserv yeet endpoint: %v", portal.MXID, err)
+			portal.log.Err(err).Msg("Failed to delete room using hungryserv yeet endpoint")
 		}
 		return
 	}
@@ -1527,7 +1582,7 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 	if portal.IsPrivateChat() {
 		_, err := portal.MainIntent().LeaveRoom(portal.MXID)
 		if err != nil {
-			portal.log.Warnln("Failed to leave private chat portal with main intent:", err)
+			portal.log.Warn().Err(err).Msg("Failed to leave private chat portal with main intent")
 		}
 		return
 	}
@@ -1535,10 +1590,10 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 	portal.bridge.cleanupRoom(intent, portal.MXID, puppetsOnly, portal.log)
 }
 
-func (br *DiscordBridge) cleanupRoom(intent *appservice.IntentAPI, mxid id.RoomID, puppetsOnly bool, log maulogger.Logger) {
+func (br *DiscordBridge) cleanupRoom(intent *appservice.IntentAPI, mxid id.RoomID, puppetsOnly bool, log zerolog.Logger) {
 	members, err := intent.JoinedMembers(mxid)
 	if err != nil {
-		log.Errorln("Failed to get portal members for cleanup:", err)
+		log.Err(err).Msg("Failed to get portal members for cleanup")
 		return
 	}
 
@@ -1551,19 +1606,19 @@ func (br *DiscordBridge) cleanupRoom(intent *appservice.IntentAPI, mxid id.RoomI
 		if puppet != nil {
 			_, err = puppet.DefaultIntent().LeaveRoom(mxid)
 			if err != nil {
-				log.Errorln("Error leaving as puppet while cleaning up portal:", err)
+				log.Err(err).Msg("Error leaving as puppet while cleaning up portal")
 			}
 		} else if !puppetsOnly {
 			_, err = intent.KickUser(mxid, &mautrix.ReqKickUser{UserID: member, Reason: "Deleting portal"})
 			if err != nil {
-				log.Errorln("Error kicking user while cleaning up portal:", err)
+				log.Err(err).Msg("Error kicking user while cleaning up portal")
 			}
 		}
 	}
 
 	_, err = intent.LeaveRoom(mxid)
 	if err != nil {
-		log.Errorln("Error leaving with main intent while cleaning up portal:", err)
+		log.Err(err).Msg("Error leaving with main intent while cleaning up portal")
 	}
 }
 
@@ -1638,7 +1693,10 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 
 	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, msg.DiscordID, sender.DiscordID, emojiID)
 	if existing != nil {
-		portal.log.Debugfln("Dropping duplicate Matrix reaction %s (already sent as %s)", evt.ID, existing.MXID)
+		portal.log.Debug().
+			Str("event_id", evt.ID.String()).
+			Str("existing_reaction_mxid", existing.MXID.String()).
+			Msg("Dropping duplicate Matrix reaction")
 		go portal.sendMessageMetrics(evt, nil, "")
 		return
 	}
@@ -1665,6 +1723,13 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	}
 	intent := puppet.IntentFor(portal)
 
+	log := portal.log.With().
+		Str("message_id", reaction.MessageID).
+		Str("author_id", reaction.UserID).
+		Bool("add", add).
+		Str("action", "discord reaction").
+		Logger()
+
 	var discordID string
 	var matrixReaction string
 
@@ -1683,7 +1748,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	// Find the message that we're working with.
 	message := portal.bridge.DB.Message.GetByDiscordID(portal.Key, reaction.MessageID)
 	if message == nil {
-		portal.log.Debugfln("failed to add reaction to message %s: message not found", reaction.MessageID)
+		log.Debug().Msg("Failed to add reaction to message: message not found")
 		return
 	}
 
@@ -1691,13 +1756,13 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 	existing := portal.bridge.DB.Reaction.GetByDiscordID(portal.Key, message[0].DiscordID, reaction.UserID, discordID)
 	if !add {
 		if existing == nil {
-			portal.log.Debugln("Failed to remove reaction for unknown message", reaction.MessageID)
+			log.Debug().Msg("Failed to remove reaction: reaction not found")
 			return
 		}
 
 		resp, err := intent.RedactEvent(portal.MXID, existing.MXID)
 		if err != nil {
-			portal.log.Warnfln("Failed to remove reaction from %s: %v", portal.MXID, err)
+			log.Err(err).Msg("Failed to remove reaction")
 		} else {
 			go portal.sendDeliveryReceipt(resp.EventID)
 		}
@@ -1705,7 +1770,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		existing.Delete()
 		return
 	} else if existing != nil {
-		portal.log.Debugfln("Ignoring duplicate reaction %s from %s to %s", discordID, reaction.UserID, message[0].DiscordID)
+		log.Debug().Msg("Ignoring duplicate reaction")
 		return
 	}
 
@@ -1733,7 +1798,7 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 		Raw:    extraContent,
 	})
 	if err != nil {
-		portal.log.Errorfln("failed to send reaction from %s: %v", reaction.MessageID, err)
+		log.Err(err).Msg("Failed to send reaction")
 		return
 	}
 
@@ -1810,12 +1875,18 @@ func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.Eve
 			discordThreadID = thread.ID
 		}
 	}
+	log := portal.log.With().
+		Str("sender", brUser.GetMXID().String()).
+		Str("event_id", eventID.String()).
+		Str("action", "matrix read receipt").
+		Str("discord_thread_id", discordThreadID).
+		Logger()
 	if thread != nil {
 		if portal.bridge.Config.Bridge.AutojoinThreadOnOpen {
 			thread.Join(sender)
 		}
 		if eventID == thread.CreationNoticeMXID {
-			portal.log.Debugfln("Dropping Matrix read receipt from %s for thread creation notice %s of %s", sender.MXID, thread.CreationNoticeMXID, thread.ID)
+			log.Debug().Msg("Dropping read receipt for thread creation notice")
 			return
 		}
 	}
@@ -1827,23 +1898,36 @@ func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.Eve
 	if msg == nil {
 		msg = portal.bridge.DB.Message.GetClosestBefore(portal.Key, discordThreadID, receipt.Timestamp)
 		if msg == nil {
-			portal.log.Debugfln("Dropping Matrix read receipt from %s for %s: no messages found", sender.MXID, eventID)
+			log.Debug().Msg("Dropping read receipt: no messages found")
 			return
 		} else {
-			portal.log.Debugfln("Matrix read receipt target %s from %s not found, using closest message %s", eventID, sender.MXID, msg.MXID)
+			log = log.With().
+				Str("closest_event_id", msg.MXID.String()).
+				Str("closest_message_id", msg.DiscordID).
+				Logger()
+			log.Debug().Msg("Read receipt target event not found, using closest message")
 		}
+	} else {
+		log = log.With().
+			Str("message_id", msg.DiscordID).
+			Logger()
 	}
 	if receipt.ThreadID != "" && msg.ThreadID != discordThreadID {
-		portal.log.Debugfln("Dropping Matrix read receipt from %s for %s in unexpected thread (receipt: %s, message: %s)", receipt.ThreadID, msg.ThreadID)
+		log.Debug().
+			Str("receipt_thread_event_id", receipt.ThreadID.String()).
+			Str("message_discord_thread_id", msg.ThreadID).
+			Msg("Dropping read receipt: thread ID mismatch")
 		return
 	}
 	resp, err := sender.Session.ChannelMessageAckNoToken(msg.DiscordProtoChannelID(), msg.DiscordID)
 	if err != nil {
-		portal.log.Warnfln("Failed to handle read receipt for %s/%s from %s: %v", msg.MXID, msg.DiscordID, sender.MXID, err)
+		log.Err(err).Msg("Failed to send read receipt to Discord")
 	} else if resp.Token != nil {
-		portal.log.Debugfln("Marked %s/%s as read by %s (and got unexpected non-nil token %s)", msg.MXID, msg.DiscordID, sender.MXID, *resp.Token)
+		log.Debug().
+			Str("unexpected_resp_token", *resp.Token).
+			Msg("Marked message as read on Discord (and got unexpected non-nil token)")
 	} else {
-		portal.log.Debugfln("Marked %s/%s in %s as read by %s", msg.MXID, msg.DiscordID, msg.DiscordProtoChannelID(), sender.MXID)
+		log.Debug().Msg("Marked message as read on Discord")
 	}
 }
 
@@ -1871,9 +1955,13 @@ func (portal *Portal) HandleMatrixTyping(newTyping []id.UserID) {
 			user.ViewingChannel(portal)
 			err := user.Session.ChannelTyping(portal.Key.ChannelID)
 			if err != nil {
-				portal.log.Warnfln("Failed to mark %s as typing: %v", user.MXID, err)
+				portal.log.Warn().Err(err).
+					Str("user_id", user.MXID.String()).
+					Msg("Failed to mark user as typing")
 			} else {
-				portal.log.Debugfln("Marked %s as typing", user.MXID)
+				portal.log.Debug().
+					Str("user_id", user.MXID.String()).
+					Msg("Marked user as typing")
 			}
 		}
 	}
@@ -1904,7 +1992,10 @@ func (portal *Portal) UpdateNameDirect(name string, isFriendNick bool) bool {
 	} else if portal.Name == name && (portal.NameSet || portal.MXID == "" || (!portal.shouldSetDMRoomMetadata() && !isFriendNick)) {
 		return false
 	}
-	portal.log.Debugfln("Updating name %q -> %q", portal.Name, name)
+	portal.log.Debug().
+		Str("old_name", portal.Name).
+		Str("new_name", name).
+		Msg("Updating portal name")
 	portal.Name = name
 	portal.NameSet = false
 	portal.updateRoomName()
@@ -1915,7 +2006,7 @@ func (portal *Portal) updateRoomName() {
 	if portal.MXID != "" && (portal.shouldSetDMRoomMetadata() || portal.FriendNick) {
 		_, err := portal.MainIntent().SetRoomName(portal.MXID, portal.Name)
 		if err != nil {
-			portal.log.Warnln("Failed to update room name:", err)
+			portal.log.Err(err).Msg("Failed to update room name")
 		} else {
 			portal.NameSet = true
 		}
@@ -1923,10 +2014,13 @@ func (portal *Portal) updateRoomName() {
 }
 
 func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
-	if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && (portal.AvatarSet || portal.MXID == "" || !portal.shouldSetDMRoomMetadata()) {
+	if portal.Avatar == puppet.Avatar && portal.AvatarURL == puppet.AvatarURL && (puppet.Avatar == "" || portal.AvatarSet || portal.MXID == "" || !portal.shouldSetDMRoomMetadata()) {
 		return false
 	}
-	portal.log.Debugfln("Updating avatar from puppet %q -> %q", portal.Avatar, puppet.Avatar)
+	portal.log.Debug().
+		Str("old_avatar_id", portal.Avatar).
+		Str("new_avatar_id", puppet.Avatar).
+		Msg("Updating avatar from puppet")
 	portal.Avatar = puppet.Avatar
 	portal.AvatarURL = puppet.AvatarURL
 	portal.AvatarSet = false
@@ -1935,17 +2029,20 @@ func (portal *Portal) UpdateAvatarFromPuppet(puppet *Puppet) bool {
 }
 
 func (portal *Portal) UpdateGroupDMAvatar(iconID string) bool {
-	if portal.Avatar == iconID && (iconID == "") == portal.AvatarURL.IsEmpty() && (portal.AvatarSet || portal.MXID == "") {
+	if portal.Avatar == iconID && (iconID == "") == portal.AvatarURL.IsEmpty() && (iconID == "" || portal.AvatarSet || portal.MXID == "") {
 		return false
 	}
-	portal.log.Debugfln("Updating group DM avatar %q -> %q", portal.Avatar, iconID)
+	portal.log.Debug().
+		Str("old_avatar_id", portal.Avatar).
+		Str("new_avatar_id", portal.Avatar).
+		Msg("Updating group DM avatar")
 	portal.Avatar = iconID
 	portal.AvatarSet = false
 	portal.AvatarURL = id.ContentURI{}
 	if portal.Avatar != "" {
 		uri, err := uploadAvatar(portal.MainIntent(), discordgo.EndpointGroupIcon(portal.Key.ChannelID, portal.Avatar))
 		if err != nil {
-			portal.log.Warnfln("Failed to reupload channel avatar %s: %v", portal.Avatar, err)
+			portal.log.Err(err).Str("avatar_id", portal.Avatar).Msg("Failed to reupload channel avatar")
 			return true
 		} else {
 			portal.AvatarURL = uri
@@ -1961,7 +2058,7 @@ func (portal *Portal) updateRoomAvatar() {
 	}
 	_, err := portal.MainIntent().SetRoomAvatar(portal.MXID, portal.AvatarURL)
 	if err != nil {
-		portal.log.Warnln("Failed to update room avatar:", err)
+		portal.log.Err(err).Msg("Failed to update room avatar")
 	} else {
 		portal.AvatarSet = true
 	}
@@ -1971,7 +2068,10 @@ func (portal *Portal) UpdateTopic(topic string) bool {
 	if portal.Topic == topic && (portal.TopicSet || portal.MXID == "") {
 		return false
 	}
-	portal.log.Debugfln("Updating topic %q -> %q", portal.Topic, topic)
+	portal.log.Debug().
+		Str("old_topic", portal.Topic).
+		Str("new_topic", topic).
+		Msg("Updating portal topic")
 	portal.Topic = topic
 	portal.TopicSet = false
 	portal.updateRoomTopic()
@@ -1982,7 +2082,7 @@ func (portal *Portal) updateRoomTopic() {
 	if portal.MXID != "" {
 		_, err := portal.MainIntent().SetRoomTopic(portal.MXID, portal.Topic)
 		if err != nil {
-			portal.log.Warnln("Failed to update room topic:", err)
+			portal.log.Err(err).Msg("Failed to update room topic")
 		} else {
 			portal.TopicSet = true
 		}
@@ -1994,14 +2094,15 @@ func (portal *Portal) removeFromSpace() {
 		return
 	}
 
-	portal.log.Debugfln("Removing room from space %s", portal.InSpace)
+	log := portal.log.With().Str("space_mxid", portal.InSpace.String()).Logger()
+	log.Debug().Msg("Removing room from space")
 	_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateSpaceParent, portal.InSpace.String(), struct{}{})
 	if err != nil {
-		portal.log.Warnfln("Failed to unset canonical space %s: %v", portal.InSpace, err)
+		log.Warn().Err(err).Msg("Failed to clear m.space.parent event in room")
 	}
 	_, err = portal.bridge.Bot.SendStateEvent(portal.InSpace, event.StateSpaceChild, portal.MXID.String(), struct{}{})
 	if err != nil {
-		portal.log.Warnfln("Failed to add room to space %s: %v", portal.InSpace, err)
+		log.Warn().Err(err).Msg("Failed to clear m.space.child event in space")
 	}
 	portal.InSpace = ""
 }
@@ -2015,13 +2116,13 @@ func (portal *Portal) addToSpace(mxid id.RoomID) bool {
 		return true
 	}
 
-	portal.log.Debugfln("Adding room to space %s", mxid)
+	log := portal.log.With().Str("space_mxid", mxid.String()).Logger()
 	_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateSpaceParent, mxid.String(), &event.SpaceParentEventContent{
 		Via:       []string{portal.bridge.AS.HomeserverDomain},
 		Canonical: true,
 	})
 	if err != nil {
-		portal.log.Warnfln("Failed to set canonical space %s: %v", mxid, err)
+		log.Warn().Err(err).Msg("Failed to set m.space.parent event in room")
 	}
 
 	_, err = portal.bridge.Bot.SendStateEvent(mxid, event.StateSpaceChild, portal.MXID.String(), &event.SpaceChildEventContent{
@@ -2029,7 +2130,7 @@ func (portal *Portal) addToSpace(mxid id.RoomID) bool {
 		// TODO order
 	})
 	if err != nil {
-		portal.log.Warnfln("Failed to add room to space %s: %v", mxid, err)
+		log.Warn().Err(err).Msg("Failed to set m.space.child event in space")
 	} else {
 		portal.InSpace = mxid
 	}
@@ -2040,7 +2141,10 @@ func (portal *Portal) UpdateParent(parentID string) bool {
 	if portal.ParentID == parentID {
 		return false
 	}
-	portal.log.Debugfln("Updating parent ID %q -> %q", portal.ParentID, parentID)
+	portal.log.Debug().
+		Str("old_parent_id", portal.ParentID).
+		Str("new_parent_id", parentID).
+		Msg("Updating parent ID")
 	portal.ParentID = parentID
 	if portal.ParentID != "" {
 		portal.Parent = portal.bridge.GetPortalByID(database.NewPortalKey(parentID, ""), discordgo.ChannelTypeGuildCategory)
@@ -2074,22 +2178,31 @@ func (portal *Portal) updateSpace() bool {
 func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discordgo.Channel {
 	changed := false
 
+	log := portal.log.With().
+		Str("action", "update info").
+		Str("through_user_mxid", source.MXID.String()).
+		Str("through_user_dcid", source.DiscordID).
+		Logger()
+
 	if meta == nil {
-		portal.log.Debugfln("UpdateInfo called without metadata, fetching from %s's state cache", source.DiscordID)
+		log.Debug().Msg("UpdateInfo called without metadata, fetching from user's state cache")
 		meta, _ = source.Session.State.Channel(portal.Key.ChannelID)
 		if meta == nil {
-			portal.log.Warnfln("No metadata found in state cache, fetching from server via %s", source.DiscordID)
+			log.Warn().Msg("No metadata found in state cache, fetching from server via user")
 			var err error
 			meta, err = source.Session.Channel(portal.Key.ChannelID)
 			if err != nil {
-				portal.log.Errorfln("Failed to fetch meta via %s: %v", source.DiscordID, err)
+				log.Err(err).Msg("Failed to fetch meta via user")
 				return nil
 			}
 		}
 	}
 
 	if portal.Type != meta.Type {
-		portal.log.Warnfln("Portal type changed from %d to %d", portal.Type, meta.Type)
+		log.Warn().
+			Int("old_type", int(portal.Type)).
+			Int("new_type", int(meta.Type)).
+			Msg("Portal type changed")
 		portal.Type = meta.Type
 		changed = true
 	}
@@ -2098,12 +2211,14 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 			var err error
 			meta, err = source.Session.Channel(meta.ID)
 			if err != nil {
-				portal.log.Errorfln("Failed to get DM channel info:", err)
+				log.Err(err).Msg("Failed to fetch DM channel info to find other user ID")
 			}
 		}
-		portal.OtherUserID = meta.Recipients[0].ID
-		portal.log.Infoln("Found other user ID:", portal.OtherUserID)
-		changed = true
+		if len(meta.Recipients) > 0 {
+			portal.OtherUserID = meta.Recipients[0].ID
+			log.Info().Str("other_user_id", portal.OtherUserID).Msg("Found other user ID")
+			changed = true
+		}
 	}
 	if meta.GuildID != "" && portal.GuildID == "" {
 		portal.GuildID = meta.GuildID

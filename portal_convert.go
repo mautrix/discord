@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/rs/zerolog"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -48,14 +50,14 @@ func (portal *Portal) createMediaFailedMessage(bridgeErr error) *event.MessageEv
 
 const DiscordStickerSize = 160
 
-func (portal *Portal) convertDiscordFile(typeName string, intent *appservice.IntentAPI, id, url string, content *event.MessageEventContent) *event.MessageEventContent {
+func (portal *Portal) convertDiscordFile(ctx context.Context, typeName string, intent *appservice.IntentAPI, id, url string, content *event.MessageEventContent) *event.MessageEventContent {
 	meta := AttachmentMeta{AttachmentID: id, MimeType: content.Info.MimeType}
 	if typeName == "sticker" && content.Info.MimeType == "application/json" {
 		meta.Converter = portal.bridge.convertLottie
 	}
 	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, meta)
 	if err != nil {
-		portal.log.Errorfln("Error copying attachment %s to Matrix: %v", id, err)
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy attachment to Matrix")
 		return portal.createMediaFailedMessage(err)
 	}
 	if typeName == "sticker" && content.Info.MimeType == "application/json" {
@@ -95,7 +97,7 @@ func (portal *Portal) cleanupConvertedStickerInfo(content *event.MessageEventCon
 	}
 }
 
-func (portal *Portal) convertDiscordSticker(intent *appservice.IntentAPI, sticker *discordgo.Sticker) *ConvertedMessage {
+func (portal *Portal) convertDiscordSticker(ctx context.Context, intent *appservice.IntentAPI, sticker *discordgo.Sticker) *ConvertedMessage {
 	var mime, ext string
 	switch sticker.FormatType {
 	case discordgo.StickerFormatTypePNG:
@@ -111,7 +113,10 @@ func (portal *Portal) convertDiscordSticker(intent *appservice.IntentAPI, sticke
 		mime = "image/gif"
 		ext = "gif"
 	default:
-		portal.log.Warnfln("Unknown sticker format %d in %s", sticker.FormatType, sticker.ID)
+		zerolog.Ctx(ctx).Warn().
+			Int("sticker_format", int(sticker.FormatType)).
+			Str("sticker_id", sticker.ID).
+			Msg("Unknown sticker format")
 	}
 	content := &event.MessageEventContent{
 		Body: sticker.Name, // TODO find description from somewhere?
@@ -122,7 +127,7 @@ func (portal *Portal) convertDiscordSticker(intent *appservice.IntentAPI, sticke
 
 	mxc := portal.bridge.Config.Bridge.MediaPatterns.Sticker(sticker.ID, ext)
 	if mxc.IsEmpty() {
-		content = portal.convertDiscordFile("sticker", intent, sticker.ID, sticker.URL(), content)
+		content = portal.convertDiscordFile(ctx, "sticker", intent, sticker.ID, sticker.URL(), content)
 	} else {
 		content.URL = mxc.CUString()
 	}
@@ -134,7 +139,7 @@ func (portal *Portal) convertDiscordSticker(intent *appservice.IntentAPI, sticke
 	}
 }
 
-func (portal *Portal) convertDiscordAttachment(intent *appservice.IntentAPI, att *discordgo.MessageAttachment) *ConvertedMessage {
+func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *appservice.IntentAPI, att *discordgo.MessageAttachment) *ConvertedMessage {
 	content := &event.MessageEventContent{
 		Body: att.Filename,
 		Info: &event.FileInfo{
@@ -174,7 +179,7 @@ func (portal *Portal) convertDiscordAttachment(intent *appservice.IntentAPI, att
 	}
 	mxc := portal.bridge.Config.Bridge.MediaPatterns.Attachment(portal.Key.ChannelID, att.ID, att.Filename)
 	if mxc.IsEmpty() {
-		content = portal.convertDiscordFile("attachment", intent, att.ID, att.URL, content)
+		content = portal.convertDiscordFile(ctx, "attachment", intent, att.ID, att.URL, content)
 	} else {
 		content.URL = mxc.CUString()
 	}
@@ -186,10 +191,11 @@ func (portal *Portal) convertDiscordAttachment(intent *appservice.IntentAPI, att
 	}
 }
 
-func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *ConvertedMessage {
+func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *ConvertedMessage {
 	attachmentID := fmt.Sprintf("video_%s", embed.URL)
 	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, NoMeta)
 	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy video embed to Matrix")
 		return &ConvertedMessage{
 			AttachmentID: attachmentID,
 			Type:         event.EventMessage,
@@ -238,22 +244,24 @@ func (portal *Portal) convertDiscordVideoEmbed(intent *appservice.IntentAPI, emb
 	}
 }
 
-func (portal *Portal) convertDiscordMessage(intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
+func (portal *Portal) convertDiscordMessage(ctx context.Context, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
 	if msg.Content != "" {
 		predictedLength++
 	}
 	parts := make([]*ConvertedMessage, 0, predictedLength)
-	if textPart := portal.convertDiscordTextMessage(intent, msg); textPart != nil {
+	if textPart := portal.convertDiscordTextMessage(ctx, intent, msg); textPart != nil {
 		parts = append(parts, textPart)
 	}
+	log := zerolog.Ctx(ctx)
 	handledIDs := make(map[string]struct{})
 	for _, att := range msg.Attachments {
 		if _, handled := handledIDs[att.ID]; handled {
 			continue
 		}
 		handledIDs[att.ID] = struct{}{}
-		if part := portal.convertDiscordAttachment(intent, att); part != nil {
+		log := log.With().Str("attachment_id", att.ID).Logger()
+		if part := portal.convertDiscordAttachment(log.WithContext(ctx), intent, att); part != nil {
 			parts = append(parts, part)
 		}
 	}
@@ -262,11 +270,12 @@ func (portal *Portal) convertDiscordMessage(intent *appservice.IntentAPI, msg *d
 			continue
 		}
 		handledIDs[sticker.ID] = struct{}{}
-		if part := portal.convertDiscordSticker(intent, sticker); part != nil {
+		log := log.With().Str("sticker_id", sticker.ID).Logger()
+		if part := portal.convertDiscordSticker(log.WithContext(ctx), intent, sticker); part != nil {
 			parts = append(parts, part)
 		}
 	}
-	for _, embed := range msg.Embeds {
+	for i, embed := range msg.Embeds {
 		// Ignore non-video embeds, they're handled in convertDiscordTextMessage
 		if getEmbedType(embed) != EmbedVideo {
 			continue
@@ -276,7 +285,12 @@ func (portal *Portal) convertDiscordMessage(intent *appservice.IntentAPI, msg *d
 			continue
 		}
 		handledIDs[embed.URL] = struct{}{}
-		part := portal.convertDiscordVideoEmbed(intent, embed)
+		log := log.With().
+			Str("computed_embed_type", "video").
+			Str("embed_type", string(embed.Type)).
+			Int("embed_index", i).
+			Logger()
+		part := portal.convertDiscordVideoEmbed(log.WithContext(ctx), intent, embed)
 		if part != nil {
 			parts = append(parts, part)
 		}
@@ -305,7 +319,8 @@ const (
 	embedFooterDateSeparator = ` • `
 )
 
-func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int) string {
+func (portal *Portal) convertDiscordRichEmbed(ctx context.Context, intent *appservice.IntentAPI, embed *discordgo.MessageEmbed, msgID string, index int) string {
+	log := zerolog.Ctx(ctx)
 	var htmlParts []string
 	if embed.Author != nil {
 		var authorHTML string
@@ -317,7 +332,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		if embed.Author.ProxyIconURL != "" {
 			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Author.ProxyIconURL, false, NoMeta)
 			if err != nil {
-				portal.log.Warnfln("Failed to reupload author icon in embed #%d of message %s: %v", index+1, msgID, err)
+				log.Warn().Err(err).Msg("Failed to reupload author icon in embed")
 			} else {
 				authorHTML = fmt.Sprintf(embedHTMLAuthorWithImage, dbFile.MXC, authorNameHTML)
 			}
@@ -367,7 +382,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 	if embed.Image != nil {
 		dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Image.ProxyURL, false, NoMeta)
 		if err != nil {
-			portal.log.Warnfln("Failed to reupload image in embed #%d of message %s: %v", index+1, msgID, err)
+			log.Warn().Err(err).Msg("Failed to reupload image in embed")
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, dbFile.MXC))
 		}
@@ -377,7 +392,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		formattedTime := embed.Timestamp
 		parsedTS, err := time.Parse(time.RFC3339, embed.Timestamp)
 		if err != nil {
-			portal.log.Warnfln("Failed to parse timestamp in embed #%d of message %s: %v", index+1, msgID, err)
+			log.Warn().Err(err).Msg("Failed to parse timestamp in embed")
 		} else {
 			formattedTime = parsedTS.Format(discordTimestampStyle('F').Format())
 		}
@@ -393,7 +408,7 @@ func (portal *Portal) convertDiscordRichEmbed(intent *appservice.IntentAPI, embe
 		if embed.Footer.ProxyIconURL != "" {
 			dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Footer.ProxyIconURL, false, NoMeta)
 			if err != nil {
-				portal.log.Warnfln("Failed to reupload footer icon in embed #%d of message %s: %v", index+1, msgID, err)
+				log.Warn().Err(err).Msg("Failed to reupload footer icon in embed")
 			} else {
 				footerHTML = fmt.Sprintf(embedHTMLFooterWithImage, dbFile.MXC, html.EscapeString(embed.Footer.Text), datePart)
 			}
@@ -422,40 +437,40 @@ type BeeperLinkPreview struct {
 	ImageEncryption *event.EncryptedFileInfo `json:"beeper:image:encryption,omitempty"`
 }
 
-func (portal *Portal) convertDiscordLinkEmbedImage(intent *appservice.IntentAPI, url string, width, height int, preview *BeeperLinkPreview) {
+func (portal *Portal) convertDiscordLinkEmbedImage(ctx context.Context, intent *appservice.IntentAPI, url string, width, height int, preview *BeeperLinkPreview) {
 	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, url, portal.Encrypted, NoMeta)
 	if err != nil {
-		portal.log.Warnfln("Failed to copy image in URL preview: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to reupload image in URL preview")
+		return
+	}
+	if width != 0 || height != 0 {
+		preview.ImageWidth = width
+		preview.ImageHeight = height
 	} else {
-		if width != 0 || height != 0 {
-			preview.ImageWidth = width
-			preview.ImageHeight = height
-		} else {
-			preview.ImageWidth = dbFile.Width
-			preview.ImageHeight = dbFile.Height
+		preview.ImageWidth = dbFile.Width
+		preview.ImageHeight = dbFile.Height
+	}
+	preview.ImageSize = dbFile.Size
+	preview.ImageType = dbFile.MimeType
+	if dbFile.Encrypted {
+		preview.ImageEncryption = &event.EncryptedFileInfo{
+			EncryptedFile: *dbFile.DecryptionInfo,
+			URL:           dbFile.MXC.CUString(),
 		}
-		preview.ImageSize = dbFile.Size
-		preview.ImageType = dbFile.MimeType
-		if dbFile.Encrypted {
-			preview.ImageEncryption = &event.EncryptedFileInfo{
-				EncryptedFile: *dbFile.DecryptionInfo,
-				URL:           dbFile.MXC.CUString(),
-			}
-		} else {
-			preview.ImageURL = dbFile.MXC.CUString()
-		}
+	} else {
+		preview.ImageURL = dbFile.MXC.CUString()
 	}
 }
 
-func (portal *Portal) convertDiscordLinkEmbedToBeeper(intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *BeeperLinkPreview {
+func (portal *Portal) convertDiscordLinkEmbedToBeeper(ctx context.Context, intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *BeeperLinkPreview {
 	var preview BeeperLinkPreview
 	preview.MatchedURL = embed.URL
 	preview.Title = embed.Title
 	preview.Description = embed.Description
 	if embed.Image != nil {
-		portal.convertDiscordLinkEmbedImage(intent, embed.Image.ProxyURL, embed.Image.Width, embed.Image.Height, &preview)
+		portal.convertDiscordLinkEmbedImage(ctx, intent, embed.Image.ProxyURL, embed.Image.Width, embed.Image.Height, &preview)
 	} else if embed.Thumbnail != nil {
-		portal.convertDiscordLinkEmbedImage(intent, embed.Thumbnail.ProxyURL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
+		portal.convertDiscordLinkEmbedImage(ctx, intent, embed.Thumbnail.ProxyURL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
 	}
 	return &preview
 }
@@ -503,7 +518,8 @@ func isPlainGifMessage(msg *discordgo.Message) bool {
 	return len(msg.Embeds) == 1 && msg.Embeds[0].Video != nil && msg.Embeds[0].URL == msg.Content && msg.Embeds[0].Type == discordgo.EmbedTypeGifv
 }
 
-func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, msg *discordgo.Message) *ConvertedMessage {
+func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *appservice.IntentAPI, msg *discordgo.Message) *ConvertedMessage {
+	log := zerolog.Ctx(ctx)
 	if msg.Type == discordgo.MessageTypeCall {
 		return &ConvertedMessage{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgEmote,
@@ -526,15 +542,21 @@ func (portal *Portal) convertDiscordTextMessage(intent *appservice.IntentAPI, ms
 	}
 	previews := make([]*BeeperLinkPreview, 0)
 	for i, embed := range msg.Embeds {
+		with := log.With().
+			Str("embed_type", string(embed.Type)).
+			Int("embed_index", i)
 		switch getEmbedType(embed) {
 		case EmbedRich:
-			htmlParts = append(htmlParts, portal.convertDiscordRichEmbed(intent, embed, msg.ID, i))
+			log := with.Str("computed_embed_type", "rich").Logger()
+			htmlParts = append(htmlParts, portal.convertDiscordRichEmbed(log.WithContext(ctx), intent, embed, msg.ID, i))
 		case EmbedLinkPreview:
-			previews = append(previews, portal.convertDiscordLinkEmbedToBeeper(intent, embed))
+			log := with.Str("computed_embed_type", "link preview").Logger()
+			previews = append(previews, portal.convertDiscordLinkEmbedToBeeper(log.WithContext(ctx), intent, embed))
 		case EmbedVideo:
 			// Ignore video embeds, they're handled as separate messages
 		default:
-			portal.log.Warnfln("Unknown type %s in embed #%d of message %s", embed.Type, i+1, msg.ID)
+			log := with.Logger()
+			log.Warn().Msg("Unknown embed type in message")
 		}
 	}
 

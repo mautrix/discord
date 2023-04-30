@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/maulogger/v2/maulogadapt"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -296,12 +297,12 @@ func (guild *Guild) cleanup() {
 	intent := guild.bridge.Bot
 	if guild.bridge.SpecVersions.UnstableFeatures["com.beeper.room_yeeting"] {
 		err := intent.BeeperDeleteRoom(guild.MXID)
-		if err == nil || errors.Is(err, mautrix.MNotFound) {
-			return
+		if err != nil && !errors.Is(err, mautrix.MNotFound) {
+			guild.log.Errorfln("Failed to delete %s using hungryserv yeet endpoint: %v", guild.MXID, err)
 		}
-		guild.log.Warnfln("Failed to delete %s using hungryserv yeet endpoint, falling back to normal behavior: %v", guild.MXID, err)
+		return
 	}
-	guild.bridge.cleanupRoom(intent, guild.MXID, false, guild.log)
+	guild.bridge.cleanupRoom(intent, guild.MXID, false, *maulogadapt.MauAsZero(guild.log))
 }
 
 func (guild *Guild) RemoveMXID() {

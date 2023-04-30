@@ -832,9 +832,9 @@ func (user *User) handleRelationshipChange(userID, nickname string) {
 		} else if portal.NameSet {
 			_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateRoomName, "", map[string]any{})
 			if err != nil {
-				portal.zlog.Warn().Err(err).Msg("Failed to clear room name after friend nickname was removed")
+				portal.log.Warn().Err(err).Msg("Failed to clear room name after friend nickname was removed")
 			} else {
-				portal.zlog.Debug().Msg("Cleared room name after friend nickname was removed")
+				portal.log.Debug().Msg("Cleared room name after friend nickname was removed")
 				portal.NameSet = false
 				portal.Update()
 				updated = true

@@ -308,7 +308,7 @@ func (portal *Portal) getEmojiMXCByDiscordID(emojiID, name string, animated bool
 		EmojiName:    name,
 	})
 	if err != nil {
-		portal.log.Warnfln("Failed to download emoji %s from discord: %v", emojiID, err)
+		portal.log.Warn().Err(err).Str("emoji_id", emojiID).Msg("Failed to copy emoji to Matrix")
 		return id.ContentURI{}
 	}
 	return dbFile.MXC

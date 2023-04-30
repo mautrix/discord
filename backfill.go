@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
@@ -31,7 +32,7 @@ func (portal *Portal) forwardBackfillInitial(source *User) {
 		return
 	}
 
-	log := portal.zlog.With().
+	log := portal.log.With().
 		Str("action", "initial backfill").
 		Str("room_id", portal.MXID.String()).
 		Int("limit", limit).
@@ -52,7 +53,7 @@ func (portal *Portal) ForwardBackfillMissed(source *User, meta *discordgo.Channe
 	if limit == 0 {
 		return
 	}
-	log := portal.zlog.With().
+	log := portal.log.With().
 		Str("action", "missed event backfill").
 		Str("room_id", portal.MXID.String()).
 		Int("limit", limit).
@@ -206,6 +207,7 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, messages []*discordgo.Message) ([]*event.Event, []database.Message) {
 	evts := make([]*event.Event, 0, len(messages))
 	dbMessages := make([]database.Message, 0, len(messages))
+	ctx := context.Background()
 	for _, msg := range messages {
 		for _, mention := range msg.Mentions {
 			puppet := portal.bridge.GetPuppetByID(mention.ID)
@@ -218,7 +220,12 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 		replyTo := portal.getReplyTarget(source, msg.MessageReference, true)
 
 		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-		parts := portal.convertDiscordMessage(intent, msg)
+		log := log.With().
+			Str("message_id", msg.ID).
+			Int("message_type", int(msg.Type)).
+			Str("author_id", msg.Author.ID).
+			Logger()
+		parts := portal.convertDiscordMessage(log.WithContext(ctx), intent, msg)
 		for i, part := range parts {
 			if replyTo != nil {
 				part.Content.RelatesTo = &event.RelatesTo{InReplyTo: replyTo}

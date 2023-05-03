@@ -1156,7 +1156,7 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 	case errors.Is(err, errTargetNotFound):
 		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, "", nil
 	case errors.As(err, &restErr):
-		if restErr.Message != nil {
+		if restErr.Message != nil && (restErr.Message.Code != 0 || len(restErr.Message.Message) > 0) {
 			reason, humanMessage = restErrorToStatusReason(restErr.Message)
 			status = event.MessageStatusFail
 			isCertain = true

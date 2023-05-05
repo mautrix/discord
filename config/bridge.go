@@ -52,6 +52,7 @@ type BridgeConfig struct {
 	DeleteGuildOnLeave          bool `yaml:"delete_guild_on_leave"`
 	FederateRooms               bool `yaml:"federate_rooms"`
 
+	CacheMedia    string        `yaml:"cache_media"`
 	MediaPatterns MediaPatterns `yaml:"media_patterns"`
 
 	AnimatedSticker struct {

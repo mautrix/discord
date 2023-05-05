@@ -246,7 +246,7 @@ func (br *DiscordBridge) convertLottie(data []byte) ([]byte, string, error) {
 }
 
 func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, meta AttachmentMeta) (returnDBFile *database.File, returnErr error) {
-	isCacheable := !encrypt
+	isCacheable := br.Config.Bridge.CacheMedia != "never" && (br.Config.Bridge.CacheMedia == "always" || !encrypt)
 	returnDBFile = br.DB.File.Get(url, encrypt)
 	if returnDBFile == nil {
 		transferKey := attachmentKey{url, encrypt}

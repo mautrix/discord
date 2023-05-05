@@ -56,6 +56,7 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Bool, "bridge", "delete_guild_on_leave")
 	helper.Copy(up.Bool, "bridge", "federate_rooms")
 	helper.Copy(up.Bool, "bridge", "media_patterns", "enabled")
+	helper.Copy(up.Str, "bridge", "cache_media")
 	helper.Copy(up.Str|up.Null, "bridge", "media_patterns", "attachments")
 	helper.Copy(up.Str|up.Null, "bridge", "media_patterns", "emojis")
 	helper.Copy(up.Str|up.Null, "bridge", "media_patterns", "stickers")

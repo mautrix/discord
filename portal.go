@@ -1854,8 +1854,10 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 			"name": reaction.Emoji.Name,
 			"mxc":  matrixReaction,
 		}
+		wrappedShortcode := fmt.Sprintf(":%s:", reaction.Emoji.Name)
+		extraContent["com.beeper.reaction.shortcode"] = wrappedShortcode
 		if !portal.bridge.Config.Bridge.CustomEmojiReactions {
-			content.RelatesTo.Key = fmt.Sprintf(":%s:", reaction.Emoji.Name)
+			content.RelatesTo.Key = wrappedShortcode
 		}
 	}
 

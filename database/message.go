@@ -19,7 +19,7 @@ type MessageQuery struct {
 }
 
 const (
-	messageSelect = "SELECT dcid, dc_attachment_id, dc_edit_index, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_thread_id, mxid FROM message"
+	messageSelect = "SELECT dcid, dc_attachment_id, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_edit_timestamp, dc_thread_id, mxid FROM message"
 )
 
 func (mq *MessageQuery) New() *Message {
@@ -46,17 +46,17 @@ func (mq *MessageQuery) scanAll(rows dbutil.Rows, err error) []*Message {
 }
 
 func (mq *MessageQuery) GetByDiscordID(key PortalKey, discordID string) []*Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 AND dc_edit_index=0 ORDER BY dc_attachment_id ASC"
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 ORDER BY dc_attachment_id ASC"
 	return mq.scanAll(mq.db.Query(query, key.ChannelID, key.Receiver, discordID))
 }
 
 func (mq *MessageQuery) GetFirstByDiscordID(key PortalKey, discordID string) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 AND dc_edit_index=0 ORDER BY dc_attachment_id ASC LIMIT 1"
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 ORDER BY dc_attachment_id ASC LIMIT 1"
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
 }
 
 func (mq *MessageQuery) GetLastByDiscordID(key PortalKey, discordID string) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 AND dc_edit_index=0 ORDER BY dc_attachment_id DESC LIMIT 1"
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 ORDER BY dc_attachment_id DESC LIMIT 1"
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
 }
 
@@ -66,12 +66,12 @@ func (mq *MessageQuery) GetClosestBefore(key PortalKey, threadID string, ts time
 }
 
 func (mq *MessageQuery) GetLastInThread(key PortalKey, threadID string) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 AND dc_edit_index=0 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID))
 }
 
 func (mq *MessageQuery) GetLast(key PortalKey) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_edit_index=0 ORDER BY timestamp DESC LIMIT 1"
+	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 ORDER BY timestamp DESC LIMIT 1"
 	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver))
 }
 
@@ -99,7 +99,7 @@ func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	valueStringFormat := "($%d, $%d, $%d, $1, $2, $%d, $%d, $%d, $%d)"
+	valueStringFormat := "($%d, $%d, $1, $2, $%d, $%d, $%d, $%d, $%d)"
 	if mq.db.Dialect == dbutil.SQLite {
 		valueStringFormat = strings.ReplaceAll(valueStringFormat, "$", "?")
 	}
@@ -111,9 +111,9 @@ func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
 		baseIndex := 2 + i*7
 		params[baseIndex] = msg.DiscordID
 		params[baseIndex+1] = msg.AttachmentID
-		params[baseIndex+2] = msg.EditIndex
-		params[baseIndex+3] = msg.SenderID
-		params[baseIndex+4] = msg.Timestamp.UnixMilli()
+		params[baseIndex+2] = msg.SenderID
+		params[baseIndex+3] = msg.Timestamp.UnixMilli()
+		params[baseIndex+4] = msg.editTimestampVal()
 		params[baseIndex+5] = msg.ThreadID
 		params[baseIndex+6] = msg.MXID
 		placeholders[i] = fmt.Sprintf(valueStringFormat, baseIndex+1, baseIndex+2, baseIndex+3, baseIndex+4, baseIndex+5, baseIndex+6, baseIndex+7)
@@ -129,13 +129,13 @@ type Message struct {
 	db  *Database
 	log log.Logger
 
-	DiscordID    string
-	AttachmentID string
-	EditIndex    int
-	Channel      PortalKey
-	SenderID     string
-	Timestamp    time.Time
-	ThreadID     string
+	DiscordID     string
+	AttachmentID  string
+	Channel       PortalKey
+	SenderID      string
+	Timestamp     time.Time
+	EditTimestamp time.Time
+	ThreadID      string
 
 	MXID id.EventID
 }
@@ -149,9 +149,9 @@ func (m *Message) DiscordProtoChannelID() string {
 }
 
 func (m *Message) Scan(row dbutil.Scannable) *Message {
-	var ts int64
+	var ts, editTS int64
 
-	err := row.Scan(&m.DiscordID, &m.AttachmentID, &m.EditIndex, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &m.ThreadID, &m.MXID)
+	err := row.Scan(&m.DiscordID, &m.AttachmentID, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &editTS, &m.ThreadID, &m.MXID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			m.log.Errorln("Database scan failed:", err)
@@ -162,7 +162,10 @@ func (m *Message) Scan(row dbutil.Scannable) *Message {
 	}
 
 	if ts != 0 {
-		m.Timestamp = time.UnixMilli(ts)
+		m.Timestamp = time.UnixMilli(ts).UTC()
+	}
+	if editTS != 0 {
+		m.EditTimestamp = time.Unix(0, editTS).UTC()
 	}
 
 	return m
@@ -170,7 +173,7 @@ func (m *Message) Scan(row dbutil.Scannable) *Message {
 
 const messageInsertQuery = `
 	INSERT INTO message (
-		dcid, dc_attachment_id, dc_edit_index, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_thread_id, mxid
+		dcid, dc_attachment_id, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_edit_timestamp, dc_thread_id, mxid
 	)
 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
@@ -180,6 +183,13 @@ var messageMassInsertTemplate = strings.Replace(messageInsertQuery, "($1, $2, $3
 type MessagePart struct {
 	AttachmentID string
 	MXID         id.EventID
+}
+
+func (m *Message) editTimestampVal() int64 {
+	if m.EditTimestamp.IsZero() {
+		return 0
+	}
+	return m.EditTimestamp.UnixNano()
 }
 
 func (m *Message) MassInsertParts(msgs []MessagePart) {
@@ -193,11 +203,11 @@ func (m *Message) MassInsertParts(msgs []MessagePart) {
 	params := make([]interface{}, 7+len(msgs)*2)
 	placeholders := make([]string, len(msgs))
 	params[0] = m.DiscordID
-	params[1] = m.EditIndex
-	params[2] = m.Channel.ChannelID
-	params[3] = m.Channel.Receiver
-	params[4] = m.SenderID
-	params[5] = m.Timestamp.UnixMilli()
+	params[1] = m.Channel.ChannelID
+	params[2] = m.Channel.Receiver
+	params[3] = m.SenderID
+	params[4] = m.Timestamp.UnixMilli()
+	params[5] = m.editTimestampVal()
 	params[6] = m.ThreadID
 	for i, msg := range msgs {
 		params[7+i*2] = msg.AttachmentID
@@ -213,11 +223,25 @@ func (m *Message) MassInsertParts(msgs []MessagePart) {
 
 func (m *Message) Insert() {
 	_, err := m.db.Exec(messageInsertQuery,
-		m.DiscordID, m.AttachmentID, m.EditIndex, m.Channel.ChannelID, m.Channel.Receiver, m.SenderID,
-		m.Timestamp.UnixMilli(), m.ThreadID, m.MXID)
+		m.DiscordID, m.AttachmentID, m.Channel.ChannelID, m.Channel.Receiver, m.SenderID,
+		m.Timestamp.UnixMilli(), m.editTimestampVal(), m.ThreadID, m.MXID)
 
 	if err != nil {
 		m.log.Warnfln("Failed to insert %s@%s: %v", m.DiscordID, m.Channel, err)
+		panic(err)
+	}
+}
+
+const editUpdateQuery = `
+	UPDATE message
+	SET dc_edit_timestamp=$1
+	WHERE dcid=$2 AND dc_attachment_id=$3 AND dc_chan_id=$4 AND dc_chan_receiver=$5 AND dc_edit_timestamp<$1
+`
+
+func (m *Message) UpdateEditTimestamp(ts time.Time) {
+	_, err := m.db.Exec(editUpdateQuery, ts.UnixNano(), m.DiscordID, m.AttachmentID, m.Channel.ChannelID, m.Channel.Receiver)
+	if err != nil {
+		m.log.Warnfln("Failed to update edit timestamp of %s@%s: %v", m.DiscordID, m.Channel, err)
 		panic(err)
 	}
 }

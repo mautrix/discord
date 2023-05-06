@@ -583,11 +583,10 @@ func (portal *Portal) ensureUserInvited(user *User, ignoreCache bool) bool {
 	return user.ensureInvited(portal.MainIntent(), portal.MXID, portal.IsPrivateChat(), ignoreCache)
 }
 
-func (portal *Portal) markMessageHandled(discordID string, editIndex int, authorID string, timestamp time.Time, threadID string, parts []database.MessagePart) {
+func (portal *Portal) markMessageHandled(discordID string, authorID string, timestamp time.Time, threadID string, parts []database.MessagePart) {
 	msg := portal.bridge.DB.Message.New()
 	msg.Channel = portal.Key
 	msg.DiscordID = discordID
-	msg.EditIndex = editIndex
 	msg.SenderID = authorID
 	msg.Timestamp = timestamp
 	msg.ThreadID = threadID
@@ -674,7 +673,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	} else if len(dbParts) == 0 {
 		log.Warn().Msg("All parts of message failed to send to Matrix")
 	} else {
-		portal.markMessageHandled(msg.ID, 0, msg.Author.ID, ts, discordThreadID, dbParts)
+		portal.markMessageHandled(msg.ID, msg.Author.ID, ts, discordThreadID, dbParts)
 	}
 }
 
@@ -776,6 +775,13 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	existing := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.ID)
 	if existing == nil {
 		log.Warn().Msg("Dropping update of unknown message")
+		return
+	}
+	if msg.EditedTimestamp != nil && !msg.EditedTimestamp.After(existing[0].EditTimestamp) {
+		log.Debug().
+			Time("received_edit_ts", *msg.EditedTimestamp).
+			Time("db_edit_ts", existing[0].EditTimestamp).
+			Msg("Dropping update of message with older or equal edit timestamp")
 		return
 	}
 
@@ -885,8 +891,9 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 
 	portal.sendDeliveryReceipt(resp.EventID)
 
-	//ts, _ := msg.Timestamp.Parse()
-	//portal.markMessageHandled(existing, msg.ID, resp.EventID, msg.Author.ID, ts)
+	if msg.EditedTimestamp != nil {
+		existing[0].UpdateEditTimestamp(*msg.EditedTimestamp)
+	}
 }
 
 func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) {
@@ -1386,16 +1393,20 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		if edits != nil {
 			discordContent, allowedMentions := portal.parseMatrixHTML(content.NewContent)
 			var err error
+			var msg *discordgo.Message
 			if !isWebhookSend {
 				// TODO save edit in message table
-				_, err = sess.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
+				msg, err = sess.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
 			} else {
-				_, err = relayClient.WebhookMessageEdit(portal.RelayWebhookID, portal.RelayWebhookSecret, edits.DiscordID, &discordgo.WebhookEdit{
+				msg, err = relayClient.WebhookMessageEdit(portal.RelayWebhookID, portal.RelayWebhookSecret, edits.DiscordID, &discordgo.WebhookEdit{
 					Content:         &discordContent,
 					AllowedMentions: allowedMentions,
 				})
 			}
 			go portal.sendMessageMetrics(evt, err, "Failed to edit")
+			if msg.EditedTimestamp != nil {
+				edits.UpdateEditTimestamp(*msg.EditedTimestamp)
+			}
 		} else {
 			go portal.sendMessageMetrics(evt, fmt.Errorf("%w %s", errUnknownEditTarget, editMXID), "Ignoring")
 		}

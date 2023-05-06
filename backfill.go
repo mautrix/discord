@@ -217,7 +217,7 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 		puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
 		puppet.UpdateInfo(source, msg.Author)
 		intent := puppet.IntentFor(portal)
-		replyTo := portal.getReplyTarget(source, msg.MessageReference, true)
+		replyTo := portal.getReplyTarget(source, "", msg.MessageReference, msg.Embeds, true)
 
 		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 		log := log.With().

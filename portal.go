@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -637,7 +638,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			lastThreadEvent = lastInThread.MXID
 		}
 	}
-	replyTo := portal.getReplyTarget(user, msg.MessageReference, false)
+	replyTo := portal.getReplyTarget(user, discordThreadID, msg.MessageReference, msg.Embeds, false)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 	parts := portal.convertDiscordMessage(ctx, intent, msg)
@@ -677,7 +678,23 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	}
 }
 
-func (portal *Portal) getReplyTarget(source *User, ref *discordgo.MessageReference, allowNonExistent bool) *event.InReplyTo {
+var hackyReplyPattern = regexp.MustCompile(`^\*\*\[Replying to]\(https://discord.com/channels/(\d+)/(\d+)/(\d+)\)`)
+
+func isReplyEmbed(embed *discordgo.MessageEmbed) bool {
+	return hackyReplyPattern.MatchString(embed.Description)
+}
+
+func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discordgo.MessageReference, embeds []*discordgo.MessageEmbed, allowNonExistent bool) *event.InReplyTo {
+	if ref == nil && len(embeds) > 0 {
+		match := hackyReplyPattern.FindStringSubmatch(embeds[0].Description)
+		if match != nil && match[1] == portal.GuildID && (match[2] == portal.Key.ChannelID || match[2] == threadID) {
+			ref = &discordgo.MessageReference{
+				MessageID: match[3],
+				ChannelID: match[2],
+				GuildID:   match[1],
+			}
+		}
+	}
 	if ref == nil {
 		return nil
 	}
@@ -689,7 +706,7 @@ func (portal *Portal) getReplyTarget(source *User, ref *discordgo.MessageReferen
 	crossRoomReplies := isHungry
 
 	targetPortal := portal
-	if ref.ChannelID != portal.Key.ChannelID && crossRoomReplies {
+	if ref.ChannelID != portal.Key.ChannelID && ref.ChannelID != threadID && crossRoomReplies {
 		targetPortal = portal.bridge.GetExistingPortalByID(database.PortalKey{ChannelID: ref.ChannelID, Receiver: source.DiscordID})
 		if targetPortal == nil {
 			return nil

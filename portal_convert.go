@@ -542,6 +542,9 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	}
 	previews := make([]*BeeperLinkPreview, 0)
 	for i, embed := range msg.Embeds {
+		if i == 0 && msg.MessageReference == nil && isReplyEmbed(embed) {
+			continue
+		}
 		with := log.With().
 			Str("embed_type", string(embed.Type)).
 			Int("embed_index", i)

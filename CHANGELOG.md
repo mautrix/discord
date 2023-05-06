@@ -1,3 +1,23 @@
+# v0.4.0 (unreleased)
+
+* Added bridging of friend nicks into DM room names.
+* Added option to bypass homeserver for Discord media.
+  See [docs](https://docs.mau.fi/bridges/go/discord/direct-media.html) for more info.
+* Added conversion of replies to embeds when sending messages via webhook.
+* Added option to disable caching reuploaded media. This may be necessary when
+  using a media repo that doesn't create a unique mxc URI for each upload.
+* Improved formatting of error messages returned by Discord.
+* Enabled discordgo info logs by default.
+* Fixed limited backfill always stopping after 50 messages
+  (thanks to [@odrling] in [#81]).
+* Fixed startup sync to sync most recent private channels first.
+* Fixed syncing group DM participants when they change.
+* Possibly fixed inviting to portal rooms when multiple Matrix users use the
+  bridge.
+
+[@odrling]: https://github.com/odrling
+[#81]: https://github.com/mautrix/discord/pull/81
+
 # v0.3.0 (2023-04-16)
 
 * Added support for backfilling on room creation and missed messages on startup.

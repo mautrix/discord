@@ -1305,6 +1305,61 @@ func (portal *Portal) getRelayUserMeta(sender *User) (name, avatarURL string) {
 	return
 }
 
+const replyEmbedMaxLines = 1
+const replyEmbedMaxChars = 72
+
+func cutBody(body string) string {
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	var output string
+	for i, line := range lines {
+		if i >= replyEmbedMaxLines {
+			output += " […]"
+			break
+		}
+		if i > 0 {
+			output += "\n"
+		}
+		output += line
+		if len(output) > replyEmbedMaxChars {
+			output = output[:replyEmbedMaxChars] + "…"
+			break
+		}
+	}
+	return output
+}
+
+func (portal *Portal) convertReplyMessageToEmbed(eventID id.EventID, url string) (*discordgo.MessageEmbed, error) {
+	evt, err := portal.MainIntent().GetEvent(portal.MXID, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch event: %w", err)
+	}
+	err = evt.Content.ParseRaw(evt.Type)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse event content: %w", err)
+	}
+	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
+	if !ok {
+		return nil, fmt.Errorf("unsupported event type %s / %T", evt.Type.String(), evt.Content.Parsed)
+	}
+	content.RemoveReplyFallback()
+	var targetUser string
+
+	puppet := portal.bridge.GetPuppetByMXID(evt.Sender)
+	if puppet != nil {
+		targetUser = fmt.Sprintf("<@%s>", puppet.ID)
+	} else if user := portal.bridge.GetUserByMXID(evt.Sender); user != nil && user.DiscordID != "" {
+		targetUser = fmt.Sprintf("<@%s>", user.DiscordID)
+	} else if member := portal.bridge.StateStore.GetMember(portal.MXID, evt.Sender); member != nil && member.Displayname != "" {
+		targetUser = member.Displayname
+	} else {
+		targetUser = evt.Sender.String()
+	}
+	body := escapeDiscordMarkdown(cutBody(content.Body))
+	body = fmt.Sprintf("**[Replying to](%s) %s**\n%s", url, targetUser, body)
+	embed := &discordgo.MessageEmbed{Description: body}
+	return embed, nil
+}
+
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
@@ -1323,6 +1378,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
 		return
 	}
+	isWebhookSend := sess == nil
 	var threadID string
 
 	if editMXID := content.GetRelatesTo().GetReplaceID(); editMXID != "" && content.NewContent != nil {
@@ -1330,7 +1386,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		if edits != nil {
 			discordContent, allowedMentions := portal.parseMatrixHTML(content.NewContent)
 			var err error
-			if sess != nil {
+			if !isWebhookSend {
 				// TODO save edit in message table
 				_, err = sess.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
 			} else {
@@ -1349,7 +1405,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		if existingThread != nil {
 			threadID = existingThread.ID
 		} else {
-			if sess == nil {
+			if isWebhookSend {
 				// TODO start thread with bot?
 				go portal.sendMessageMetrics(evt, errCantStartThread, "Dropping")
 				return
@@ -1378,17 +1434,27 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}
 	}
 
-	switch content.MsgType {
-	case event.MsgText, event.MsgEmote, event.MsgNotice:
-		if replyToMXID := content.RelatesTo.GetNonFallbackReplyTo(); replyToMXID != "" {
-			replyTo := portal.bridge.DB.Message.GetByMXID(portal.Key, replyToMXID)
-			if replyTo != nil && replyTo.ThreadID == threadID {
+	if replyToMXID := content.RelatesTo.GetNonFallbackReplyTo(); replyToMXID != "" {
+		replyTo := portal.bridge.DB.Message.GetByMXID(portal.Key, replyToMXID)
+		if replyTo != nil && replyTo.ThreadID == threadID {
+			if isWebhookSend {
+				messageURL := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", portal.GuildID, channelID, replyTo.DiscordID)
+				embed, err := portal.convertReplyMessageToEmbed(replyTo.MXID, messageURL)
+				if err != nil {
+					portal.log.Warn().Err(err).Msg("Failed to convert reply message to embed for webhook send")
+				} else if embed != nil {
+					sendReq.Embeds = []*discordgo.MessageEmbed{embed}
+				}
+			} else {
 				sendReq.Reference = &discordgo.MessageReference{
 					ChannelID: channelID,
 					MessageID: replyTo.DiscordID,
 				}
 			}
 		}
+	}
+	switch content.MsgType {
+	case event.MsgText, event.MsgEmote, event.MsgNotice:
 		sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content)
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := downloadMatrixAttachment(portal.MainIntent(), content)
@@ -1402,7 +1468,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content)
 		}
 
-		if sess != nil && sess.IsUser {
+		if !isWebhookSend && sess.IsUser {
 			att := &discordgo.MessageAttachment{
 				ID:          "0",
 				Filename:    filename,
@@ -1438,7 +1504,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		go portal.sendMessageMetrics(evt, fmt.Errorf("%w %q", errUnknownMsgType, content.MsgType), "Ignoring")
 		return
 	}
-	if sess != nil {
+	if !isWebhookSend {
 		// AllowedMentions must not be set for real users, and it's also not that useful for personal bots.
 		// It's only important for relaying, where the webhook may have higher permissions than the user on Matrix.
 		sendReq.AllowedMentions = nil
@@ -1455,7 +1521,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	sendReq.Nonce = generateNonce()
 	var msg *discordgo.Message
 	var err error
-	if sess != nil {
+	if !isWebhookSend {
 		msg, err = sess.ChannelMessageSendComplex(channelID, &sendReq)
 	} else {
 		username, avatarURL := portal.getRelayUserMeta(sender)

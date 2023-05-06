@@ -79,7 +79,7 @@ func (f *File) Scan(row dbutil.Scannable) *File {
 	}
 	f.ID = fileID.String
 	f.EmojiName = emojiName.String
-	f.Timestamp = time.UnixMilli(timestamp)
+	f.Timestamp = time.UnixMilli(timestamp).UTC()
 	f.Width = int(width.Int32)
 	f.Height = int(height.Int32)
 	f.MXC, err = id.ParseContentURI(mxc)

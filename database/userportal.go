@@ -29,7 +29,7 @@ func (up UserPortal) Scan(l log.Logger, row dbutil.Scannable) *UserPortal {
 		l.Errorln("Error scanning user portal:", err)
 		panic(err)
 	}
-	up.Timestamp = time.UnixMilli(ts)
+	up.Timestamp = time.UnixMilli(ts).UTC()
 	return &up
 }
 

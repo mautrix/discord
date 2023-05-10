@@ -192,7 +192,7 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 	case strings.HasPrefix(tagName, ":"):
 		return &astDiscordCustomEmoji{name: tagName, astDiscordTag: tag}
 	case strings.HasPrefix(tagName, "a:"):
-		return &astDiscordCustomEmoji{name: tagName[1:], astDiscordTag: tag}
+		return &astDiscordCustomEmoji{name: tagName[1:], astDiscordTag: tag, animated: true}
 	default:
 		return nil
 	}
@@ -290,7 +290,11 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 	case *astDiscordCustomEmoji:
 		reactionMXC := node.portal.getEmojiMXCByDiscordID(strconv.FormatInt(node.id, 10), node.name, node.animated)
 		if !reactionMXC.IsEmpty() {
-			_, _ = fmt.Fprintf(w, `<img data-mx-emoticon src="%[1]s" alt="%[2]s" title="%[2]s" height="32"/>`, reactionMXC.String(), node.name)
+			attrs := "data-mx-emoticon"
+			if node.animated {
+				attrs += " data-mau-animated-emoji"
+			}
+			_, _ = fmt.Fprintf(w, `<img %[3]s src="%[1]s" alt="%[2]s" title="%[2]s" height="32"/>`, reactionMXC.String(), node.name, attrs)
 			return
 		}
 	case *astDiscordTimestamp:

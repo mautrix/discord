@@ -263,9 +263,9 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 	switch node := n.(type) {
 	case *astDiscordUserMention:
 		if user := node.portal.bridge.GetUserByID(strconv.FormatInt(node.id, 10)); user != nil {
-			_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%[1]s">%[1]s</a>`, user.MXID)
+			_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, user.MXID.URI().MatrixToURL(), user.MXID)
 		} else if puppet := node.portal.bridge.GetPuppetByID(strconv.FormatInt(node.id, 10)); puppet != nil {
-			_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s">%s</a>`, puppet.MXID, puppet.Name)
+			_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, puppet.MXID.URI().MatrixToURL(), puppet.Name)
 		}
 		return
 	case *astDiscordRoleMention:
@@ -281,7 +281,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		})
 		if portal != nil {
 			if portal.MXID != "" {
-				_, _ = fmt.Fprintf(w, `<a href="https://matrix.to/#/%s?via=%s">%s</a>`, portal.MXID, portal.bridge.AS.HomeserverDomain, portal.Name)
+				_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(portal.bridge.AS.HomeserverDomain).MatrixToURL(), portal.Name)
 			} else {
 				_, _ = w.WriteString(portal.Name)
 			}

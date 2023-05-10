@@ -309,7 +309,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		const fullDatetimeFormat = "2006-01-02T15:04:05.000-0700"
 		fullRFC := ts.Format(fullDatetimeFormat)
 		fullHumanReadable := ts.Format(discordTimestampStyle('F').Format())
-		_, _ = fmt.Fprintf(w, `<time title="%s" datetime="%s"><strong>%s</strong></time>`, fullHumanReadable, fullRFC, formatted)
+		_, _ = fmt.Fprintf(w, `<time title="%s" datetime="%s" data-discord-style="%c"><strong>%s</strong></time>`, fullHumanReadable, fullRFC, node.style, formatted)
 	}
 	stringifiable, ok := n.(fmt.Stringer)
 	if ok {

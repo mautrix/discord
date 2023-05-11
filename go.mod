@@ -15,7 +15,7 @@ require (
 	github.com/stretchr/testify v1.8.2
 	github.com/yuin/goldmark v1.5.4
 	maunium.net/go/maulogger/v2 v2.4.1
-	maunium.net/go/mautrix v0.15.2-0.20230509111518-e45bdbb8b05e
+	maunium.net/go/mautrix v0.15.2-0.20230511215537-50608a89aa1f
 )
 
 require (
@@ -29,10 +29,10 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.mau.fi/zeroconfig v0.1.2 // indirect
-	golang.org/x/crypto v0.8.0 // indirect
-	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
-	golang.org/x/net v0.9.0 // indirect
-	golang.org/x/sys v0.7.0 // indirect
+	golang.org/x/crypto v0.9.0 // indirect
+	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea // indirect
+	golang.org/x/net v0.10.0 // indirect
+	golang.org/x/sys v0.8.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	maunium.net/go/mauflag v1.0.0 // indirect

@@ -51,6 +51,7 @@ type BridgeConfig struct {
 	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`
 	DeleteGuildOnLeave          bool `yaml:"delete_guild_on_leave"`
 	FederateRooms               bool `yaml:"federate_rooms"`
+	UseDiscordCDNUpload         bool `yaml:"use_discord_cdn_upload"`
 
 	CacheMedia    string        `yaml:"cache_media"`
 	MediaPatterns MediaPatterns `yaml:"media_patterns"`

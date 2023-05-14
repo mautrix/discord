@@ -1496,7 +1496,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content)
 		}
 
-		if !isWebhookSend && sess.IsUser {
+		if portal.bridge.Config.Bridge.UseDiscordCDNUpload && !isWebhookSend && sess.IsUser {
 			att := &discordgo.MessageAttachment{
 				ID:          "0",
 				Filename:    filename,

@@ -834,6 +834,13 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	} else {
 		portal.recentMessages.Replace(msg.ID, msg)
 	}
+	if msg.Author.ID == portal.RelayWebhookID {
+		log.Debug().
+			Str("message_id", msg.ID).
+			Str("author_id", msg.Author.ID).
+			Msg("Dropping edit from relay webhook")
+		return
+	}
 
 	intent := portal.bridge.GetPuppetByID(msg.Author.ID).IntentFor(portal)
 

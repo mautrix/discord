@@ -6,12 +6,17 @@
 * Added conversion of replies to embeds when sending messages via webhook.
 * Added option to disable caching reuploaded media. This may be necessary when
   using a media repo that doesn't create a unique mxc URI for each upload.
+* Added option to disable uploading files directly to the Discord CDN
+  (and send as form parts in the message send request instead).
 * Improved formatting of error messages returned by Discord.
 * Enabled discordgo info logs by default.
 * Fixed limited backfill always stopping after 50 messages
   (thanks to [@odrling] in [#81]).
 * Fixed startup sync to sync most recent private channels first.
 * Fixed syncing group DM participants when they change.
+* Fixed bridging animated emojis in messages.
+* Stopped handling all message edits from relay webhook to prevent incorrect
+  edits.
 * Possibly fixed inviting to portal rooms when multiple Matrix users use the
   bridge.
 

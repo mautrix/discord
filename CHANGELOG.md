@@ -1,4 +1,4 @@
-# v0.4.0 (unreleased)
+# v0.4.0 (2023-05-16)
 
 * Added bridging of friend nicks into DM room names.
 * Added option to bypass homeserver for Discord media.

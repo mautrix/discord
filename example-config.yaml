@@ -80,11 +80,12 @@ bridge:
     # Displayname template for Discord users. This is also used as the room name in DMs if private_chat_portal_meta is enabled.
     # Available variables:
     #   .ID - Internal user ID
-    #   .Username - User's displayname on Discord
+    #   .Username - Legacy display/username on Discord
+    #   .GlobalName - New displayname on Discord
     #   .Discriminator - The 4 numbers after the name on Discord
     #   .Bot - Whether the user is a bot
     #   .System - Whether the user is an official system user
-    displayname_template: '{{.Username}}#{{.Discriminator}}{{if .Bot}} (bot){{end}}'
+    displayname_template: '{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}'
     # Displayname template for Discord channels (bridged as rooms, or spaces when type=4).
     # Available variables:
     #   .Name - Channel name, or user displayname (pre-formatted with displayname_template) in DMs.

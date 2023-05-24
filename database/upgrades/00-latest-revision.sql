@@ -1,4 +1,4 @@
--- v0 -> v19: Latest revision
+-- v0 -> v20 (compatible with v19+): Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -113,7 +113,8 @@ CREATE TABLE message (
     dc_edit_timestamp BIGINT NOT NULL,
     dc_thread_id      TEXT   NOT NULL,
 
-    mxid TEXT NOT NULL UNIQUE,
+    mxid        TEXT NOT NULL UNIQUE,
+    sender_mxid TEXT NOT NULL DEFAULT '',
 
     PRIMARY KEY (dcid, dc_attachment_id, dc_chan_id, dc_chan_receiver),
     CONSTRAINT message_portal_fkey FOREIGN KEY (dc_chan_id, dc_chan_receiver) REFERENCES portal (dcid, receiver) ON DELETE CASCADE

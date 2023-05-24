@@ -26,6 +26,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/util"
+	"golang.org/x/exp/slices"
 
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
@@ -93,6 +94,7 @@ func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLink
 
 const formatterContextPortalKey = "fi.mau.discord.portal"
 const formatterContextAllowedMentionsKey = "fi.mau.discord.allowed_mentions"
+const formatterContextInputAllowedMentionsKey = "fi.mau.discord.input_allowed_mentions"
 
 func appendIfNotContains(arr []string, newItem string) []string {
 	for _, item := range arr {
@@ -135,6 +137,10 @@ func (br *DiscordBridge) pillConverter(displayname, mxid, eventID string, ctx fo
 			}
 		}
 	} else if mxid[0] == '@' {
+		allowedMentions, _ := ctx.ReturnData[formatterContextInputAllowedMentionsKey].([]id.UserID)
+		if allowedMentions != nil && !slices.Contains(allowedMentions, id.UserID(mxid)) {
+			return displayname
+		}
 		mentions := ctx.ReturnData[formatterContextAllowedMentionsKey].(*discordgo.MessageAllowedMentions)
 		parsedID, ok := br.ParsePuppetMXID(id.UserID(mxid))
 		if ok {
@@ -219,6 +225,9 @@ func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent) (strin
 		ctx := format.NewContext()
 		ctx.ReturnData[formatterContextPortalKey] = portal
 		ctx.ReturnData[formatterContextAllowedMentionsKey] = allowedMentions
+		if content.Mentions != nil {
+			ctx.ReturnData[formatterContextInputAllowedMentionsKey] = content.Mentions.UserIDs
+		}
 		return variationselector.FullyQualify(matrixHTMLParser.Parse(content.FormattedBody, ctx)), allowedMentions
 	} else {
 		return variationselector.FullyQualify(escapeDiscordMarkdown(content.Body)), allowedMentions

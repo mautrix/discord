@@ -584,13 +584,14 @@ func (portal *Portal) ensureUserInvited(user *User, ignoreCache bool) bool {
 	return user.ensureInvited(portal.MainIntent(), portal.MXID, portal.IsPrivateChat(), ignoreCache)
 }
 
-func (portal *Portal) markMessageHandled(discordID string, authorID string, timestamp time.Time, threadID string, parts []database.MessagePart) {
+func (portal *Portal) markMessageHandled(discordID string, authorID string, timestamp time.Time, threadID string, senderMXID id.UserID, parts []database.MessagePart) {
 	msg := portal.bridge.DB.Message.New()
 	msg.Channel = portal.Key
 	msg.DiscordID = discordID
 	msg.SenderID = authorID
 	msg.Timestamp = timestamp
 	msg.ThreadID = threadID
+	msg.SenderMXID = senderMXID
 	msg.MassInsertParts(parts)
 }
 
@@ -618,11 +619,6 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	}
 	log.Debug().Msg("Starting handling of Discord message")
 
-	for _, mention := range msg.Mentions {
-		puppet := portal.bridge.GetPuppetByID(mention.ID)
-		puppet.UpdateInfo(nil, mention)
-	}
-
 	puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
 	puppet.UpdateInfo(user, msg.Author)
 	intent := puppet.IntentFor(portal)
@@ -638,7 +634,8 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			lastThreadEvent = lastInThread.MXID
 		}
 	}
-	replyTo := portal.getReplyTarget(user, discordThreadID, msg.MessageReference, msg.Embeds, false)
+	replyTo, replySenderMXID := portal.getReplyTarget(user, discordThreadID, msg.MessageReference, msg.Embeds, false)
+	mentions := portal.convertDiscordMentions(msg, replySenderMXID, true)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 	parts := portal.convertDiscordMessage(ctx, intent, msg)
@@ -658,6 +655,11 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			// Only set reply for first event
 			replyTo = nil
 		}
+
+		part.Content.Mentions = mentions
+		// Only set mentions for first event, but keep empty object for rest
+		mentions = &event.Mentions{}
+
 		resp, err := portal.sendMatrixMessage(intent, part.Type, part.Content, part.Extra, ts.UnixMilli())
 		if err != nil {
 			log.Err(err).
@@ -674,7 +676,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	} else if len(dbParts) == 0 {
 		log.Warn().Msg("All parts of message failed to send to Matrix")
 	} else {
-		portal.markMessageHandled(msg.ID, msg.Author.ID, ts, discordThreadID, dbParts)
+		portal.markMessageHandled(msg.ID, msg.Author.ID, ts, discordThreadID, intent.UserID, dbParts)
 	}
 }
 
@@ -684,7 +686,7 @@ func isReplyEmbed(embed *discordgo.MessageEmbed) bool {
 	return hackyReplyPattern.MatchString(embed.Description)
 }
 
-func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discordgo.MessageReference, embeds []*discordgo.MessageEmbed, allowNonExistent bool) *event.InReplyTo {
+func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discordgo.MessageReference, embeds []*discordgo.MessageEmbed, allowNonExistent bool) (*event.InReplyTo, id.UserID) {
 	if ref == nil && len(embeds) > 0 {
 		match := hackyReplyPattern.FindStringSubmatch(embeds[0].Description)
 		if match != nil && match[1] == portal.GuildID && (match[2] == portal.Key.ChannelID || match[2] == threadID) {
@@ -696,7 +698,7 @@ func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discord
 		}
 	}
 	if ref == nil {
-		return nil
+		return nil, ""
 	}
 	isHungry := portal.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry
 	if !isHungry {
@@ -709,25 +711,25 @@ func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discord
 	if ref.ChannelID != portal.Key.ChannelID && ref.ChannelID != threadID && crossRoomReplies {
 		targetPortal = portal.bridge.GetExistingPortalByID(database.PortalKey{ChannelID: ref.ChannelID, Receiver: source.DiscordID})
 		if targetPortal == nil {
-			return nil
+			return nil, ""
 		}
 	}
 	replyToMsg := portal.bridge.DB.Message.GetByDiscordID(targetPortal.Key, ref.MessageID)
 	if len(replyToMsg) > 0 {
 		if !crossRoomReplies {
-			return &event.InReplyTo{EventID: replyToMsg[0].MXID}
+			return &event.InReplyTo{EventID: replyToMsg[0].MXID}, replyToMsg[0].SenderMXID
 		}
 		return &event.InReplyTo{
 			EventID:        replyToMsg[0].MXID,
 			UnstableRoomID: targetPortal.MXID,
-		}
+		}, replyToMsg[0].SenderMXID
 	} else if allowNonExistent {
 		return &event.InReplyTo{
 			EventID:        targetPortal.deterministicEventID(ref.MessageID, ""),
 			UnstableRoomID: targetPortal.MXID,
-		}
+		}, ""
 	}
-	return nil
+	return nil, ""
 }
 
 const JoinThreadReaction = "join thread"
@@ -895,7 +897,10 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 			Msg("Dropping non-text edit")
 		return
 	}
+	converted.Content.Mentions = portal.convertDiscordMentions(msg, "", false)
 	converted.Content.SetEdit(existing[0].MXID)
+	// Never actually mention new users of edits, only include mentions inside m.new_content
+	converted.Content.Mentions = &event.Mentions{}
 	if converted.Extra != nil {
 		converted.Extra = map[string]any{
 			"m.new_content": converted.Extra,
@@ -1585,6 +1590,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		} else {
 			dbMsg.SenderID = portal.RelayWebhookID
 		}
+		dbMsg.SenderMXID = sender.MXID
 		dbMsg.Timestamp, _ = discordgo.SnowflakeTimestamp(msg.ID)
 		dbMsg.ThreadID = threadID
 		dbMsg.Insert()

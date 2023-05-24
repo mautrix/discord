@@ -85,6 +85,7 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Bool, "bridge", "encryption", "require")
 	helper.Copy(up.Bool, "bridge", "encryption", "appservice")
 	helper.Copy(up.Bool, "bridge", "encryption", "allow_key_sharing")
+	helper.Copy(up.Bool, "bridge", "encryption", "plaintext_mentions")
 	helper.Copy(up.Bool, "bridge", "encryption", "delete_keys", "delete_outbound_on_ack")
 	helper.Copy(up.Bool, "bridge", "encryption", "delete_keys", "dont_store_outbound")
 	helper.Copy(up.Bool, "bridge", "encryption", "delete_keys", "ratchet_on_decrypt")

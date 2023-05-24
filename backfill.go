@@ -217,7 +217,8 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 		puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
 		puppet.UpdateInfo(source, msg.Author)
 		intent := puppet.IntentFor(portal)
-		replyTo := portal.getReplyTarget(source, "", msg.MessageReference, msg.Embeds, true)
+		replyTo, replySenderMXID := portal.getReplyTarget(source, "", msg.MessageReference, msg.Embeds, true)
+		mentions := portal.convertDiscordMentions(msg, replySenderMXID, false)
 
 		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 		log := log.With().
@@ -232,6 +233,11 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 				// Only set reply for first event
 				replyTo = nil
 			}
+
+			part.Content.Mentions = mentions
+			// Only set mentions for first event, but keep empty object for rest
+			mentions = &event.Mentions{}
+
 			partName := part.AttachmentID
 			// Always use blank part name for first part so that replies and other things
 			// can reference it without knowing about attachments.
@@ -262,6 +268,7 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 				SenderID:     msg.Author.ID,
 				Timestamp:    ts,
 				AttachmentID: part.AttachmentID,
+				SenderMXID:   intent.UserID,
 			})
 		}
 	}

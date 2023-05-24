@@ -26,6 +26,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"golang.org/x/exp/slices"
+	"maunium.net/go/mautrix/id"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
@@ -516,6 +518,31 @@ func getEmbedType(embed *discordgo.MessageEmbed) BridgeEmbedType {
 
 func isPlainGifMessage(msg *discordgo.Message) bool {
 	return len(msg.Embeds) == 1 && msg.Embeds[0].Video != nil && msg.Embeds[0].URL == msg.Content && msg.Embeds[0].Type == discordgo.EmbedTypeGifv
+}
+
+func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, replySender id.UserID, syncGhosts bool) *event.Mentions {
+	var matrixMentions event.Mentions
+	for _, mention := range msg.Mentions {
+		puppet := portal.bridge.GetPuppetByID(mention.ID)
+		if syncGhosts {
+			puppet.UpdateInfo(nil, mention)
+		}
+		user := portal.bridge.GetUserByID(mention.ID)
+		if user != nil {
+			matrixMentions.UserIDs = append(matrixMentions.UserIDs, user.MXID)
+		} else {
+			matrixMentions.UserIDs = append(matrixMentions.UserIDs, puppet.MXID)
+		}
+	}
+	if replySender != "" {
+		matrixMentions.UserIDs = append(matrixMentions.UserIDs, replySender)
+	}
+	slices.Sort(matrixMentions.UserIDs)
+	matrixMentions.UserIDs = slices.Compact(matrixMentions.UserIDs)
+	if msg.MentionEveryone {
+		matrixMentions.Room = true
+	}
+	return &matrixMentions
 }
 
 func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *appservice.IntentAPI, msg *discordgo.Message) *ConvertedMessage {

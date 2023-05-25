@@ -1,3 +1,11 @@
+# unreleased
+
+* Added support for intentional mentions in Matrix (MSC3952).
+* Added `GlobalName` variable to displayname templates and updated the default
+  template to prefer it over usernames.
+* Messages that consist of a single image link are now bridged as images to
+  closer match Discord.
+
 # v0.4.0 (2023-05-16)
 
 * Added bridging of friend nicks into DM room names.

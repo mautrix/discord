@@ -864,7 +864,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	}
 	for _, remainingEmbed := range msg.Embeds {
 		// Other types of embeds are sent inline with the text message part
-		if getEmbedType(remainingEmbed) != EmbedVideo {
+		if getEmbedType(nil, remainingEmbed) != EmbedVideo {
 			continue
 		}
 		embedID := "video_" + remainingEmbed.URL

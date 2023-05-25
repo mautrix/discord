@@ -195,7 +195,13 @@ func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *apps
 
 func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *appservice.IntentAPI, embed *discordgo.MessageEmbed) *ConvertedMessage {
 	attachmentID := fmt.Sprintf("video_%s", embed.URL)
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Video.ProxyURL, portal.Encrypted, NoMeta)
+	var proxyURL string
+	if embed.Video != nil {
+		proxyURL = embed.Video.ProxyURL
+	} else {
+		proxyURL = embed.Thumbnail.ProxyURL
+	}
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, proxyURL, portal.Encrypted, NoMeta)
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy video embed to Matrix")
 		return &ConvertedMessage{
@@ -206,15 +212,20 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	}
 
 	content := &event.MessageEventContent{
-		MsgType: event.MsgVideo,
-		Body:    embed.URL,
+		Body: embed.URL,
 		Info: &event.FileInfo{
-			Width:    embed.Video.Width,
-			Height:   embed.Video.Height,
 			MimeType: dbFile.MimeType,
-
-			Size: dbFile.Size,
+			Size:     dbFile.Size,
 		},
+	}
+	if embed.Video != nil {
+		content.MsgType = event.MsgVideo
+		content.Info.Width = embed.Video.Width
+		content.Info.Height = embed.Video.Height
+	} else {
+		content.MsgType = event.MsgImage
+		content.Info.Width = embed.Thumbnail.Width
+		content.Info.Height = embed.Thumbnail.Height
 	}
 	if content.Info.Width == 0 && content.Info.Height == 0 {
 		content.Info.Width = dbFile.Width
@@ -229,7 +240,7 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 		content.URL = dbFile.MXC.CUString()
 	}
 	extra := map[string]any{}
-	if embed.Type == discordgo.EmbedTypeGifv {
+	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
 		extra["info"] = map[string]any{
 			"fi.mau.discord.gifv":  true,
 			"fi.mau.loop":          true,
@@ -279,7 +290,7 @@ func (portal *Portal) convertDiscordMessage(ctx context.Context, intent *appserv
 	}
 	for i, embed := range msg.Embeds {
 		// Ignore non-video embeds, they're handled in convertDiscordTextMessage
-		if getEmbedType(embed) != EmbedVideo {
+		if getEmbedType(msg, embed) != EmbedVideo {
 			continue
 		}
 		// Discord deduplicates embeds by URL. It makes things easier for us too.
@@ -498,7 +509,7 @@ func isActuallyLinkPreview(embed *discordgo.MessageEmbed) bool {
 	return embed.Video != nil && embed.Video.ProxyURL == ""
 }
 
-func getEmbedType(embed *discordgo.MessageEmbed) BridgeEmbedType {
+func getEmbedType(msg *discordgo.Message, embed *discordgo.MessageEmbed) BridgeEmbedType {
 	switch embed.Type {
 	case discordgo.EmbedTypeLink, discordgo.EmbedTypeArticle:
 		return EmbedLinkPreview
@@ -509,7 +520,14 @@ func getEmbedType(embed *discordgo.MessageEmbed) BridgeEmbedType {
 		return EmbedVideo
 	case discordgo.EmbedTypeGifv:
 		return EmbedVideo
-	case discordgo.EmbedTypeRich, discordgo.EmbedTypeImage:
+	case discordgo.EmbedTypeImage:
+		if msg != nil && isPlainGifMessage(msg) {
+			return EmbedVideo
+		} else if embed.Image == nil && embed.Thumbnail != nil {
+			return EmbedLinkPreview
+		}
+		return EmbedRich
+	case discordgo.EmbedTypeRich:
 		return EmbedRich
 	default:
 		return EmbedUnknown
@@ -517,7 +535,9 @@ func getEmbedType(embed *discordgo.MessageEmbed) BridgeEmbedType {
 }
 
 func isPlainGifMessage(msg *discordgo.Message) bool {
-	return len(msg.Embeds) == 1 && msg.Embeds[0].Video != nil && msg.Embeds[0].URL == msg.Content && msg.Embeds[0].Type == discordgo.EmbedTypeGifv
+	return len(msg.Embeds) == 1 && msg.Embeds[0].URL == msg.Content &&
+		((msg.Embeds[0].Type == discordgo.EmbedTypeGifv && msg.Embeds[0].Video != nil) ||
+			(msg.Embeds[0].Type == discordgo.EmbedTypeImage && msg.Embeds[0].Image == nil && msg.Embeds[0].Thumbnail != nil))
 }
 
 func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, replySender id.UserID, syncGhosts bool) *event.Mentions {
@@ -575,7 +595,7 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 		with := log.With().
 			Str("embed_type", string(embed.Type)).
 			Int("embed_index", i)
-		switch getEmbedType(embed) {
+		switch getEmbedType(msg, embed) {
 		case EmbedRich:
 			log := with.Str("computed_embed_type", "rich").Logger()
 			htmlParts = append(htmlParts, portal.convertDiscordRichEmbed(log.WithContext(ctx), intent, embed, msg.ID, i))

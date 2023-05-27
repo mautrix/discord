@@ -134,7 +134,7 @@ func (p *Puppet) Update() {
 		UPDATE puppet SET name=$1, name_set=$2, avatar=$3, avatar_url=$4, avatar_set=$5, contact_info_set=$6,
 		                  global_name=$7, username=$8, discriminator=$9, is_bot=$10, is_webhook=$11,
 		                  custom_mxid=$12, access_token=$13, next_batch=$14
-		WHERE id=$13
+		WHERE id=$15
 	`
 	_, err := p.db.Exec(
 		query,

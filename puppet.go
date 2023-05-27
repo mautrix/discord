@@ -228,33 +228,44 @@ func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
 	return true
 }
 
-func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
-	if puppet.IsWebhook && !puppet.bridge.Config.Bridge.EnableWebhookAvatars {
-		info.Avatar = ""
+func (br *DiscordBridge) reuploadUserAvatar(intent *appservice.IntentAPI, userID, avatarID string) (id.ContentURI, error) {
+	downloadURL := discordgo.EndpointUserAvatar(userID, avatarID)
+	ext := "png"
+	if strings.HasPrefix(avatarID, "a_") {
+		downloadURL = discordgo.EndpointUserAvatarAnimated(userID, avatarID)
+		ext = "gif"
 	}
-	if puppet.Avatar == info.Avatar && puppet.AvatarSet {
+	url := br.Config.Bridge.MediaPatterns.Avatar(userID, avatarID, ext)
+	if !url.IsEmpty() {
+		return url, nil
+	}
+	copied, err := br.copyAttachmentToMatrix(intent, downloadURL, false, AttachmentMeta{
+		AttachmentID: fmt.Sprintf("avatar/%s/%s", userID, avatarID),
+	})
+	if err != nil {
+		return url, err
+	}
+	return copied.MXC, nil
+}
+
+func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
+	avatarID := info.Avatar
+	if puppet.IsWebhook && !puppet.bridge.Config.Bridge.EnableWebhookAvatars {
+		avatarID = ""
+	}
+	if puppet.Avatar == avatarID && puppet.AvatarSet {
 		return false
 	}
-	avatarChanged := info.Avatar != puppet.Avatar
-	puppet.Avatar = info.Avatar
+	avatarChanged := avatarID != puppet.Avatar
+	puppet.Avatar = avatarID
 	puppet.AvatarSet = false
 	puppet.AvatarURL = id.ContentURI{}
 
 	if puppet.Avatar != "" && (puppet.AvatarURL.IsEmpty() || avatarChanged) {
-		downloadURL := discordgo.EndpointUserAvatar(info.ID, info.Avatar)
-		ext := "png"
-		if strings.HasPrefix(info.Avatar, "a_") {
-			downloadURL = discordgo.EndpointUserAvatarAnimated(info.ID, info.Avatar)
-			ext = "gif"
-		}
-		url := puppet.bridge.Config.Bridge.MediaPatterns.Avatar(info.ID, info.Avatar, ext)
-		if url.IsEmpty() {
-			var err error
-			url, err = uploadAvatar(puppet.DefaultIntent(), downloadURL)
-			if err != nil {
-				puppet.log.Warn().Err(err).Str("avatar_id", puppet.Avatar).Msg("Failed to reupload user avatar")
-				return true
-			}
+		url, err := puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), info.ID, puppet.Avatar)
+		if err != nil {
+			puppet.log.Warn().Err(err).Str("avatar_id", puppet.Avatar).Msg("Failed to reupload user avatar")
+			return true
 		}
 		puppet.AvatarURL = url
 	}

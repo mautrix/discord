@@ -310,27 +310,38 @@ func (portal *Portal) convertDiscordMessage(ctx context.Context, intent *appserv
 	}
 	if msg.WebhookID != "" {
 		for _, part := range parts {
-			addWebhookMeta(part, msg)
+			portal.addWebhookMeta(part, msg)
 		}
 	}
 	return parts
 }
 
-func addWebhookMeta(part *ConvertedMessage, msg *discordgo.Message) {
+func (portal *Portal) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Message) {
 	if msg.WebhookID == "" {
 		return
 	}
 	if part.Extra == nil {
 		part.Extra = make(map[string]any)
 	}
+	var avatarURL id.ContentURI
+	if msg.Author.Avatar != "" {
+		var err error
+		avatarURL, err = portal.bridge.reuploadUserAvatar(portal.MainIntent(), msg.Author.ID, msg.Author.Avatar)
+		if err != nil {
+			portal.log.Warn().Err(err).
+				Str("avatar_id", msg.Author.Avatar).
+				Msg("Failed to reupload webhook avatar")
+		}
+	}
 	part.Extra["fi.mau.discord.webhook_metadata"] = map[string]any{
 		"id":         msg.WebhookID,
 		"name":       msg.Author.Username,
 		"avatar_id":  msg.Author.Avatar,
 		"avatar_url": msg.Author.AvatarURL(""),
+		"avatar_mxc": avatarURL.String(),
 	}
 	part.Extra["com.beeper.per_message_profile"] = map[string]any{
-		"avatar_url":  msg.Author.AvatarURL(""),
+		"avatar_url":  avatarURL.String(),
 		"displayname": msg.Author.Username,
 	}
 }

@@ -272,12 +272,15 @@ func (guild *Guild) UpdateAvatar(iconID string) bool {
 	guild.Avatar = iconID
 	guild.AvatarURL = id.ContentURI{}
 	if guild.Avatar != "" {
-		var err error
-		guild.AvatarURL, err = uploadAvatar(guild.bridge.Bot, discordgo.EndpointGuildIcon(guild.ID, iconID))
+		// TODO direct media support
+		copied, err := guild.bridge.copyAttachmentToMatrix(guild.bridge.Bot, discordgo.EndpointGuildIcon(guild.ID, iconID), false, AttachmentMeta{
+			AttachmentID: fmt.Sprintf("guild_avatar/%s/%s", guild.ID, iconID),
+		})
 		if err != nil {
-			guild.log.Warnfln("Failed to reupload guild avatar %s: %v", guild.Avatar, err)
+			guild.log.Warnfln("Failed to reupload guild avatar %s: %v", iconID, err)
 			return true
 		}
+		guild.AvatarURL = copied.MXC
 	}
 	if guild.MXID != "" {
 		_, err := guild.bridge.Bot.SetRoomAvatar(guild.MXID, guild.AvatarURL)

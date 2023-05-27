@@ -898,7 +898,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		return
 	}
 	if msg.WebhookID != "" {
-		addWebhookMeta(converted, msg)
+		portal.addWebhookMeta(converted, msg)
 	}
 	converted.Content.Mentions = portal.convertDiscordMentions(msg, "", false)
 	converted.Content.SetEdit(existing[0].MXID)
@@ -2152,13 +2152,15 @@ func (portal *Portal) UpdateGroupDMAvatar(iconID string) bool {
 	portal.AvatarSet = false
 	portal.AvatarURL = id.ContentURI{}
 	if portal.Avatar != "" {
-		uri, err := uploadAvatar(portal.MainIntent(), discordgo.EndpointGroupIcon(portal.Key.ChannelID, portal.Avatar))
+		// TODO direct media support
+		copied, err := portal.bridge.copyAttachmentToMatrix(portal.MainIntent(), discordgo.EndpointGroupIcon(portal.Key.ChannelID, portal.Avatar), false, AttachmentMeta{
+			AttachmentID: fmt.Sprintf("private_channel_avatar/%s/%s", portal.Key.ChannelID, iconID),
+		})
 		if err != nil {
-			portal.log.Err(err).Str("avatar_id", portal.Avatar).Msg("Failed to reupload channel avatar")
+			portal.log.Err(err).Str("avatar_id", iconID).Msg("Failed to reupload channel avatar")
 			return true
-		} else {
-			portal.AvatarURL = uri
 		}
+		portal.AvatarURL = copied.MXC
 	}
 	portal.updateRoomAvatar()
 	return true

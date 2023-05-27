@@ -257,7 +257,7 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	}
 }
 
-func (portal *Portal) convertDiscordMessage(ctx context.Context, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
+func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
 	if msg.Content != "" {
 		predictedLength++
@@ -308,15 +308,58 @@ func (portal *Portal) convertDiscordMessage(ctx context.Context, intent *appserv
 			parts = append(parts, part)
 		}
 	}
-	if msg.WebhookID != "" {
-		for _, part := range parts {
-			portal.addWebhookMeta(part, msg)
-		}
+	for _, part := range parts {
+		puppet.addWebhookMeta(part, msg)
+		puppet.addMemberMeta(part, msg)
 	}
 	return parts
 }
 
-func (portal *Portal) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Message) {
+func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Message) {
+	if msg.Member == nil {
+		return
+	}
+	if part.Extra == nil {
+		part.Extra = make(map[string]any)
+	}
+	var avatarURL id.ContentURI
+	if msg.Member.Avatar != "" {
+		var err error
+		avatarURL, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), msg.GuildID, msg.Author.ID, msg.Author.Avatar)
+		if err != nil {
+			puppet.log.Warn().Err(err).
+				Str("avatar_id", msg.Author.Avatar).
+				Msg("Failed to reupload guild user avatar")
+		}
+	}
+	var discordAvararURL string
+	if msg.Member.Avatar != "" {
+		discordAvararURL = msg.Member.AvatarURL("")
+	}
+	part.Extra["fi.mau.discord.guild_member_metadata"] = map[string]any{
+		"nick":       msg.Member.Nick,
+		"avatar_id":  msg.Member.Avatar,
+		"avatar_url": discordAvararURL,
+		"avatar_mxc": avatarURL.String(),
+	}
+	if msg.Member.Nick != "" || !avatarURL.IsEmpty() {
+		perMessageProfile := map[string]any{
+			"is_multiple_users": false,
+
+			"displayname": msg.Member.Nick,
+			"avatar_url":  avatarURL.String(),
+		}
+		if msg.Member.Nick == "" {
+			perMessageProfile["displayname"] = puppet.Name
+		}
+		if avatarURL.IsEmpty() {
+			perMessageProfile["avatar_url"] = puppet.AvatarURL.String()
+		}
+		part.Extra["com.beeper.per_message_profile"] = perMessageProfile
+	}
+}
+
+func (puppet *Puppet) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Message) {
 	if msg.WebhookID == "" {
 		return
 	}
@@ -326,9 +369,9 @@ func (portal *Portal) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Mess
 	var avatarURL id.ContentURI
 	if msg.Author.Avatar != "" {
 		var err error
-		avatarURL, err = portal.bridge.reuploadUserAvatar(portal.MainIntent(), msg.Author.ID, msg.Author.Avatar)
+		avatarURL, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), "", msg.Author.ID, msg.Author.Avatar)
 		if err != nil {
-			portal.log.Warn().Err(err).
+			puppet.log.Warn().Err(err).
 				Str("avatar_id", msg.Author.Avatar).
 				Msg("Failed to reupload webhook avatar")
 		}
@@ -341,6 +384,8 @@ func (portal *Portal) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Mess
 		"avatar_mxc": avatarURL.String(),
 	}
 	part.Extra["com.beeper.per_message_profile"] = map[string]any{
+		"is_multiple_users": true,
+
 		"avatar_url":  avatarURL.String(),
 		"displayname": msg.Author.Username,
 	}

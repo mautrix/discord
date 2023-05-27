@@ -638,7 +638,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	mentions := portal.convertDiscordMentions(msg, replySenderMXID, true)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	parts := portal.convertDiscordMessage(ctx, intent, msg)
+	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg)
 	dbParts := make([]database.MessagePart, 0, len(parts))
 	for i, part := range parts {
 		if (replyTo != nil || threadRootEvent != "") && part.Content.RelatesTo == nil {
@@ -844,7 +844,8 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		return
 	}
 
-	intent := portal.bridge.GetPuppetByID(msg.Author.ID).IntentFor(portal)
+	puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
+	intent := puppet.IntentFor(portal)
 
 	attachmentMap := map[string]*database.Message{}
 	for _, existingPart := range existing {
@@ -897,9 +898,8 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 			Msg("Dropping non-text edit")
 		return
 	}
-	if msg.WebhookID != "" {
-		portal.addWebhookMeta(converted, msg)
-	}
+	puppet.addWebhookMeta(converted, msg)
+	puppet.addMemberMeta(converted, msg)
 	converted.Content.Mentions = portal.convertDiscordMentions(msg, "", false)
 	converted.Content.SetEdit(existing[0].MXID)
 	// Never actually mention new users of edits, only include mentions inside m.new_content

@@ -308,7 +308,31 @@ func (portal *Portal) convertDiscordMessage(ctx context.Context, intent *appserv
 			parts = append(parts, part)
 		}
 	}
+	if msg.WebhookID != "" {
+		for _, part := range parts {
+			addWebhookMeta(part, msg)
+		}
+	}
 	return parts
+}
+
+func addWebhookMeta(part *ConvertedMessage, msg *discordgo.Message) {
+	if msg.WebhookID == "" {
+		return
+	}
+	if part.Extra == nil {
+		part.Extra = make(map[string]any)
+	}
+	part.Extra["fi.mau.discord.webhook_metadata"] = map[string]any{
+		"id":         msg.WebhookID,
+		"name":       msg.Author.Username,
+		"avatar_id":  msg.Author.Avatar,
+		"avatar_url": msg.Author.AvatarURL(""),
+	}
+	part.Extra["com.beeper.per_message_profile"] = map[string]any{
+		"avatar_url":  msg.Author.AvatarURL(""),
+		"displayname": msg.Author.Username,
+	}
 }
 
 const (
@@ -626,6 +650,12 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	content := format.HTMLToContent(fullHTML)
 	extraContent := map[string]any{
 		"com.beeper.linkpreviews": previews,
+	}
+
+	if msg.WebhookID != "" && portal.bridge.Config.Bridge.PrefixWebhookMessages {
+		content.EnsureHasHTML()
+		content.Body = fmt.Sprintf("%s: %s", msg.Author.Username, content.Body)
+		content.FormattedBody = fmt.Sprintf("<strong>%s</strong>: %s", html.EscapeString(msg.Author.Username), content.FormattedBody)
 	}
 
 	return &ConvertedMessage{Type: event.EventMessage, Content: &content, Extra: extraContent}

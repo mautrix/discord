@@ -207,7 +207,7 @@ func (puppet *Puppet) updatePortalMeta(meta func(portal *Portal)) {
 }
 
 func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
-	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info)
+	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info, puppet.IsWebhook)
 	if puppet.Name == newName && puppet.NameSet {
 		return false
 	}
@@ -229,6 +229,9 @@ func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
 }
 
 func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
+	if puppet.IsWebhook && !puppet.bridge.Config.Bridge.EnableWebhookAvatars {
+		info.Avatar = ""
+	}
 	if puppet.Avatar == info.Avatar && puppet.AvatarSet {
 		return false
 	}
@@ -324,7 +327,7 @@ func (puppet *Puppet) UpdateContactInfo(info *discordgo.User) bool {
 		puppet.IsBot = info.Bot
 		changed = true
 	}
-	if changed {
+	if (changed && !puppet.IsWebhook) || !puppet.ContactInfoSet {
 		puppet.ContactInfoSet = false
 		puppet.ResendContactInfo()
 		return true
@@ -344,6 +347,9 @@ func (puppet *Puppet) ResendContactInfo() {
 		"com.beeper.bridge.service":        puppet.bridge.BeeperServiceName,
 		"com.beeper.bridge.network":        puppet.bridge.BeeperNetworkName,
 		"com.beeper.bridge.is_network_bot": puppet.IsBot,
+	}
+	if puppet.IsWebhook {
+		contactInfo["com.beeper.bridge.identifiers"] = []string{}
 	}
 	err := puppet.DefaultIntent().BeeperUpdateProfile(contactInfo)
 	if err != nil {

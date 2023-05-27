@@ -897,6 +897,9 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 			Msg("Dropping non-text edit")
 		return
 	}
+	if msg.WebhookID != "" {
+		addWebhookMeta(converted, msg)
+	}
 	converted.Content.Mentions = portal.convertDiscordMentions(msg, "", false)
 	converted.Content.SetEdit(existing[0].MXID)
 	// Never actually mention new users of edits, only include mentions inside m.new_content

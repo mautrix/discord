@@ -51,6 +51,8 @@ type BridgeConfig struct {
 	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`
 	DeleteGuildOnLeave          bool `yaml:"delete_guild_on_leave"`
 	FederateRooms               bool `yaml:"federate_rooms"`
+	PrefixWebhookMessages       bool `yaml:"prefix_webhook_messages"`
+	EnableWebhookAvatars        bool `yaml:"enable_webhook_avatars"`
 	UseDiscordCDNUpload         bool `yaml:"use_discord_cdn_upload"`
 
 	CacheMedia    string        `yaml:"cache_media"`
@@ -287,9 +289,14 @@ func (bc BridgeConfig) FormatUsername(userID string) string {
 	return buffer.String()
 }
 
-func (bc BridgeConfig) FormatDisplayname(user *discordgo.User) string {
+type DisplaynameParams struct {
+	*discordgo.User
+	Webhook bool
+}
+
+func (bc BridgeConfig) FormatDisplayname(user *discordgo.User, webhook bool) string {
 	var buffer strings.Builder
-	_ = bc.displaynameTemplate.Execute(&buffer, user)
+	_ = bc.displaynameTemplate.Execute(&buffer, &DisplaynameParams{user, webhook})
 	return buffer.String()
 }
 

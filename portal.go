@@ -620,7 +620,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	log.Debug().Msg("Starting handling of Discord message")
 
 	puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
-	puppet.UpdateInfo(user, msg.Author)
+	puppet.UpdateInfo(user, msg.Author, msg.WebhookID)
 	intent := puppet.IntentFor(portal)
 
 	var discordThreadID string
@@ -970,7 +970,7 @@ func (portal *Portal) handleDiscordTyping(evt *discordgo.TypingStart) {
 
 func (portal *Portal) syncParticipant(source *User, participant *discordgo.User, remove bool) {
 	puppet := portal.bridge.GetPuppetByID(participant.ID)
-	puppet.UpdateInfo(source, participant)
+	puppet.UpdateInfo(source, participant, "")
 	log := portal.log.With().
 		Str("participant_id", participant.ID).
 		Str("ghost_mxid", puppet.MXID.String()).
@@ -997,7 +997,7 @@ func (portal *Portal) syncParticipant(source *User, participant *discordgo.User,
 func (portal *Portal) syncParticipants(source *User, participants []*discordgo.User) {
 	for _, participant := range participants {
 		puppet := portal.bridge.GetPuppetByID(participant.ID)
-		puppet.UpdateInfo(source, participant)
+		puppet.UpdateInfo(source, participant, "")
 
 		user := portal.bridge.GetUserByID(participant.ID)
 		if user != nil {
@@ -1826,7 +1826,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.MessageReaction, add bool, thread *Thread, member *discordgo.Member) {
 	puppet := portal.bridge.GetPuppetByID(reaction.UserID)
 	if member != nil {
-		puppet.UpdateInfo(user, member.User)
+		puppet.UpdateInfo(user, member.User, "")
 	}
 	intent := puppet.IntentFor(portal)
 

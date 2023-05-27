@@ -545,7 +545,7 @@ func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, replySender
 	for _, mention := range msg.Mentions {
 		puppet := portal.bridge.GetPuppetByID(mention.ID)
 		if syncGhosts {
-			puppet.UpdateInfo(nil, mention)
+			puppet.UpdateInfo(nil, mention, "")
 		}
 		user := portal.bridge.GetUserByID(mention.ID)
 		if user != nil {
@@ -581,7 +581,7 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	var htmlParts []string
 	if msg.Interaction != nil {
 		puppet := portal.bridge.GetPuppetByID(msg.Interaction.User.ID)
-		puppet.UpdateInfo(nil, msg.Interaction.User)
+		puppet.UpdateInfo(nil, msg.Interaction.User, "")
 		htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, puppet.MXID, puppet.Name, msg.Interaction.Name))
 	}
 	if msg.Content != "" && !isPlainGifMessage(msg) {

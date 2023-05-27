@@ -271,7 +271,7 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 	return true
 }
 
-func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User) {
+func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User, webhookID string) {
 	puppet.syncLock.Lock()
 	defer puppet.syncLock.Unlock()
 
@@ -294,6 +294,10 @@ func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User) {
 	}
 
 	changed := false
+	if webhookID != "" && webhookID == info.ID && !puppet.IsWebhook {
+		puppet.IsWebhook = true
+		changed = true
+	}
 	changed = puppet.UpdateContactInfo(info) || changed
 	changed = puppet.UpdateName(info) || changed
 	changed = puppet.UpdateAvatar(info) || changed
@@ -306,6 +310,10 @@ func (puppet *Puppet) UpdateContactInfo(info *discordgo.User) bool {
 	changed := false
 	if puppet.Username != info.Username {
 		puppet.Username = info.Username
+		changed = true
+	}
+	if puppet.GlobalName != info.GlobalName {
+		puppet.GlobalName = info.GlobalName
 		changed = true
 	}
 	if puppet.Discriminator != info.Discriminator {

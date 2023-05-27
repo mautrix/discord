@@ -39,8 +39,8 @@ func (fq *FileQuery) Get(url string, encrypted bool) *File {
 	return fq.New().Scan(fq.db.QueryRow(query, url, encrypted))
 }
 
-func (fq *FileQuery) GetByMXC(mxc id.ContentURI) *File {
-	query := fileSelect + " WHERE mxc=$1"
+func (fq *FileQuery) GetEmojiByMXC(mxc id.ContentURI) *File {
+	query := fileSelect + " WHERE mxc=$1 AND emoji_name<>'' LIMIT 1"
 	return fq.New().Scan(fq.db.QueryRow(query, mxc.String()))
 }
 

@@ -1790,7 +1790,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	emojiID := reaction.RelatesTo.Key
 	if strings.HasPrefix(emojiID, "mxc://") {
 		uri, _ := id.ParseContentURI(emojiID)
-		emojiFile := portal.bridge.DB.File.GetByMXC(uri)
+		emojiFile := portal.bridge.DB.File.GetEmojiByMXC(uri)
 		if emojiFile == nil || emojiFile.ID == "" || emojiFile.EmojiName == "" {
 			go portal.sendMessageMetrics(evt, fmt.Errorf("%w %s", errUnknownEmoji, emojiID), "Ignoring")
 			return

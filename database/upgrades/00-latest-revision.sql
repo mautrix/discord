@@ -1,4 +1,4 @@
--- v0 -> v21 (compatible with v19+): Latest revision
+-- v0 -> v22 (compatible with v19+): Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -160,7 +160,7 @@ CREATE TABLE role (
 CREATE TABLE discord_file (
     url       TEXT,
     encrypted BOOLEAN,
-    mxc       TEXT NOT NULL UNIQUE,
+    mxc       TEXT NOT NULL,
 
     id         TEXT,
     emoji_name TEXT,
@@ -174,3 +174,5 @@ CREATE TABLE discord_file (
 
     PRIMARY KEY (url, encrypted)
 );
+
+CREATE INDEX discord_file_mxc_idx ON discord_file (mxc);

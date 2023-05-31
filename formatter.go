@@ -59,7 +59,7 @@ func (b *indentableParagraphParser) CanAcceptIndentedLine() bool {
 
 var removeFeaturesExceptLinks = []any{
 	parser.NewListParser(), parser.NewListItemParser(), parser.NewHTMLBlockParser(), parser.NewRawHTMLParser(),
-	parser.NewSetextHeadingParser(), parser.NewATXHeadingParser(), parser.NewThematicBreakParser(),
+	parser.NewSetextHeadingParser(), parser.NewThematicBreakParser(),
 	parser.NewCodeBlockParser(),
 }
 var removeFeaturesAndLinks = append(removeFeaturesExceptLinks, parser.NewLinkParser())
@@ -170,6 +170,7 @@ var discordMarkdownEscaper = strings.NewReplacer(
 	"`", "\\`",
 	`|`, `\|`,
 	`<`, `\<`,
+	`#`, `\#`,
 )
 
 func escapeDiscordMarkdown(s string) string {

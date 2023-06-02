@@ -334,6 +334,7 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 	}
 	var discordAvararURL string
 	if msg.Member.Avatar != "" {
+		msg.Member.User = msg.Author
 		discordAvararURL = msg.Member.AvatarURL("")
 	}
 	part.Extra["fi.mau.discord.guild_member_metadata"] = map[string]any{

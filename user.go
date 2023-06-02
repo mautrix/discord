@@ -630,6 +630,8 @@ func (user *User) eventHandler(rawEvt any) {
 		user.pushPortalMessage(evt, "message create", evt.ChannelID, evt.GuildID)
 	case *discordgo.MessageDelete:
 		user.pushPortalMessage(evt, "message delete", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessageDeleteBulk:
+		user.pushPortalMessage(evt, "bulk message delete", evt.ChannelID, evt.GuildID)
 	case *discordgo.MessageUpdate:
 		user.pushPortalMessage(evt, "message update", evt.ChannelID, evt.GuildID)
 	case *discordgo.MessageReactionAdd:

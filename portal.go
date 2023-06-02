@@ -571,6 +571,8 @@ func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 		portal.handleDiscordMessageUpdate(msg.user, convertedMsg.Message)
 	case *discordgo.MessageDelete:
 		portal.handleDiscordMessageDelete(msg.user, convertedMsg.Message)
+	case *discordgo.MessageDeleteBulk:
+		portal.handleDiscordMessageDeleteBulk(msg.user, convertedMsg.Messages)
 	case *discordgo.MessageReactionAdd:
 		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, true, msg.thread, convertedMsg.Member)
 	case *discordgo.MessageReactionRemove:
@@ -929,14 +931,33 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 }
 
 func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) {
-	existing := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msg.ID)
+	lastResp := portal.redactAllParts(portal.MainIntent(), msg.ID)
+	if lastResp != "" {
+		portal.sendDeliveryReceipt(lastResp)
+	}
+}
+
+func (portal *Portal) handleDiscordMessageDeleteBulk(user *User, messages []string) {
 	intent := portal.MainIntent()
 	var lastResp id.EventID
+	for _, msgID := range messages {
+		newLastResp := portal.redactAllParts(intent, msgID)
+		if newLastResp != "" {
+			lastResp = newLastResp
+		}
+	}
+	if lastResp != "" {
+		portal.sendDeliveryReceipt(lastResp)
+	}
+}
+
+func (portal *Portal) redactAllParts(intent *appservice.IntentAPI, msgID string) (lastResp id.EventID) {
+	existing := portal.bridge.DB.Message.GetByDiscordID(portal.Key, msgID)
 	for _, dbMsg := range existing {
 		resp, err := intent.RedactEvent(portal.MXID, dbMsg.MXID)
 		if err != nil {
 			portal.log.Err(err).
-				Str("message_id", msg.ID).
+				Str("message_id", msgID).
 				Str("event_id", dbMsg.MXID.String()).
 				Msg("Failed to redact Matrix message")
 		} else if resp != nil && resp.EventID != "" {
@@ -944,9 +965,7 @@ func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Mess
 		}
 		dbMsg.Delete()
 	}
-	if lastResp != "" {
-		portal.sendDeliveryReceipt(lastResp)
-	}
+	return
 }
 
 func (portal *Portal) handleDiscordTyping(evt *discordgo.TypingStart) {

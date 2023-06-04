@@ -621,7 +621,7 @@ func isPlainGifMessage(msg *discordgo.Message) bool {
 			(msg.Embeds[0].Type == discordgo.EmbedTypeImage && msg.Embeds[0].Image == nil && msg.Embeds[0].Thumbnail != nil))
 }
 
-func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, replySender id.UserID, syncGhosts bool) *event.Mentions {
+func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, syncGhosts bool) *event.Mentions {
 	var matrixMentions event.Mentions
 	for _, mention := range msg.Mentions {
 		puppet := portal.bridge.GetPuppetByID(mention.ID)
@@ -634,9 +634,6 @@ func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, replySender
 		} else {
 			matrixMentions.UserIDs = append(matrixMentions.UserIDs, puppet.MXID)
 		}
-	}
-	if replySender != "" {
-		matrixMentions.UserIDs = append(matrixMentions.UserIDs, replySender)
 	}
 	slices.Sort(matrixMentions.UserIDs)
 	matrixMentions.UserIDs = slices.Compact(matrixMentions.UserIDs)

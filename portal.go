@@ -636,8 +636,8 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 			lastThreadEvent = lastInThread.MXID
 		}
 	}
-	replyTo, replySenderMXID := portal.getReplyTarget(user, discordThreadID, msg.MessageReference, msg.Embeds, false)
-	mentions := portal.convertDiscordMentions(msg, replySenderMXID, true)
+	replyTo := portal.getReplyTarget(user, discordThreadID, msg.MessageReference, msg.Embeds, false)
+	mentions := portal.convertDiscordMentions(msg, true)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg)
@@ -688,7 +688,7 @@ func isReplyEmbed(embed *discordgo.MessageEmbed) bool {
 	return hackyReplyPattern.MatchString(embed.Description)
 }
 
-func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discordgo.MessageReference, embeds []*discordgo.MessageEmbed, allowNonExistent bool) (*event.InReplyTo, id.UserID) {
+func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discordgo.MessageReference, embeds []*discordgo.MessageEmbed, allowNonExistent bool) *event.InReplyTo {
 	if ref == nil && len(embeds) > 0 {
 		match := hackyReplyPattern.FindStringSubmatch(embeds[0].Description)
 		if match != nil && match[1] == portal.GuildID && (match[2] == portal.Key.ChannelID || match[2] == threadID) {
@@ -700,7 +700,7 @@ func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discord
 		}
 	}
 	if ref == nil {
-		return nil, ""
+		return nil
 	}
 	isHungry := portal.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry
 	if !isHungry {
@@ -713,25 +713,25 @@ func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discord
 	if ref.ChannelID != portal.Key.ChannelID && ref.ChannelID != threadID && crossRoomReplies {
 		targetPortal = portal.bridge.GetExistingPortalByID(database.PortalKey{ChannelID: ref.ChannelID, Receiver: source.DiscordID})
 		if targetPortal == nil {
-			return nil, ""
+			return nil
 		}
 	}
 	replyToMsg := portal.bridge.DB.Message.GetByDiscordID(targetPortal.Key, ref.MessageID)
 	if len(replyToMsg) > 0 {
 		if !crossRoomReplies {
-			return &event.InReplyTo{EventID: replyToMsg[0].MXID}, replyToMsg[0].SenderMXID
+			return &event.InReplyTo{EventID: replyToMsg[0].MXID}
 		}
 		return &event.InReplyTo{
 			EventID:        replyToMsg[0].MXID,
 			UnstableRoomID: targetPortal.MXID,
-		}, replyToMsg[0].SenderMXID
+		}
 	} else if allowNonExistent {
 		return &event.InReplyTo{
 			EventID:        targetPortal.deterministicEventID(ref.MessageID, ""),
 			UnstableRoomID: targetPortal.MXID,
-		}, ""
+		}
 	}
-	return nil, ""
+	return nil
 }
 
 const JoinThreadReaction = "join thread"
@@ -902,7 +902,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	}
 	puppet.addWebhookMeta(converted, msg)
 	puppet.addMemberMeta(converted, msg)
-	converted.Content.Mentions = portal.convertDiscordMentions(msg, "", false)
+	converted.Content.Mentions = portal.convertDiscordMentions(msg, false)
 	converted.Content.SetEdit(existing[0].MXID)
 	// Never actually mention new users of edits, only include mentions inside m.new_content
 	converted.Content.Mentions = &event.Mentions{}

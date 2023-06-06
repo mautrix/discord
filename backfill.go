@@ -134,7 +134,7 @@ func (portal *Portal) backfillLimited(log zerolog.Logger, source *User, limit in
 		Bool("found_all", foundAll).
 		Msg("Collected messages to backfill")
 	sort.Sort(MessageSlice(messages))
-	if !foundAll {
+	if !foundAll && after != "" {
 		_, err = portal.sendMatrixMessage(portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
 			MsgType: event.MsgNotice,
 			Body:    "Some messages may have been missed here while the bridge was offline.",

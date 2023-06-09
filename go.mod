@@ -16,7 +16,7 @@ require (
 	github.com/yuin/goldmark v1.5.4
 	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea
 	maunium.net/go/maulogger/v2 v2.4.1
-	maunium.net/go/mautrix v0.15.3-0.20230605151437-f71a26085e1a
+	maunium.net/go/mautrix v0.15.3-0.20230609085119-3b3db3ca863b
 )
 
 require (

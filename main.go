@@ -102,7 +102,6 @@ func (br *DiscordBridge) Start() {
 	if br.Config.Bridge.Provisioning.SharedSecret != "disable" {
 		br.provisioning = newProvisioningAPI(br)
 	}
-	go br.updatePuppetsContactInfo()
 	br.WaitWebsocketConnected()
 	go br.startUsers()
 }

@@ -158,18 +158,6 @@ func (br *DiscordBridge) FormatPuppetMXID(did string) id.UserID {
 	)
 }
 
-func (br *DiscordBridge) updatePuppetsContactInfo() {
-	if br.Config.Homeserver.Software != bridgeconfig.SoftwareHungry {
-		return
-	}
-	for _, puppet := range br.GetAllPuppets() {
-		if !puppet.ContactInfoSet && puppet.NameSet {
-			puppet.ResendContactInfo()
-			puppet.Update()
-		}
-	}
-}
-
 func (puppet *Puppet) GetDisplayname() string {
 	return puppet.Name
 }

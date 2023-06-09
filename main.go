@@ -103,6 +103,7 @@ func (br *DiscordBridge) Start() {
 		br.provisioning = newProvisioningAPI(br)
 	}
 	go br.updatePuppetsContactInfo()
+	br.WaitWebsocketConnected()
 	go br.startUsers()
 }
 

@@ -186,6 +186,12 @@ func (br *DiscordBridge) GetUserByID(id string) *User {
 	return user
 }
 
+func (br *DiscordBridge) GetCachedUserByID(id string) *User {
+	br.usersLock.Lock()
+	defer br.usersLock.Unlock()
+	return br.usersByID[id]
+}
+
 func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 	user := &User{
 		User:   dbUser,
@@ -1228,8 +1234,15 @@ func (user *User) messageAckHandler(m *discordgo.MessageAck) {
 }
 
 func (user *User) typingStartHandler(t *discordgo.TypingStart) {
+	if t.UserID == user.DiscordID {
+		return
+	}
 	portal := user.GetExistingPortalByID(t.ChannelID)
 	if portal == nil || portal.MXID == "" {
+		return
+	}
+	targetUser := user.bridge.GetCachedUserByID(t.UserID)
+	if targetUser != nil {
 		return
 	}
 	portal.handleDiscordTyping(t)

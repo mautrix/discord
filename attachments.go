@@ -128,17 +128,17 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 		ContentType:  uploadMime,
 	}
 	if br.Config.Homeserver.AsyncMedia {
-		resp, err := intent.UnstableCreateMXC()
+		resp, err := intent.CreateMXC()
 		if err != nil {
 			return nil, err
 		}
 		dbFile.MXC = resp.ContentURI
-		req.UnstableMXC = resp.ContentURI
-		req.UploadURL = resp.UploadURL
+		req.MXC = resp.ContentURI
+		req.UnstableUploadURL = resp.UnstableUploadURL
 		go func() {
 			_, err = intent.UploadMedia(req)
 			if err != nil {
-				br.Log.Errorfln("Failed to upload %s: %v", req.UnstableMXC, err)
+				br.Log.Errorfln("Failed to upload %s: %v", req.MXC, err)
 				dbFile.Delete()
 			}
 		}()

@@ -1,10 +1,19 @@
-# unreleased
+# v0.5.0 (2023-06-16)
 
 * Added support for intentional mentions in Matrix (MSC3952).
 * Added `GlobalName` variable to displayname templates and updated the default
   template to prefer it over usernames.
+* Added `Webhook` variable to displayname templates to allow determining if a
+  ghost user is a webhook.
+* Added guild profiles and webhook profiles as a custom field in Matrix
+  message events.
+* Added support for bulk message delete from Discord.
+* Added support for appservice websockets.
+* Enabled parsing headers (`#`) in Discord markdown.
 * Messages that consist of a single image link are now bridged as images to
   closer match Discord.
+* Stopped bridging incoming typing notifications from users who are logged into
+  the bridge to prevent echoes.
 
 # v0.4.0 (2023-05-16)
 

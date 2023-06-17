@@ -216,7 +216,7 @@ func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
 	return true
 }
 
-func (br *DiscordBridge) reuploadUserAvatar(intent *appservice.IntentAPI, guildID, userID, avatarID string) (id.ContentURI, error) {
+func (br *DiscordBridge) reuploadUserAvatar(intent *appservice.IntentAPI, guildID, userID, avatarID string) (id.ContentURI, string, error) {
 	var downloadURL, ext string
 	if guildID == "" {
 		downloadURL = discordgo.EndpointUserAvatar(userID, avatarID)
@@ -233,17 +233,19 @@ func (br *DiscordBridge) reuploadUserAvatar(intent *appservice.IntentAPI, guildI
 			ext = "gif"
 		}
 	}
-	url := br.Config.Bridge.MediaPatterns.Avatar(userID, avatarID, ext)
-	if !url.IsEmpty() {
-		return url, nil
+	if guildID == "" {
+		url := br.Config.Bridge.MediaPatterns.Avatar(userID, avatarID, ext)
+		if !url.IsEmpty() {
+			return url, downloadURL, nil
+		}
 	}
 	copied, err := br.copyAttachmentToMatrix(intent, downloadURL, false, AttachmentMeta{
 		AttachmentID: fmt.Sprintf("avatar/%s/%s/%s", guildID, userID, avatarID),
 	})
 	if err != nil {
-		return url, err
+		return id.ContentURI{}, downloadURL, err
 	}
-	return copied.MXC, nil
+	return copied.MXC, downloadURL, nil
 }
 
 func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
@@ -260,7 +262,7 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 	puppet.AvatarURL = id.ContentURI{}
 
 	if puppet.Avatar != "" && (puppet.AvatarURL.IsEmpty() || avatarChanged) {
-		url, err := puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), "", info.ID, puppet.Avatar)
+		url, _, err := puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), "", info.ID, puppet.Avatar)
 		if err != nil {
 			puppet.log.Warn().Err(err).Str("avatar_id", puppet.Avatar).Msg("Failed to reupload user avatar")
 			return true

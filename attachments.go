@@ -44,7 +44,7 @@ func downloadDiscordAttachment(url string) ([]byte, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode > 300 {
 		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, data)
+		return nil, fmt.Errorf("unexpected status %d downloading %s: %s", resp.StatusCode, url, data)
 	}
 	return io.ReadAll(resp.Body)
 }

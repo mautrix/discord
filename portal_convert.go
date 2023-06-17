@@ -323,24 +323,20 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 		part.Extra = make(map[string]any)
 	}
 	var avatarURL id.ContentURI
+	var discordAvatarURL string
 	if msg.Member.Avatar != "" {
 		var err error
-		avatarURL, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), msg.GuildID, msg.Author.ID, msg.Author.Avatar)
+		avatarURL, discordAvatarURL, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), msg.GuildID, msg.Author.ID, msg.Author.Avatar)
 		if err != nil {
 			puppet.log.Warn().Err(err).
 				Str("avatar_id", msg.Author.Avatar).
 				Msg("Failed to reupload guild user avatar")
 		}
 	}
-	var discordAvararURL string
-	if msg.Member.Avatar != "" {
-		msg.Member.User = msg.Author
-		discordAvararURL = msg.Member.AvatarURL("")
-	}
 	part.Extra["fi.mau.discord.guild_member_metadata"] = map[string]any{
 		"nick":       msg.Member.Nick,
 		"avatar_id":  msg.Member.Avatar,
-		"avatar_url": discordAvararURL,
+		"avatar_url": discordAvatarURL,
 		"avatar_mxc": avatarURL.String(),
 	}
 	if msg.Member.Nick != "" || !avatarURL.IsEmpty() {
@@ -370,7 +366,7 @@ func (puppet *Puppet) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Mess
 	var avatarURL id.ContentURI
 	if msg.Author.Avatar != "" {
 		var err error
-		avatarURL, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), "", msg.Author.ID, msg.Author.Avatar)
+		avatarURL, _, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), "", msg.Author.ID, msg.Author.Avatar)
 		if err != nil {
 			puppet.log.Warn().Err(err).
 				Str("avatar_id", msg.Author.Avatar).

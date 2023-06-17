@@ -1409,6 +1409,8 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	}
 	if everything {
 		guild.BridgingMode = database.GuildBridgeEverything
+	} else {
+		guild.BridgingMode = database.GuildBridgeCreateOnMessage
 	}
 	guild.Update()
 

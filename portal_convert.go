@@ -308,6 +308,12 @@ func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet,
 			parts = append(parts, part)
 		}
 	}
+	if len(parts) == 0 && msg.Thread != nil {
+		parts = append(parts, &ConvertedMessage{Type: event.EventMessage, Content: &event.MessageEventContent{
+			MsgType: event.MsgText,
+			Body:    fmt.Sprintf("Created a thread: %s", msg.Thread.Name),
+		}})
+	}
 	for _, part := range parts {
 		puppet.addWebhookMeta(part, msg)
 		puppet.addMemberMeta(part, msg)

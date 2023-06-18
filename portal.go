@@ -586,7 +586,7 @@ func (portal *Portal) ensureUserInvited(user *User, ignoreCache bool) bool {
 	return user.ensureInvited(portal.MainIntent(), portal.MXID, portal.IsPrivateChat(), ignoreCache)
 }
 
-func (portal *Portal) markMessageHandled(discordID string, authorID string, timestamp time.Time, threadID string, senderMXID id.UserID, parts []database.MessagePart) {
+func (portal *Portal) markMessageHandled(discordID string, authorID string, timestamp time.Time, threadID string, senderMXID id.UserID, parts []database.MessagePart) *database.Message {
 	msg := portal.bridge.DB.Message.New()
 	msg.Channel = portal.Key
 	msg.DiscordID = discordID
@@ -595,6 +595,9 @@ func (portal *Portal) markMessageHandled(discordID string, authorID string, time
 	msg.ThreadID = threadID
 	msg.SenderMXID = senderMXID
 	msg.MassInsertParts(parts)
+	msg.MXID = parts[0].MXID
+	msg.AttachmentID = parts[0].AttachmentID
+	return msg
 }
 
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
@@ -678,7 +681,14 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	} else if len(dbParts) == 0 {
 		log.Warn().Msg("All parts of message failed to send to Matrix")
 	} else {
-		portal.markMessageHandled(msg.ID, msg.Author.ID, ts, discordThreadID, intent.UserID, dbParts)
+		firstDBMessage := portal.markMessageHandled(msg.ID, msg.Author.ID, ts, discordThreadID, intent.UserID, dbParts)
+		if msg.Flags == discordgo.MessageFlagsHasThread {
+			thread = portal.bridge.GetThreadByID(msg.ID, firstDBMessage)
+			log.Debug().Msg("Marked message as thread root")
+			if thread.CreationNoticeMXID == "" {
+				portal.sendThreadCreationNotice(ctx, thread)
+			}
+		}
 	}
 }
 
@@ -1463,7 +1473,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}
 		return
 	} else if threadRoot := content.GetRelatesTo().GetThreadParent(); threadRoot != "" {
-		existingThread := portal.bridge.DB.Thread.GetByMatrixRootMsg(threadRoot)
+		existingThread := portal.bridge.GetThreadByRootMXID(threadRoot)
 		if existingThread != nil {
 			threadID = existingThread.ID
 		} else {

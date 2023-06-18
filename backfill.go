@@ -208,7 +208,7 @@ func (portal *Portal) sendBackfillBatch(log zerolog.Logger, source *User, messag
 }
 
 func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, messages []*discordgo.Message, thread *Thread) {
-	evts, dbMessages := portal.convertMessageBatch(log, source, messages, thread)
+	evts, metas, dbMessages := portal.convertMessageBatch(log, source, messages, thread)
 	if len(evts) == 0 {
 		log.Warn().Msg("Didn't get any events to backfill")
 		return
@@ -224,12 +224,24 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 	}
 	for i, evtID := range resp.EventIDs {
 		dbMessages[i].MXID = evtID
+		if metas[i] != nil && metas[i].Flags == discordgo.MessageFlagsHasThread {
+			thread = portal.bridge.GetThreadByID(metas[i].ID, &dbMessages[i])
+			log.Debug().
+				Str("message_id", metas[i].ID).
+				Str("event_id", evtID.String()).
+				Msg("Marked backfilled message as thread root")
+			if thread.CreationNoticeMXID == "" {
+				// TODO proper context
+				ctx := log.WithContext(context.Background())
+				portal.sendThreadCreationNotice(ctx, thread)
+			}
+		}
 	}
 	portal.bridge.DB.Message.MassInsert(portal.Key, dbMessages)
 	log.Info().Msg("Inserted backfilled batch to database")
 }
 
-func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, messages []*discordgo.Message, thread *Thread) ([]*event.Event, []database.Message) {
+func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, messages []*discordgo.Message, thread *Thread) ([]*event.Event, []*discordgo.Message, []database.Message) {
 	var discordThreadID string
 	var threadRootEvent, lastThreadEvent id.EventID
 	if thread != nil {
@@ -244,6 +256,7 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 
 	evts := make([]*event.Event, 0, len(messages))
 	dbMessages := make([]database.Message, 0, len(messages))
+	metas := make([]*discordgo.Message, 0, len(messages))
 	ctx := context.Background()
 	for _, msg := range messages {
 		for _, mention := range msg.Mentions {
@@ -313,10 +326,15 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 				AttachmentID: part.AttachmentID,
 				SenderMXID:   intent.UserID,
 			})
+			if i == 0 {
+				metas = append(metas, msg)
+			} else {
+				metas = append(metas, nil)
+			}
 			lastThreadEvent = evt.ID
 		}
 	}
-	return evts, dbMessages
+	return evts, metas, dbMessages
 }
 
 func (portal *Portal) deterministicEventID(messageID, partName string) id.EventID {

@@ -29,6 +29,7 @@ func (portal *Portal) forwardBackfillInitial(source *User, thread *Thread) {
 		limit = portal.bridge.Config.Bridge.Backfill.Limits.Initial.DM
 		if thread != nil {
 			limit = portal.bridge.Config.Bridge.Backfill.Limits.Initial.Thread
+			thread.initialBackfillAttempted = true
 		}
 	}
 	if limit == 0 {
@@ -225,16 +226,9 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 	for i, evtID := range resp.EventIDs {
 		dbMessages[i].MXID = evtID
 		if metas[i] != nil && metas[i].Flags == discordgo.MessageFlagsHasThread {
-			thread = portal.bridge.GetThreadByID(metas[i].ID, &dbMessages[i])
-			log.Debug().
-				Str("message_id", metas[i].ID).
-				Str("event_id", evtID.String()).
-				Msg("Marked backfilled message as thread root")
-			if thread.CreationNoticeMXID == "" {
-				// TODO proper context
-				ctx := log.WithContext(context.Background())
-				portal.sendThreadCreationNotice(ctx, thread)
-			}
+			// TODO proper context
+			ctx := log.WithContext(context.Background())
+			portal.bridge.threadFound(ctx, source, &dbMessages[i], metas[i].ID, metas[i].Thread)
 		}
 	}
 	portal.bridge.DB.Message.MassInsert(portal.Key, dbMessages)

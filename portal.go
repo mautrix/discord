@@ -683,11 +683,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	} else {
 		firstDBMessage := portal.markMessageHandled(msg.ID, msg.Author.ID, ts, discordThreadID, intent.UserID, dbParts)
 		if msg.Flags == discordgo.MessageFlagsHasThread {
-			thread = portal.bridge.GetThreadByID(msg.ID, firstDBMessage)
-			log.Debug().Msg("Marked message as thread root")
-			if thread.CreationNoticeMXID == "" {
-				portal.sendThreadCreationNotice(ctx, thread)
-			}
+			portal.bridge.threadFound(ctx, user, firstDBMessage, msg.ID, msg.Thread)
 		}
 	}
 }
@@ -817,11 +813,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	}
 
 	if msg.Flags == discordgo.MessageFlagsHasThread {
-		thread := portal.bridge.GetThreadByID(msg.ID, existing[0])
-		log.Debug().Msg("Marked message as thread root")
-		if thread.CreationNoticeMXID == "" {
-			portal.sendThreadCreationNotice(ctx, thread)
-		}
+		portal.bridge.threadFound(ctx, user, existing[0], msg.ID, msg.Thread)
 	}
 
 	if msg.Author == nil {
@@ -1476,6 +1468,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		existingThread := portal.bridge.GetThreadByRootMXID(threadRoot)
 		if existingThread != nil {
 			threadID = existingThread.ID
+			existingThread.initialBackfillAttempted = true
 		} else {
 			if isWebhookSend {
 				// TODO start thread with bot?

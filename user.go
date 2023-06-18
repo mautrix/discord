@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -650,6 +651,8 @@ func (user *User) eventHandler(rawEvt any) {
 		user.typingStartHandler(evt)
 	case *discordgo.InteractionSuccess:
 		user.interactionSuccessHandler(evt)
+	case *discordgo.ThreadListSync:
+		user.threadListSyncHandler(evt)
 	case *discordgo.Event:
 		// Ignore
 	default:
@@ -1036,6 +1039,30 @@ func (user *User) guildDeleteHandler(g *discordgo.GuildDelete) {
 func (user *User) guildUpdateHandler(g *discordgo.GuildUpdate) {
 	user.log.Debug().Str("guild_id", g.ID).Msg("Got guild update event")
 	user.handleGuild(g.Guild, time.Now(), user.IsInSpace(g.ID))
+}
+
+func (user *User) threadListSyncHandler(t *discordgo.ThreadListSync) {
+	for _, meta := range t.Threads {
+		log := user.log.With().
+			Str("action", "thread list sync").
+			Str("guild_id", t.GuildID).
+			Str("parent_id", meta.ParentID).
+			Str("thread_id", meta.ID).
+			Logger()
+		ctx := log.WithContext(context.Background())
+		thread := user.bridge.GetThreadByID(meta.ID, nil)
+		if thread == nil {
+			msg := user.bridge.DB.Message.GetByDiscordID(database.NewPortalKey(meta.ParentID, ""), meta.ID)
+			if len(msg) == 0 {
+				log.Debug().Msg("Found unknown thread in thread list sync and don't have message")
+			} else {
+				log.Debug().Msg("Found unknown thread in thread list sync for existing message, creating thread")
+				user.bridge.threadFound(ctx, user, msg[0], meta.ID, meta)
+			}
+		} else {
+			thread.Parent.ForwardBackfillMissed(user, meta.LastMessageID, thread)
+		}
+	}
 }
 
 func (user *User) channelCreateHandler(c *discordgo.ChannelCreate) {

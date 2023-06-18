@@ -864,7 +864,7 @@ func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, 
 		}
 	} else {
 		portal.UpdateInfo(user, meta)
-		portal.ForwardBackfillMissed(user, meta)
+		portal.ForwardBackfillMissed(user, meta.LastMessageID, nil)
 	}
 	user.MarkInPortal(database.UserPortal{
 		DiscordID: portal.Key.ChannelID,
@@ -966,7 +966,7 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 			} else {
 				portal.UpdateInfo(user, ch)
 				if user.bridge.Config.Bridge.Backfill.MaxGuildMembers < 0 || meta.MemberCount < user.bridge.Config.Bridge.Backfill.MaxGuildMembers {
-					portal.ForwardBackfillMissed(user, ch)
+					portal.ForwardBackfillMissed(user, ch.LastMessageID, nil)
 				}
 			}
 		}

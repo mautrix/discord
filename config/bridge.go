@@ -207,6 +207,7 @@ func (mp *MediaPatterns) Avatar(userID, avatarID, ext string) id.ContentURI {
 type BackfillLimitPart struct {
 	DM      int `yaml:"dm"`
 	Channel int `yaml:"channel"`
+	Thread  int `yaml:"thread"`
 }
 
 func (bc *BridgeConfig) GetResendBridgeInfo() bool {

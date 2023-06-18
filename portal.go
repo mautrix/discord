@@ -541,7 +541,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		portal.Update()
 	}
 
-	go portal.forwardBackfillInitial(user)
+	go portal.forwardBackfillInitial(user, nil)
 	backfillStarted = true
 
 	return nil

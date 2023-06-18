@@ -232,6 +232,7 @@ bridge:
             initial:
                 dm: 0
                 channel: 0
+                thread: 0
             # Missed message backfill (on startup).
             # 0 means backfill is disabled, -1 means fetch all messages since last bridged message.
             # When using unlimited backfill (-1), messages are backfilled as they are fetched.
@@ -239,6 +240,7 @@ bridge:
             missed:
                 dm: 0
                 channel: 0
+                thread: 0
         # Maximum members in a guild to enable backfilling. Set to -1 to disable limit.
         # This can be used as a rough heuristic to disable backfilling in channels that are too active.
         # Currently only applies to missed message backfill.

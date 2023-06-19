@@ -298,7 +298,7 @@ func (guild *Guild) cleanup() {
 		return
 	}
 	intent := guild.bridge.Bot
-	if guild.bridge.SpecVersions.UnstableFeatures["com.beeper.room_yeeting"] {
+	if guild.bridge.SpecVersions.Supports(mautrix.BeeperFeatureRoomYeeting) {
 		err := intent.BeeperDeleteRoom(guild.MXID)
 		if err != nil && !errors.Is(err, mautrix.MNotFound) {
 			guild.log.Errorfln("Failed to delete %s using hungryserv yeet endpoint: %v", guild.MXID, err)

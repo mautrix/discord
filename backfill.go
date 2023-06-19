@@ -10,7 +10,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix"
-	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
@@ -197,7 +196,7 @@ func (portal *Portal) backfillUnlimitedMissed(log zerolog.Logger, source *User, 
 }
 
 func (portal *Portal) sendBackfillBatch(log zerolog.Logger, source *User, messages []*discordgo.Message, thread *Thread) {
-	if portal.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry {
+	if portal.bridge.SpecVersions.Supports(mautrix.BeeperFeatureBatchSending) {
 		log.Debug().Msg("Using hungryserv, sending messages with batch send endpoint")
 		portal.forwardBatchSend(log, source, messages, thread)
 	} else {
@@ -215,9 +214,9 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 		return
 	}
 	log.Info().Int("events", len(evts)).Msg("Converted messages to backfill")
-	resp, err := portal.MainIntent().BatchSend(portal.MXID, &mautrix.ReqBatchSend{
-		BeeperNewMessages: true,
-		Events:            evts,
+	resp, err := portal.MainIntent().BeeperBatchSend(portal.MXID, &mautrix.ReqBeeperBatchSend{
+		Forward: true,
+		Events:  evts,
 	})
 	if err != nil {
 		log.Err(err).Msg("Error sending backfill batch")

@@ -708,12 +708,8 @@ func (portal *Portal) getReplyTarget(source *User, threadID string, ref *discord
 	if ref == nil {
 		return nil
 	}
-	isHungry := portal.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry
-	if !isHungry {
-		allowNonExistent = false
-	}
 	// TODO add config option for cross-room replies
-	crossRoomReplies := isHungry
+	crossRoomReplies := portal.bridge.Config.Homeserver.Software == bridgeconfig.SoftwareHungry
 
 	targetPortal := portal
 	if ref.ChannelID != portal.Key.ChannelID && ref.ChannelID != threadID && crossRoomReplies {
@@ -1703,7 +1699,7 @@ func (portal *Portal) cleanup(puppetsOnly bool) {
 		return
 	}
 	intent := portal.MainIntent()
-	if portal.bridge.SpecVersions.UnstableFeatures["com.beeper.room_yeeting"] {
+	if portal.bridge.SpecVersions.Supports(mautrix.BeeperFeatureRoomYeeting) {
 		err := intent.BeeperDeleteRoom(portal.MXID)
 		if err != nil && !errors.Is(err, mautrix.MNotFound) {
 			portal.log.Err(err).Msg("Failed to delete room using hungryserv yeet endpoint")

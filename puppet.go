@@ -9,9 +9,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
-	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/database"
@@ -347,7 +347,7 @@ func (puppet *Puppet) UpdateContactInfo(info *discordgo.User) bool {
 }
 
 func (puppet *Puppet) ResendContactInfo() {
-	if puppet.bridge.Config.Homeserver.Software != bridgeconfig.SoftwareHungry || puppet.ContactInfoSet {
+	if !puppet.bridge.SpecVersions.Supports(mautrix.BeeperFeatureArbitraryProfileMeta) || puppet.ContactInfoSet {
 		return
 	}
 	contactInfo := map[string]any{

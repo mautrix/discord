@@ -350,9 +350,13 @@ func (puppet *Puppet) ResendContactInfo() {
 	if !puppet.bridge.SpecVersions.Supports(mautrix.BeeperFeatureArbitraryProfileMeta) || puppet.ContactInfoSet {
 		return
 	}
+	discordUsername := puppet.Username
+	if puppet.Discriminator != "0" {
+		discordUsername += "#" + puppet.Discriminator
+	}
 	contactInfo := map[string]any{
 		"com.beeper.bridge.identifiers": []string{
-			fmt.Sprintf("discord:%s#%s", puppet.Username, puppet.Discriminator),
+			fmt.Sprintf("discord:%s", discordUsername),
 		},
 		"com.beeper.bridge.remote_id":      puppet.ID,
 		"com.beeper.bridge.service":        puppet.bridge.BeeperServiceName,

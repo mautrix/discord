@@ -254,11 +254,11 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 	for _, msg := range messages {
 		for _, mention := range msg.Mentions {
 			puppet := portal.bridge.GetPuppetByID(mention.ID)
-			puppet.UpdateInfo(nil, mention, "")
+			puppet.UpdateInfo(nil, mention, nil)
 		}
 
 		puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
-		puppet.UpdateInfo(source, msg.Author, msg.WebhookID)
+		puppet.UpdateInfo(source, msg.Author, msg)
 		intent := puppet.IntentFor(portal)
 		replyTo := portal.getReplyTarget(source, discordThreadID, msg.MessageReference, msg.Embeds, true)
 		mentions := portal.convertDiscordMentions(msg, false)

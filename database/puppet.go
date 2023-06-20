@@ -11,7 +11,7 @@ import (
 
 const (
 	puppetSelect = "SELECT id, name, name_set, avatar, avatar_url, avatar_set," +
-		" contact_info_set, global_name, username, discriminator, is_bot, is_webhook, custom_mxid, access_token, next_batch" +
+		" contact_info_set, global_name, username, discriminator, is_bot, is_webhook, is_application, custom_mxid, access_token, next_batch" +
 		" FROM puppet "
 )
 
@@ -80,6 +80,7 @@ type Puppet struct {
 	Discriminator string
 	IsBot         bool
 	IsWebhook     bool
+	IsApplication bool
 
 	CustomMXID  id.UserID
 	AccessToken string
@@ -91,7 +92,7 @@ func (p *Puppet) Scan(row dbutil.Scannable) *Puppet {
 	var customMXID, accessToken, nextBatch sql.NullString
 
 	err := row.Scan(&p.ID, &p.Name, &p.NameSet, &p.Avatar, &avatarURL, &p.AvatarSet, &p.ContactInfoSet,
-		&p.GlobalName, &p.Username, &p.Discriminator, &p.IsBot, &p.IsWebhook, &customMXID, &accessToken, &nextBatch)
+		&p.GlobalName, &p.Username, &p.Discriminator, &p.IsBot, &p.IsWebhook, &p.IsApplication, &customMXID, &accessToken, &nextBatch)
 
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -114,13 +115,13 @@ func (p *Puppet) Insert() {
 	query := `
 		INSERT INTO puppet (
 			id, name, name_set, avatar, avatar_url, avatar_set, contact_info_set,
-			global_name, username, discriminator, is_bot, is_webhook,
+			global_name, username, discriminator, is_bot, is_webhook, is_application,
 			custom_mxid, access_token, next_batch
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	`
 	_, err := p.db.Exec(query, p.ID, p.Name, p.NameSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet, p.ContactInfoSet,
-		p.GlobalName, p.Username, p.Discriminator, p.IsBot, p.IsWebhook,
+		p.GlobalName, p.Username, p.Discriminator, p.IsBot, p.IsWebhook, p.IsApplication,
 		strPtr(p.CustomMXID), strPtr(p.AccessToken), strPtr(p.NextBatch))
 
 	if err != nil {
@@ -132,14 +133,14 @@ func (p *Puppet) Insert() {
 func (p *Puppet) Update() {
 	query := `
 		UPDATE puppet SET name=$1, name_set=$2, avatar=$3, avatar_url=$4, avatar_set=$5, contact_info_set=$6,
-		                  global_name=$7, username=$8, discriminator=$9, is_bot=$10, is_webhook=$11,
-		                  custom_mxid=$12, access_token=$13, next_batch=$14
-		WHERE id=$15
+		                  global_name=$7, username=$8, discriminator=$9, is_bot=$10, is_webhook=$11, is_application=$12,
+		                  custom_mxid=$13, access_token=$14, next_batch=$15
+		WHERE id=$16
 	`
 	_, err := p.db.Exec(
 		query,
 		p.Name, p.NameSet, p.Avatar, p.AvatarURL.String(), p.AvatarSet, p.ContactInfoSet,
-		p.GlobalName, p.Username, p.Discriminator, p.IsBot, p.IsWebhook,
+		p.GlobalName, p.Username, p.Discriminator, p.IsBot, p.IsWebhook, p.IsApplication,
 		strPtr(p.CustomMXID), strPtr(p.AccessToken), strPtr(p.NextBatch),
 		p.ID,
 	)

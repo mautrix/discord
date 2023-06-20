@@ -195,7 +195,7 @@ func (puppet *Puppet) updatePortalMeta(meta func(portal *Portal)) {
 }
 
 func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
-	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info, puppet.IsWebhook)
+	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info, puppet.IsWebhook, puppet.IsApplication)
 	if puppet.Name == newName && puppet.NameSet {
 		return false
 	}
@@ -285,7 +285,7 @@ func (puppet *Puppet) UpdateAvatar(info *discordgo.User) bool {
 	return true
 }
 
-func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User, webhookID string) {
+func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User, message *discordgo.Message) {
 	puppet.syncLock.Lock()
 	defer puppet.syncLock.Unlock()
 
@@ -308,9 +308,24 @@ func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User, webhookID s
 	}
 
 	changed := false
-	if webhookID != "" && webhookID == info.ID && !puppet.IsWebhook {
-		puppet.IsWebhook = true
-		changed = true
+	if message != nil {
+		if message.WebhookID != "" && message.ApplicationID == "" && !puppet.IsWebhook {
+			puppet.log.Debug().
+				Str("message_id", message.ID).
+				Str("webhook_id", message.WebhookID).
+				Msg("Found webhook ID in message, marking ghost as a webhook")
+			puppet.IsWebhook = true
+			changed = true
+		}
+		if message.ApplicationID != "" && !puppet.IsApplication {
+			puppet.log.Debug().
+				Str("message_id", message.ID).
+				Str("application_id", message.ApplicationID).
+				Msg("Found application ID in message, marking ghost as an application")
+			puppet.IsApplication = true
+			puppet.IsWebhook = false
+			changed = true
+		}
 	}
 	changed = puppet.UpdateContactInfo(info) || changed
 	changed = puppet.UpdateName(info) || changed

@@ -292,12 +292,17 @@ func (bc BridgeConfig) FormatUsername(userID string) string {
 
 type DisplaynameParams struct {
 	*discordgo.User
-	Webhook bool
+	Webhook     bool
+	Application bool
 }
 
-func (bc BridgeConfig) FormatDisplayname(user *discordgo.User, webhook bool) string {
+func (bc BridgeConfig) FormatDisplayname(user *discordgo.User, webhook, application bool) string {
 	var buffer strings.Builder
-	_ = bc.displaynameTemplate.Execute(&buffer, &DisplaynameParams{user, webhook})
+	_ = bc.displaynameTemplate.Execute(&buffer, &DisplaynameParams{
+		User:        user,
+		Webhook:     webhook,
+		Application: application,
+	})
 	return buffer.String()
 }
 

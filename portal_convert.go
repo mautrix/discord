@@ -628,7 +628,7 @@ func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, syncGhosts 
 	for _, mention := range msg.Mentions {
 		puppet := portal.bridge.GetPuppetByID(mention.ID)
 		if syncGhosts {
-			puppet.UpdateInfo(nil, mention, "")
+			puppet.UpdateInfo(nil, mention, nil)
 		}
 		user := portal.bridge.GetUserByID(mention.ID)
 		if user != nil {
@@ -661,7 +661,7 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	var htmlParts []string
 	if msg.Interaction != nil {
 		puppet := portal.bridge.GetPuppetByID(msg.Interaction.User.ID)
-		puppet.UpdateInfo(nil, msg.Interaction.User, "")
+		puppet.UpdateInfo(nil, msg.Interaction.User, nil)
 		htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, puppet.MXID, puppet.Name, msg.Interaction.Name))
 	}
 	if msg.Content != "" && !isPlainGifMessage(msg) {
@@ -708,7 +708,7 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 		"com.beeper.linkpreviews": previews,
 	}
 
-	if msg.WebhookID != "" && portal.bridge.Config.Bridge.PrefixWebhookMessages {
+	if msg.WebhookID != "" && msg.ApplicationID == "" && portal.bridge.Config.Bridge.PrefixWebhookMessages {
 		content.EnsureHasHTML()
 		content.Body = fmt.Sprintf("%s: %s", msg.Author.Username, content.Body)
 		content.FormattedBody = fmt.Sprintf("<strong>%s</strong>: %s", html.EscapeString(msg.Author.Username), content.FormattedBody)

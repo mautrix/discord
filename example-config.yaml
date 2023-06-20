@@ -92,7 +92,8 @@ bridge:
     #   .Discriminator - The 4 numbers after the name on Discord
     #   .Bot - Whether the user is a bot
     #   .System - Whether the user is an official system user
-    #   .Webhook - Whether the user is a webhook
+    #   .Webhook - Whether the user is a webhook and is not an application
+    #   .Application - Whether the user is an application
     displayname_template: '{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}'
     # Displayname template for Discord channels (bridged as rooms, or spaces when type=4).
     # Available variables:

@@ -74,6 +74,9 @@ func (user *User) GetRemoteID() string {
 
 func (user *User) GetRemoteName() string {
 	if user.Session != nil && user.Session.State != nil && user.Session.State.User != nil {
+		if user.Session.State.User.Discriminator == "0" {
+			return fmt.Sprintf("@%s", user.Session.State.User.Username)
+		}
 		return fmt.Sprintf("%s#%s", user.Session.State.User.Username, user.Session.State.User.Discriminator)
 	}
 	return user.DiscordID

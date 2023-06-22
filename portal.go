@@ -645,6 +645,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg)
 	dbParts := make([]database.MessagePart, 0, len(parts))
+	eventIDs := zerolog.Dict()
 	for i, part := range parts {
 		if (replyTo != nil || threadRootEvent != "") && part.Content.RelatesTo == nil {
 			part.Content.RelatesTo = &event.RelatesTo{}
@@ -675,12 +676,14 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		}
 		lastThreadEvent = resp.EventID
 		dbParts = append(dbParts, database.MessagePart{AttachmentID: part.AttachmentID, MXID: resp.EventID})
+		eventIDs.Str(part.AttachmentID, resp.EventID.String())
 	}
 	if len(parts) == 0 {
 		log.Warn().Msg("Unhandled message")
 	} else if len(dbParts) == 0 {
 		log.Warn().Msg("All parts of message failed to send to Matrix")
 	} else {
+		log.Debug().Dict("event_ids", eventIDs).Msg("Finished handling Discord message")
 		firstDBMessage := portal.markMessageHandled(msg.ID, msg.Author.ID, ts, discordThreadID, intent.UserID, dbParts)
 		if msg.Flags == discordgo.MessageFlagsHasThread {
 			portal.bridge.threadFound(ctx, user, firstDBMessage, msg.ID, msg.Thread)
@@ -847,6 +850,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
 	intent := puppet.IntentFor(portal)
 
+	redactions := zerolog.Dict()
 	attachmentMap := map[string]*database.Message{}
 	for _, existingPart := range existing {
 		if existingPart.AttachmentID != "" {
@@ -874,13 +878,14 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		}
 	}
 	for _, deletedAttachment := range attachmentMap {
-		_, err := intent.RedactEvent(portal.MXID, deletedAttachment.MXID)
+		resp, err := intent.RedactEvent(portal.MXID, deletedAttachment.MXID)
 		if err != nil {
 			log.Warn().Err(err).
 				Str("event_id", deletedAttachment.MXID.String()).
 				Msg("Failed to redact attachment")
 		}
 		deletedAttachment.Delete()
+		redactions.Str(deletedAttachment.AttachmentID, resp.EventID.String())
 	}
 
 	var converted *ConvertedMessage
@@ -926,6 +931,10 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	if msg.EditedTimestamp != nil {
 		existing[0].UpdateEditTimestamp(*msg.EditedTimestamp)
 	}
+	log.Debug().
+		Str("event_id", resp.EventID.String()).
+		Dict("redacted_attachments", redactions).
+		Msg("Finished handling Discord edit")
 }
 
 func (portal *Portal) handleDiscordMessageDelete(user *User, msg *discordgo.Message) {

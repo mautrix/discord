@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -28,7 +30,7 @@ import (
 	"go.mau.fi/mautrix-discord/database"
 )
 
-func downloadDiscordAttachment(url string) ([]byte, error) {
+func downloadDiscordAttachment(url string, maxSize int64) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -46,7 +48,22 @@ func downloadDiscordAttachment(url string) ([]byte, error) {
 		data, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("unexpected status %d downloading %s: %s", resp.StatusCode, url, data)
 	}
-	return io.ReadAll(resp.Body)
+	if resp.Header.Get("Content-Length") != "" {
+		length, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse content length: %w", err)
+		} else if length > maxSize {
+			return nil, fmt.Errorf("attachment too large (%d > %d)", length, maxSize)
+		}
+		return io.ReadAll(resp.Body)
+	} else {
+		var mbe *http.MaxBytesError
+		data, err := io.ReadAll(http.MaxBytesReader(nil, resp.Body, maxSize))
+		if err != nil && errors.As(err, &mbe) {
+			return nil, fmt.Errorf("attachment too large (over %d)", maxSize)
+		}
+		return data, err
+	}
 }
 
 func uploadDiscordAttachment(url string, data []byte) error {
@@ -99,7 +116,7 @@ func downloadMatrixAttachment(intent *appservice.IntentAPI, content *event.Messa
 	return data, nil
 }
 
-func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, url string, encrypt bool, meta AttachmentMeta) (*database.File, error) {
+func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, data []byte, url string, encrypt bool, meta AttachmentMeta, semaWg *sync.WaitGroup) (*database.File, error) {
 	dbFile := br.DB.File.New()
 	dbFile.Timestamp = time.Now()
 	dbFile.URL = url
@@ -135,7 +152,9 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 		dbFile.MXC = resp.ContentURI
 		req.MXC = resp.ContentURI
 		req.UnstableUploadURL = resp.UnstableUploadURL
+		semaWg.Add(1)
 		go func() {
+			defer semaWg.Done()
 			_, err = intent.UploadMedia(req)
 			if err != nil {
 				br.Log.Errorfln("Failed to upload %s: %v", req.MXC, err)
@@ -259,8 +278,21 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 				}
 			}
 
+			const attachmentSizeVal = 1
+			onceErr = br.parallelAttachmentSemaphore.Acquire(context.Background(), attachmentSizeVal)
+			if onceErr != nil {
+				onceErr = fmt.Errorf("failed to acquire semaphore: %w", onceErr)
+				return
+			}
+			var semaWg sync.WaitGroup
+			semaWg.Add(1)
+			go func() {
+				semaWg.Wait()
+				br.parallelAttachmentSemaphore.Release(attachmentSizeVal)
+			}()
+
 			var data []byte
-			data, onceErr = downloadDiscordAttachment(url)
+			data, onceErr = downloadDiscordAttachment(url, br.MediaConfig.UploadSize)
 			if onceErr != nil {
 				return
 			}
@@ -273,7 +305,7 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 				}
 			}
 
-			onceDBFile, onceErr = br.uploadMatrixAttachment(intent, data, url, encrypt, meta)
+			onceDBFile, onceErr = br.uploadMatrixAttachment(intent, data, url, encrypt, meta, &semaWg)
 			if onceErr != nil {
 				return
 			}
@@ -281,6 +313,7 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 				onceDBFile.Insert(nil)
 			}
 			br.attachmentTransfers.Delete(transferKey)
+			semaWg.Done()
 			return
 		})
 	}

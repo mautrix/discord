@@ -622,8 +622,8 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		log.Debug().Msg("Dropping duplicate message")
 		return
 	}
-	log.Debug().Msg("Starting handling of Discord message")
 
+	handlingStartTime := time.Now()
 	puppet := portal.bridge.GetPuppetByID(msg.Author.ID)
 	puppet.UpdateInfo(user, msg.Author, msg)
 	intent := puppet.IntentFor(portal)
@@ -678,6 +678,8 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		dbParts = append(dbParts, database.MessagePart{AttachmentID: part.AttachmentID, MXID: resp.EventID})
 		eventIDs.Str(part.AttachmentID, resp.EventID.String())
 	}
+
+	log = log.With().Dur("handling_time", time.Since(handlingStartTime)).Logger()
 	if len(parts) == 0 {
 		log.Warn().Msg("Unhandled message")
 	} else if len(dbParts) == 0 {

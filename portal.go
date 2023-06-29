@@ -1530,6 +1530,9 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	switch content.MsgType {
 	case event.MsgText, event.MsgEmote, event.MsgNotice:
 		sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content)
+		if content.MsgType == event.MsgEmote {
+			sendReq.Content = fmt.Sprintf("_%s_", sendReq.Content)
+		}
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := downloadMatrixAttachment(portal.MainIntent(), content)
 		if err != nil {

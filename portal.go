@@ -549,13 +549,15 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 
 func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 	if portal.MXID == "" {
-		_, ok := msg.msg.(*discordgo.MessageCreate)
+		msgCreate, ok := msg.msg.(*discordgo.MessageCreate)
 		if !ok {
 			portal.log.Warn().Msg("Can't create Matrix room from non new message event")
 			return
 		}
 
-		portal.log.Debug().Msg("Creating Matrix room from incoming message")
+		portal.log.Debug().
+			Str("message_id", msgCreate.ID).
+			Msg("Creating Matrix room from incoming message")
 		if err := portal.CreateMatrixRoom(msg.user, nil); err != nil {
 			portal.log.Err(err).Msg("Failed to create portal room")
 			return

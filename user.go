@@ -1199,10 +1199,20 @@ func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildI
 		return
 	}
 
-	portal.discordMessages <- portalDiscordMessage{
+	wrappedMsg := portalDiscordMessage{
 		msg:    msg,
 		user:   user,
 		thread: thread,
+	}
+	select {
+	case portal.discordMessages <- wrappedMsg:
+	default:
+		user.log.Warn().
+			Str("discord_event", typeName).
+			Str("guild_id", guildID).
+			Str("channel_id", channelID).
+			Msg("Portal message buffer is full")
+		portal.discordMessages <- wrappedMsg
 	}
 }
 

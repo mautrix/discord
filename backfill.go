@@ -17,7 +17,11 @@ import (
 )
 
 func (portal *Portal) forwardBackfillInitial(source *User, thread *Thread) {
-	defer portal.forwardBackfillLock.Unlock()
+	log := portal.log
+	defer func() {
+		log.Debug().Msg("Forward backfill finished, unlocking lock")
+		portal.forwardBackfillLock.Unlock()
+	}()
 	// This should only be called from CreateMatrixRoom which locks forwardBackfillLock before creating the room.
 	if portal.forwardBackfillLock.TryLock() {
 		panic("forwardBackfillInitial() called without locking forwardBackfillLock")
@@ -35,14 +39,14 @@ func (portal *Portal) forwardBackfillInitial(source *User, thread *Thread) {
 		return
 	}
 
-	with := portal.log.With().
+	with := log.With().
 		Str("action", "initial backfill").
 		Str("room_id", portal.MXID.String()).
 		Int("limit", limit)
 	if thread != nil {
 		with = with.Str("thread_id", thread.ID)
 	}
-	log := with.Logger()
+	log = with.Logger()
 
 	portal.backfillLimited(log, source, limit, "", thread)
 }
@@ -231,7 +235,6 @@ func (portal *Portal) forwardBatchSend(log zerolog.Logger, source *User, message
 		}
 	}
 	portal.bridge.DB.Message.MassInsert(portal.Key, dbMessages)
-	log.Info().Msg("Inserted backfilled batch to database")
 }
 
 func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, messages []*discordgo.Message, thread *Thread) ([]*event.Event, []*discordgo.Message, []database.Message) {

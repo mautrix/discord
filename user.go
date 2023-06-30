@@ -1024,6 +1024,10 @@ func (user *User) guildCreateHandler(g *discordgo.GuildCreate) {
 }
 
 func (user *User) guildDeleteHandler(g *discordgo.GuildDelete) {
+	if g.Unavailable {
+		user.log.Info().Str("guild_id", g.ID).Msg("Ignoring guild delete event with unavailable flag")
+		return
+	}
 	user.log.Info().Str("guild_id", g.ID).Msg("Got guild delete event")
 	user.MarkNotInPortal(g.ID)
 	guild := user.bridge.GetGuildByID(g.ID, false)

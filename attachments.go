@@ -294,6 +294,7 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 			}
 			var semaWg sync.WaitGroup
 			semaWg.Add(1)
+			defer semaWg.Done()
 			go func() {
 				semaWg.Wait()
 				br.parallelAttachmentSemaphore.Release(attachmentSizeVal)
@@ -321,7 +322,6 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 				onceDBFile.Insert(nil)
 			}
 			br.attachmentTransfers.Delete(transferKey)
-			semaWg.Done()
 			return
 		})
 	}

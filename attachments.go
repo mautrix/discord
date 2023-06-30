@@ -284,13 +284,8 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 			cancel()
 			if onceErr != nil {
 				br.ZLog.Warn().Err(onceErr).Msg("Failed to acquire semaphore")
-				ctx, cancel = context.WithTimeout(context.Background(), 50*time.Second)
-				onceErr = br.parallelAttachmentSemaphore.Acquire(ctx, attachmentSizeVal)
-				cancel()
-				if onceErr != nil {
-					onceErr = fmt.Errorf("reuploading timed out")
-					return
-				}
+				onceErr = fmt.Errorf("reuploading timed out")
+				return
 			}
 			var semaWg sync.WaitGroup
 			semaWg.Add(1)

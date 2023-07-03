@@ -1,3 +1,15 @@
+# unreleased
+
+* Added initial support for backfilling threads.
+* Exposed `Application` flag to displayname template.
+* Changed `m.emote` bridging to use italics on Discord.
+* Updated Docker image to Alpine 3.18.
+* Added limit to parallel media transfers to avoid high memory usage if lots
+  of messages are received at the same time.
+* Fixed guilds being unbridged if Discord has server issues and temporarily
+  marks a guild as unavailable.
+* Fixed using `guilds bridge` command without `--entire` flag.
+
 # v0.5.0 (2023-06-16)
 
 * Added support for intentional mentions in Matrix (MSC3952).

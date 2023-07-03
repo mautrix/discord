@@ -82,6 +82,9 @@ func (portal *Portal) convertDiscordFile(ctx context.Context, typeName string, i
 }
 
 func (portal *Portal) cleanupConvertedStickerInfo(content *event.MessageEventContent) {
+	if content.Info == nil {
+		return
+	}
 	if content.Info.Width == 0 && content.Info.Height == 0 {
 		content.Info.Width = DiscordStickerSize
 		content.Info.Height = DiscordStickerSize

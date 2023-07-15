@@ -1179,7 +1179,9 @@ func (portal *Portal) sendErrorMessage(msgType, message string, confirmed bool) 
 	if confirmed {
 		certainty = "was not"
 	}
-	message = strings.ReplaceAll(message, portal.RelayWebhookSecret, "<redacted>")
+	if portal.RelayWebhookSecret != "" {
+		message = strings.ReplaceAll(message, portal.RelayWebhookSecret, "<redacted>")
+	}
 	resp, err := portal.sendMatrixMessage(portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
 		MsgType: event.MsgNotice,
 		Body:    fmt.Sprintf("\u26a0 Your %s %s bridged: %v", msgType, certainty, message),

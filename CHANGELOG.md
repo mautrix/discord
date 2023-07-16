@@ -1,4 +1,4 @@
-# unreleased
+# v0.6.0 (2023-07-16)
 
 * Added initial support for backfilling threads.
 * Exposed `Application` flag to displayname template.
@@ -9,6 +9,8 @@
 * Fixed guilds being unbridged if Discord has server issues and temporarily
   marks a guild as unavailable.
 * Fixed using `guilds bridge` command without `--entire` flag.
+* Fixed panic if lottieconverter isn't installed.
+* Fixed relay webhook secret being leaked in network error messages.
 
 # v0.5.0 (2023-06-16)
 

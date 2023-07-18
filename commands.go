@@ -159,7 +159,7 @@ func fnLoginToken(ce *WrappedCommandEvent) {
 		ce.Reply("Error connecting to Discord: %v", err)
 		return
 	}
-	ce.Reply("Successfully logged in as %s#%s", ce.User.Session.State.User.Username, ce.User.Session.State.User.Discriminator)
+	ce.Reply("Successfully logged in as @%s", ce.User.Session.State.User.Username)
 }
 
 var cmdLoginQR = &commands.FullHandler{
@@ -228,7 +228,7 @@ func fnLoginQR(ce *WrappedCommandEvent) {
 	ce.User.DiscordID = user.UserID
 	ce.User.Update()
 	ce.User.Unlock()
-	ce.Reply("Successfully logged in as %s#%s", user.Username, user.Discriminator)
+	ce.Reply("Successfully logged in as @%s", user.Username)
 }
 
 func sendQRCode(ce *WrappedCommandEvent, code string) id.EventID {
@@ -308,7 +308,7 @@ func fnPing(ce *WrappedCommandEvent) {
 	} else if ce.User.wasDisconnected {
 		ce.Reply("You're logged in, but the Discord connection seems to be dead 💥")
 	} else {
-		ce.Reply("You're logged in as %s#%s (`%s`)", ce.User.Session.State.User.Username, ce.User.Session.State.User.Discriminator, ce.User.DiscordID)
+		ce.Reply("You're logged in as @%s (`%s`)", ce.User.Session.State.User.Username, ce.User.DiscordID)
 	}
 }
 

@@ -17,7 +17,7 @@ require (
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/sync v0.3.0
 	maunium.net/go/maulogger/v2 v2.4.1
-	maunium.net/go/mautrix v0.15.4
+	maunium.net/go/mautrix v0.15.5-0.20230722173405-ab9d6e5eb5b9
 )
 
 require (

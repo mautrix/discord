@@ -156,11 +156,14 @@ func (br *DiscordBridge) pillConverter(displayname, mxid, eventID string, ctx fo
 	return displayname
 }
 
+const discordLinkPattern = `https?://[^<\p{Zs}\x{feff}]*[^"'),.:;\]\p{Zs}\x{feff}]`
+
 // Discord links start with http:// or https://, contain at least two characters afterwards,
 // don't contain < or whitespace anywhere, and don't end with "'),.:;]
 //
 // Zero-width whitespace is mostly in the Format category and is allowed, except \uFEFF isn't for some reason
-var discordLinkRegex = regexp.MustCompile(`https?://[^<\p{Zs}\x{feff}]*[^"'),.:;\]\p{Zs}\x{feff}]`)
+var discordLinkRegex = regexp.MustCompile(discordLinkPattern)
+var discordLinkRegexFull = regexp.MustCompile("^" + discordLinkPattern + "$")
 
 var discordMarkdownEscaper = strings.NewReplacer(
 	`\`, `\\`,

@@ -621,9 +621,14 @@ func getEmbedType(msg *discordgo.Message, embed *discordgo.MessageEmbed) BridgeE
 }
 
 func isPlainGifMessage(msg *discordgo.Message) bool {
-	return len(msg.Embeds) == 1 && msg.Embeds[0].URL == msg.Content &&
-		((msg.Embeds[0].Type == discordgo.EmbedTypeGifv && msg.Embeds[0].Video != nil) ||
-			(msg.Embeds[0].Type == discordgo.EmbedTypeImage && msg.Embeds[0].Image == nil && msg.Embeds[0].Thumbnail != nil))
+	if len(msg.Embeds) != 1 {
+		return false
+	}
+	embed := msg.Embeds[0]
+	isGifVideo := embed.Type == discordgo.EmbedTypeGifv && embed.Video != nil
+	isGifImage := embed.Type == discordgo.EmbedTypeImage && embed.Image == nil && embed.Thumbnail != nil
+	contentIsOnlyURL := msg.Content == embed.URL || discordLinkRegexFull.MatchString(msg.Content)
+	return contentIsOnlyURL && (isGifVideo || isGifImage)
 }
 
 func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, syncGhosts bool) *event.Mentions {

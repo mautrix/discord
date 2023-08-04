@@ -960,8 +960,11 @@ func (user *User) handleGuild(meta *discordgo.Guild, timestamp time.Time, isInSp
 	guild.UpdateInfo(user, meta)
 	if len(meta.Channels) > 0 {
 		for _, ch := range meta.Channels {
+			if !user.channelIsBridgeable(ch) {
+				continue
+			}
 			portal := user.GetPortalByMeta(ch)
-			if guild.BridgingMode >= database.GuildBridgeEverything && portal.MXID == "" && user.channelIsBridgeable(ch) {
+			if guild.BridgingMode >= database.GuildBridgeEverything && portal.MXID == "" {
 				err := portal.CreateMatrixRoom(user, ch)
 				if err != nil {
 					user.log.Error().Err(err).

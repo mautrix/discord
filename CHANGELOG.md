@@ -1,3 +1,11 @@
+# v0.6.1 (2023-08-16)
+
+* Bumped minimum Go version to 1.20.
+* Fixed all logged-in users being invited to existing portal rooms even if they
+  don't have permission to view the channel on Discord.
+* Fixed gif links not being treated as embeds if the canonical URL is different
+  than the URL in the message body.
+
 # v0.6.0 (2023-07-16)
 
 * Added initial support for backfilling threads.

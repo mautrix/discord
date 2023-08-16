@@ -4,11 +4,9 @@ import (
 	"database/sql"
 
 	"github.com/bwmarrin/discordgo"
-
+	"go.mau.fi/util/dbutil"
 	log "maunium.net/go/maulogger/v2"
-
 	"maunium.net/go/mautrix/id"
-	"maunium.net/go/mautrix/util/dbutil"
 )
 
 // language=postgresql

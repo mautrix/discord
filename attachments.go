@@ -18,14 +18,13 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gabriel-vasile/mimetype"
-
+	"go.mau.fi/util/exsync"
+	"go.mau.fi/util/ffmpeg"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
-	"maunium.net/go/mautrix/util"
-	"maunium.net/go/mautrix/util/ffmpeg"
 
 	"go.mau.fi/mautrix-discord/database"
 )
@@ -269,7 +268,7 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 	returnDBFile = br.DB.File.Get(url, encrypt)
 	if returnDBFile == nil {
 		transferKey := attachmentKey{url, encrypt}
-		once, _ := br.attachmentTransfers.GetOrSet(transferKey, &util.ReturnableOnce[*database.File]{})
+		once, _ := br.attachmentTransfers.GetOrSet(transferKey, &exsync.ReturnableOnce[*database.File]{})
 		returnDBFile, returnErr = once.Do(func() (onceDBFile *database.File, onceErr error) {
 			if isCacheable {
 				onceDBFile = br.DB.File.Get(url, encrypt)

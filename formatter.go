@@ -26,13 +26,12 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/util"
+	"go.mau.fi/util/variationselector"
 	"golang.org/x/exp/slices"
-
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/format/mdext"
 	"maunium.net/go/mautrix/id"
-	"maunium.net/go/mautrix/util/variationselector"
 )
 
 // escapeFixer is a hacky partial fix for the difference in escaping markdown, used with escapeReplacement

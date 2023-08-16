@@ -4,11 +4,9 @@ import (
 	"database/sql"
 	"errors"
 
-	log "maunium.net/go/maulogger/v2"
-
-	"maunium.net/go/mautrix/util/dbutil"
-
 	"github.com/bwmarrin/discordgo"
+	"go.mau.fi/util/dbutil"
+	log "maunium.net/go/maulogger/v2"
 )
 
 type RoleQuery struct {

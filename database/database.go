@@ -5,9 +5,8 @@ import (
 
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+	"go.mau.fi/util/dbutil"
 	"maunium.net/go/maulogger/v2"
-
-	"maunium.net/go/mautrix/util/dbutil"
 
 	"go.mau.fi/mautrix-discord/database/upgrades"
 )

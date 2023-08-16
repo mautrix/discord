@@ -18,6 +18,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/exsync"
+	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/bridge"
@@ -26,8 +28,6 @@ import (
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
-	"maunium.net/go/mautrix/util"
-	"maunium.net/go/mautrix/util/variationselector"
 
 	"go.mau.fi/mautrix-discord/config"
 	"go.mau.fi/mautrix-discord/database"
@@ -62,7 +62,7 @@ type Portal struct {
 	discordMessages chan portalDiscordMessage
 	matrixMessages  chan portalMatrixMessage
 
-	recentMessages *util.RingBuffer[string, *discordgo.Message]
+	recentMessages *exsync.RingBuffer[string, *discordgo.Message]
 
 	commands     map[string]*discordgo.ApplicationCommand
 	commandsLock sync.RWMutex
@@ -260,7 +260,7 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 		discordMessages: make(chan portalDiscordMessage, br.Config.Bridge.PortalMessageBuffer),
 		matrixMessages:  make(chan portalMatrixMessage, br.Config.Bridge.PortalMessageBuffer),
 
-		recentMessages: util.NewRingBuffer[string, *discordgo.Message](recentMessageBufferSize),
+		recentMessages: exsync.NewRingBuffer[string, *discordgo.Message](recentMessageBufferSize),
 
 		commands: make(map[string]*discordgo.ApplicationCommand),
 	}

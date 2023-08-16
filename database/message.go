@@ -7,10 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"go.mau.fi/util/dbutil"
 	log "maunium.net/go/maulogger/v2"
-
 	"maunium.net/go/mautrix/id"
-	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type MessageQuery struct {

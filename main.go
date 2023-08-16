@@ -20,12 +20,12 @@ import (
 	_ "embed"
 	"sync"
 
+	"go.mau.fi/util/configupgrade"
+	"go.mau.fi/util/exsync"
 	"golang.org/x/sync/semaphore"
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/commands"
 	"maunium.net/go/mautrix/id"
-	"maunium.net/go/mautrix/util"
-	"maunium.net/go/mautrix/util/configupgrade"
 
 	"go.mau.fi/mautrix-discord/config"
 	"go.mau.fi/mautrix-discord/database"
@@ -74,7 +74,7 @@ type DiscordBridge struct {
 	puppetsByCustomMXID map[id.UserID]*Puppet
 	puppetsLock         sync.Mutex
 
-	attachmentTransfers         *util.SyncMap[attachmentKey, *util.ReturnableOnce[*database.File]]
+	attachmentTransfers         *exsync.Map[attachmentKey, *exsync.ReturnableOnce[*database.File]]
 	parallelAttachmentSemaphore *semaphore.Weighted
 }
 
@@ -172,7 +172,7 @@ func main() {
 		puppets:             make(map[string]*Puppet),
 		puppetsByCustomMXID: make(map[id.UserID]*Puppet),
 
-		attachmentTransfers:         util.NewSyncMap[attachmentKey, *util.ReturnableOnce[*database.File]](),
+		attachmentTransfers:         exsync.NewMap[attachmentKey, *exsync.ReturnableOnce[*database.File]](),
 		parallelAttachmentSemaphore: semaphore.NewWeighted(3),
 	}
 	br.Bridge = bridge.Bridge{

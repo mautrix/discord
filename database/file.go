@@ -6,11 +6,10 @@ import (
 	"errors"
 	"time"
 
+	"go.mau.fi/util/dbutil"
 	log "maunium.net/go/maulogger/v2"
-
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/id"
-	"maunium.net/go/mautrix/util/dbutil"
 )
 
 type FileQuery struct {

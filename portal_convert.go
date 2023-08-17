@@ -673,7 +673,7 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 		htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, puppet.MXID, puppet.Name, msg.Interaction.Name))
 	}
 	if msg.Content != "" && !isPlainGifMessage(msg) {
-		htmlParts = append(htmlParts, portal.renderDiscordMarkdownOnlyHTML(msg.Content, false))
+		htmlParts = append(htmlParts, portal.renderDiscordMarkdownOnlyHTML(msg.Content, true))
 	}
 	previews := make([]*BeeperLinkPreview, 0)
 	for i, embed := range msg.Embeds {

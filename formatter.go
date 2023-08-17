@@ -216,6 +216,14 @@ var matrixHTMLParser = &format.HTMLParser{
 		}
 		return fmt.Sprintf("||%s||", text)
 	},
+	LinkConverter: func(text, href string, ctx format.Context) string {
+		if text == href {
+			return text
+		} else if !discordLinkRegexFull.MatchString(href) {
+			return fmt.Sprintf("%s (%s)", escapeDiscordMarkdown(text), escapeDiscordMarkdown(href))
+		}
+		return fmt.Sprintf("[%s](%s)", escapeDiscordMarkdown(text), href)
+	},
 }
 
 func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent) (string, *discordgo.MessageAllowedMentions) {

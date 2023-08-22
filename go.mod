@@ -13,12 +13,12 @@ require (
 	github.com/rs/zerolog v1.30.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.8.4
-	github.com/yuin/goldmark v1.5.5
+	github.com/yuin/goldmark v1.5.6
 	go.mau.fi/util v0.0.0-20230805171708-199bf3eec776
-	golang.org/x/exp v0.0.0-20230811145659-89c5cff77bcb
+	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63
 	golang.org/x/sync v0.3.0
 	maunium.net/go/maulogger/v2 v2.4.1
-	maunium.net/go/mautrix v0.16.0
+	maunium.net/go/mautrix v0.16.1-0.20230821105106-ac5c2c22102c
 )
 
 require (

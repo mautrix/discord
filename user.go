@@ -368,37 +368,6 @@ func (user *User) GetDMSpaceRoom() id.RoomID {
 	return user.getSpaceRoom(&user.DMSpaceRoom, "Direct Messages", "Your Discord direct messages", user.GetSpaceRoom())
 }
 
-func (user *User) tryAutomaticDoublePuppeting() {
-	user.Lock()
-	defer user.Unlock()
-
-	if !user.bridge.Config.CanAutoDoublePuppet(user.MXID) {
-		return
-	}
-
-	user.log.Debug().Msg("Checking if double puppeting needs to be enabled")
-
-	puppet := user.bridge.GetPuppetByID(user.DiscordID)
-	if puppet.CustomMXID != "" {
-		user.log.Debug().Msg("User already has double-puppeting enabled")
-		return
-	}
-
-	accessToken, err := puppet.loginWithSharedSecret(user.MXID)
-	if err != nil {
-		user.log.Warn().Err(err).Msg("Failed to login with shared secret")
-		return
-	}
-
-	err = puppet.SwitchCustomMXID(accessToken, user.MXID)
-	if err != nil {
-		puppet.log.Warn().Err(err).Msg("Failed to switch to auto-logined custom puppet")
-		return
-	}
-
-	user.log.Info().Msg("Successfully automatically enabled custom puppet")
-}
-
 func (user *User) ViewingChannel(portal *Portal) bool {
 	if portal.GuildID != "" || !user.Session.IsUser {
 		return false

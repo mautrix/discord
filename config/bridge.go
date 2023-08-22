@@ -67,9 +67,7 @@ type BridgeConfig struct {
 		} `yaml:"args"`
 	} `yaml:"animated_sticker"`
 
-	DoublePuppetServerMap      map[string]string `yaml:"double_puppet_server_map"`
-	DoublePuppetAllowDiscovery bool              `yaml:"double_puppet_allow_discovery"`
-	LoginSharedSecretMap       map[string]string `yaml:"login_shared_secret_map"`
+	DoublePuppetConfig bridgeconfig.DoublePuppetConfig `yaml:",inline"`
 
 	CommandPrefix      string                           `yaml:"command_prefix"`
 	ManagementRoomText bridgeconfig.ManagementRoomTexts `yaml:"management_room_text"`
@@ -271,6 +269,10 @@ func (bc *BridgeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 var _ bridgeconfig.BridgeConfig = (*BridgeConfig)(nil)
+
+func (bc BridgeConfig) GetDoublePuppetConfig() bridgeconfig.DoublePuppetConfig {
+	return bc.DoublePuppetConfig
+}
 
 func (bc BridgeConfig) GetEncryptionConfig() bridgeconfig.EncryptionConfig {
 	return bc.Encryption

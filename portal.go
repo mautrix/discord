@@ -884,12 +884,13 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	for _, deletedAttachment := range attachmentMap {
 		resp, err := intent.RedactEvent(portal.MXID, deletedAttachment.MXID)
 		if err != nil {
-			log.Warn().Err(err).
+			log.Err(err).
 				Str("event_id", deletedAttachment.MXID.String()).
 				Msg("Failed to redact attachment")
+		} else {
+			redactions.Str(deletedAttachment.AttachmentID, resp.EventID.String())
 		}
 		deletedAttachment.Delete()
-		redactions.Str(deletedAttachment.AttachmentID, resp.EventID.String())
 	}
 
 	var converted *ConvertedMessage

@@ -204,12 +204,12 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	} else if embed.Thumbnail != nil {
 		proxyURL = embed.Thumbnail.ProxyURL
 	} else {
-		zerolog.Ctx(ctx).Error().Str("embed_url", embed.URL).Msg("failed to bridge media")
+		zerolog.Ctx(ctx).Warn().Str("embed_url", embed.URL).Msg("No video or thumbnail proxy URL found in embed")
 		return &ConvertedMessage{
 			AttachmentID: attachmentID,
 			Type:         event.EventMessage,
 			Content: &event.MessageEventContent{
-				Body:    "failed to bridge media",
+				Body:    "Failed to bridge media: no video or thumbnail proxy URL found in embed",
 				MsgType: event.MsgNotice,
 			},
 		}

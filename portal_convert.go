@@ -201,8 +201,18 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	var proxyURL string
 	if embed.Video != nil {
 		proxyURL = embed.Video.ProxyURL
-	} else {
+	} else if embed.Thumbnail != nil {
 		proxyURL = embed.Thumbnail.ProxyURL
+	} else {
+		zerolog.Ctx(ctx).Warn().Str("embed_url", embed.URL).Msg("No video or thumbnail proxy URL found in embed")
+		return &ConvertedMessage{
+			AttachmentID: attachmentID,
+			Type:         event.EventMessage,
+			Content: &event.MessageEventContent{
+				Body:    "Failed to bridge media: no video or thumbnail proxy URL found in embed",
+				MsgType: event.MsgNotice,
+			},
+		}
 	}
 	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, proxyURL, portal.Encrypted, NoMeta)
 	if err != nil {

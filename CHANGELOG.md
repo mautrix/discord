@@ -1,3 +1,15 @@
+# v0.6.2 (2023-09-16)
+
+* Added support for double puppeting with arbitrary `as_token`s.
+  See [docs](https://docs.mau.fi/bridges/general/double-puppeting.html#appservice-method-new) for more info.
+* Adjusted markdown parsing rules to allow inline links in normal messages.
+* Fixed panic if redacting an attachment fails.
+* Fixed panic when handling video embeds with no URLs
+  (thanks to [@odrling] in [#110]).
+
+[@odrling]: https://github.com/odrling
+[#110]: https://github.com/mautrix/discord/pull/110
+
 # v0.6.1 (2023-08-16)
 
 * Bumped minimum Go version to 1.20.

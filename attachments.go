@@ -127,10 +127,10 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 	dbFile.ID = meta.AttachmentID
 	dbFile.EmojiName = meta.EmojiName
 	dbFile.Size = len(data)
-	dbFile.MimeType = mimetype.Detect(data).String()
 	if meta.MimeType == "" {
-		meta.MimeType = dbFile.MimeType
+		meta.MimeType = mimetype.Detect(data).String()
 	}
+	dbFile.MimeType = meta.MimeType
 	if strings.HasPrefix(meta.MimeType, "image/") {
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
 		dbFile.Width = cfg.Width

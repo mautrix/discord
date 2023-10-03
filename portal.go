@@ -1033,9 +1033,12 @@ func (portal *Portal) syncParticipants(source *User, participants []*discordgo.U
 		puppet := portal.bridge.GetPuppetByID(participant.ID)
 		puppet.UpdateInfo(source, participant, nil)
 
-		user := portal.bridge.GetUserByID(participant.ID)
-		if user != nil {
-			portal.ensureUserInvited(user, false)
+		var user *User
+		if participant.ID != portal.OtherUserID {
+			user = portal.bridge.GetUserByID(participant.ID)
+			if user != nil {
+				portal.ensureUserInvited(user, false)
+			}
 		}
 
 		if user == nil || !puppet.IntentFor(portal).IsCustomPuppet {

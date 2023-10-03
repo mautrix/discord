@@ -1,11 +1,12 @@
 # Features & roadmap
 * Matrix → Discord
-  * [x] Message content
+  * [ ] Message content
     * [x] Plain text
     * [x] Formatted messages
     * [x] Media/files
     * [x] Replies
     * [x] Threads
+    * [ ] Custom emojis
   * [x] Message redactions
   * [x] Reactions
     * [x] Unicode emojis
@@ -45,7 +46,7 @@
   * [x] Message deletions
   * [x] Reactions
     * [x] Unicode emojis
-    * [x] Custom emojis (not yet supported on Matrix)
+    * [x] Custom emojis ([MSC4027](https://github.com/matrix-org/matrix-spec-proposals/pull/4027))
   * [x] Avatars
   * [ ] Presence
   * [ ] Typing notifications (currently partial support: DMs work after you type in them)

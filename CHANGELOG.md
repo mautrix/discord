@@ -1,3 +1,10 @@
+# v0.6.3 (unreleased)
+
+* Fixed op7 reconnects during connection causing the bridge to get stuck
+  disconnected.
+* Fixed double puppet of recipient joining DM portals when both ends of a DM
+  are using the same bridge.
+
 # v0.6.2 (2023-09-16)
 
 * Added support for double puppeting with arbitrary `as_token`s.

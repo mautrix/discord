@@ -557,7 +557,15 @@ func (user *User) Connect() error {
 
 	user.Session = session
 
-	return user.Session.Open()
+	for {
+		err = user.Session.Open()
+		if errors.Is(err, discordgo.ErrImmediateDisconnect) {
+			user.log.Warn().Err(err).Msg("Retrying initial connection in 5 seconds")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		return err
+	}
 }
 
 func (user *User) eventHandlerSync(rawEvt any) {

@@ -1,4 +1,4 @@
-# v0.6.3 (unreleased)
+# v0.6.3 (2023-10-16)
 
 * Fixed op7 reconnects during connection causing the bridge to get stuck
   disconnected.

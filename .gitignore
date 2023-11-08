@@ -4,3 +4,6 @@
 
 *.db*
 *.log*
+
+/mautrix-discord
+/start

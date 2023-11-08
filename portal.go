@@ -1175,7 +1175,7 @@ func (portal *Portal) startThreadFromMatrix(sender *User, threadRoot id.EventID)
 	}
 }
 
-func (portal *Portal) sendErrorMessage(msgType, message string, confirmed bool) id.EventID {
+func (portal *Portal) sendErrorMessage(evt *event.Event, msgType, message string, confirmed bool) id.EventID {
 	if !portal.bridge.Config.Bridge.MessageErrorNotices {
 		return ""
 	}
@@ -1186,10 +1186,15 @@ func (portal *Portal) sendErrorMessage(msgType, message string, confirmed bool) 
 	if portal.RelayWebhookSecret != "" {
 		message = strings.ReplaceAll(message, portal.RelayWebhookSecret, "<redacted>")
 	}
-	resp, err := portal.sendMatrixMessage(portal.MainIntent(), event.EventMessage, &event.MessageEventContent{
+	content := &event.MessageEventContent{
 		MsgType: event.MsgNotice,
 		Body:    fmt.Sprintf("\u26a0 Your %s %s bridged: %v", msgType, certainty, message),
-	}, nil, 0)
+	}
+	relatable, ok := evt.Content.Parsed.(event.Relatable)
+	if ok && relatable.OptionalGetRelatesTo().GetThreadParent() != "" {
+		content.GetRelatesTo().SetThread(relatable.OptionalGetRelatesTo().GetThreadParent(), evt.ID)
+	}
+	resp, err := portal.sendMatrixMessage(portal.MainIntent(), event.EventMessage, content, nil, 0)
 	if err != nil {
 		portal.log.Warn().Err(err).Msg("Failed to send bridging error message")
 		return ""
@@ -1354,7 +1359,7 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 			if humanMessage == "" {
 				humanMessage = err.Error()
 			}
-			portal.sendErrorMessage(msgType, humanMessage, isCertain)
+			portal.sendErrorMessage(evt, msgType, humanMessage, isCertain)
 		}
 		portal.sendStatusEvent(evt.ID, err)
 	} else {

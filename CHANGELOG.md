@@ -1,3 +1,8 @@
+# v0.6.4 (2023-11-16)
+
+* Changed error messages to be sent in a thread if the errored message was in
+  a thread.
+
 # v0.6.3 (2023-10-16)
 
 * Fixed op7 reconnects during connection causing the bridge to get stuck

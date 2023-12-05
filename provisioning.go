@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"strings"
 	"time"
 
@@ -70,6 +71,13 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 	r.HandleFunc("/v1/guilds", p.guildsList).Methods(http.MethodGet)
 	r.HandleFunc("/v1/guilds/{guildID}", p.guildsBridge).Methods(http.MethodPost)
 	r.HandleFunc("/v1/guilds/{guildID}", p.guildsUnbridge).Methods(http.MethodDelete)
+
+	if p.bridge.Config.Bridge.Provisioning.DebugEndpoints {
+		p.log.Debugln("Enabling debug API at /debug")
+		r := p.bridge.AS.Router.PathPrefix("/debug").Subrouter()
+		r.Use(p.authMiddleware)
+		r.PathPrefix("/pprof").Handler(http.DefaultServeMux)
+	}
 
 	return p
 }

@@ -1414,6 +1414,12 @@ func (portal *Portal) convertReplyMessageToEmbed(eventID id.EventID, url string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch event: %w", err)
 	}
+	if evt.Type == event.EventEncrypted {
+		evt, err = portal.bridge.Crypto.Decrypt(evt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt event: %w", err)
+		}
+	}
 	err = evt.Content.ParseRaw(evt.Type)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse event content: %w", err)

@@ -1114,7 +1114,7 @@ func (portal *Portal) getEvent(mxid id.EventID) (*event.Event, error) {
 	if evt.Type == event.EventEncrypted {
 		decryptedEvt, err := portal.bridge.Crypto.Decrypt(evt)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to decrypt event: %w", err)
 		} else {
 			evt = decryptedEvt
 		}
@@ -1410,19 +1410,9 @@ func cutBody(body string) string {
 }
 
 func (portal *Portal) convertReplyMessageToEmbed(eventID id.EventID, url string) (*discordgo.MessageEmbed, error) {
-	evt, err := portal.MainIntent().GetEvent(portal.MXID, eventID)
+	evt, err := portal.getEvent(eventID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch event: %w", err)
-	}
-	if evt.Type == event.EventEncrypted {
-		evt, err = portal.bridge.Crypto.Decrypt(evt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt event: %w", err)
-		}
-	}
-	err = evt.Content.ParseRaw(evt.Type)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse event content: %w", err)
+		return nil, fmt.Errorf("failed to get reply target event: %w", err)
 	}
 	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
 	if !ok {

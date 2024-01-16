@@ -1,3 +1,7 @@
+# v0.6.5 (2024-01-16)
+
+* Fixed adding reply embed to webhook sends if the Matrix room is encrypted.
+
 # v0.6.4 (2023-11-16)
 
 * Changed error messages to be sent in a thread if the errored message was in

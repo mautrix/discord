@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -232,11 +233,15 @@ func (dma *DirectMediaAPI) AvatarMXC(guildID, userID, avatarID string) (mxc id.C
 		return
 	}
 	animated := strings.HasPrefix(avatarID, "a_")
-	avatarIDInt, err := strconv.ParseUint(strings.TrimPrefix(avatarID, "a_"), 10, 64)
+	avatarIDBytes, err := hex.DecodeString(strings.TrimPrefix(avatarID, "a_"))
 	if err != nil {
-		dma.log.Warn().Str("avatar_id", avatarID).Msg("Got non-integer avatar ID")
+		dma.log.Warn().Str("avatar_id", avatarID).Msg("Got non-hex avatar ID")
+		return
+	} else if len(avatarIDBytes) != 16 {
+		dma.log.Warn().Str("avatar_id", avatarID).Msg("Got invalid avatar ID length")
 		return
 	}
+	avatarIDArray := [16]byte(avatarIDBytes)
 	userIDInt, err := strconv.ParseUint(userID, 10, 64)
 	if err != nil {
 		dma.log.Warn().Str("user_id", userID).Msg("Got non-integer user ID")
@@ -251,13 +256,13 @@ func (dma *DirectMediaAPI) AvatarMXC(guildID, userID, avatarID string) (mxc id.C
 		return dma.makeMXC(&GuildMemberAvatarMediaData{
 			GuildID:  guildIDInt,
 			UserID:   userIDInt,
-			AvatarID: avatarIDInt,
+			AvatarID: avatarIDArray,
 			Animated: animated,
 		})
 	} else {
 		return dma.makeMXC(&UserAvatarMediaData{
 			UserID:   userIDInt,
-			AvatarID: avatarIDInt,
+			AvatarID: avatarIDArray,
 			Animated: animated,
 		})
 	}
@@ -379,12 +384,12 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 		if mediaData.Animated {
 			url = discordgo.EndpointUserAvatarAnimated(
 				strconv.FormatUint(mediaData.UserID, 10),
-				fmt.Sprintf("a_%d", mediaData.AvatarID),
+				fmt.Sprintf("a_%x", mediaData.AvatarID),
 			)
 		} else {
 			url = discordgo.EndpointUserAvatar(
 				strconv.FormatUint(mediaData.UserID, 10),
-				strconv.FormatUint(mediaData.AvatarID, 10),
+				fmt.Sprintf("%x", mediaData.AvatarID),
 			)
 		}
 	case *GuildMemberAvatarMediaData:
@@ -392,13 +397,13 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 			url = discordgo.EndpointGuildMemberAvatarAnimated(
 				strconv.FormatUint(mediaData.GuildID, 10),
 				strconv.FormatUint(mediaData.UserID, 10),
-				fmt.Sprintf("a_%d", mediaData.AvatarID),
+				fmt.Sprintf("a_%x", mediaData.AvatarID),
 			)
 		} else {
 			url = discordgo.EndpointGuildMemberAvatar(
 				strconv.FormatUint(mediaData.GuildID, 10),
 				strconv.FormatUint(mediaData.UserID, 10),
-				strconv.FormatUint(mediaData.AvatarID, 10),
+				fmt.Sprintf("%x", mediaData.AvatarID),
 			)
 		}
 	default:

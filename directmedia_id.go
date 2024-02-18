@@ -235,8 +235,8 @@ func (emd *EmojiMediaData) Wrap() *MediaID {
 
 type UserAvatarMediaData struct {
 	UserID   uint64
-	AvatarID uint64
 	Animated bool
+	AvatarID [16]byte
 }
 
 func (uamd *UserAvatarMediaData) Write(to io.Writer) {
@@ -262,8 +262,8 @@ func (uamd *UserAvatarMediaData) Wrap() *MediaID {
 type GuildMemberAvatarMediaData struct {
 	GuildID  uint64
 	UserID   uint64
-	AvatarID uint64
 	Animated bool
+	AvatarID [16]byte
 }
 
 func (guamd *GuildMemberAvatarMediaData) Write(to io.Writer) {

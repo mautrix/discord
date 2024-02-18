@@ -43,6 +43,7 @@ import (
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/config"
+	"go.mau.fi/mautrix-discord/database"
 )
 
 type DirectMediaAPI struct {
@@ -306,10 +307,23 @@ var ErrAttachmentNotFound = errors.New("attachment not found")
 func (dma *DirectMediaAPI) fetchNewAttachmentURL(ctx context.Context, meta *AttachmentMediaData) (string, time.Time, error) {
 	var client *discordgo.Session
 	channelIDStr := strconv.FormatUint(meta.ChannelID, 10)
-	users := dma.bridge.DB.GetUsersInPortal(channelIDStr)
+	portal := dma.bridge.GetExistingPortalByID(database.PortalKey{ChannelID: channelIDStr})
+	var users []id.UserID
+	if portal != nil && portal.GuildID != "" {
+		users = dma.bridge.DB.GetUsersInPortal(portal.GuildID)
+	} else {
+		users = dma.bridge.DB.GetUsersInPortal(channelIDStr)
+	}
 	for _, userID := range users {
 		user := dma.bridge.GetCachedUserByMXID(userID)
-		if user != nil && user.Session != nil {
+		if user == nil || user.Session == nil {
+			continue
+		}
+		perms, err := user.Session.State.UserChannelPermissions(user.DiscordID, channelIDStr)
+		if err == nil && perms&discordgo.PermissionViewChannel == 0 {
+			continue
+		}
+		if client == nil || err == nil {
 			client = user.Session
 			if !client.IsUser {
 				break

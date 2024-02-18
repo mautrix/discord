@@ -98,6 +98,9 @@ func newDirectMediaAPI(br *DiscordBridge) *DirectMediaAPI {
 			Version: br.Version,
 		},
 	}
+	if dma.ks.WellKnownTarget == "" {
+		dma.ks.WellKnownTarget = fmt.Sprintf("%s:443", dma.cfg.ServerName)
+	}
 	mediaRouter := r.PathPrefix("/_matrix/media").Subrouter()
 	mediaRouter.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

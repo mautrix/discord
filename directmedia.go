@@ -326,6 +326,22 @@ func (dma *DirectMediaAPI) FetchNewAttachmentURL(ctx context.Context, meta *Atta
 	return url, nil
 }
 
+func (dma *DirectMediaAPI) GetEmojiInfo(contentURI id.ContentURI) *EmojiMediaData {
+	if dma == nil || contentURI.IsEmpty() || contentURI.Homeserver != dma.cfg.ServerName {
+		return nil
+	}
+	mediaID, err := ParseMediaID(contentURI.FileID, dma.signatureKey)
+	if err != nil {
+		return nil
+	}
+	emojiData, ok := mediaID.Data.(*EmojiMediaData)
+	if !ok {
+		return nil
+	}
+	return emojiData
+
+}
+
 func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID string) (url string, expiry time.Time, err error) {
 	var mediaID *MediaID
 	mediaID, err = ParseMediaID(encodedMediaID, dma.signatureKey)

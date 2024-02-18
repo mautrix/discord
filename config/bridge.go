@@ -25,7 +25,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"maunium.net/go/mautrix/bridge/bridgeconfig"
-	"maunium.net/go/mautrix/id"
 )
 
 type BridgeConfig struct {
@@ -55,8 +54,8 @@ type BridgeConfig struct {
 	EnableWebhookAvatars        bool `yaml:"enable_webhook_avatars"`
 	UseDiscordCDNUpload         bool `yaml:"use_discord_cdn_upload"`
 
-	CacheMedia    string        `yaml:"cache_media"`
-	MediaPatterns MediaPatterns `yaml:"media_patterns"`
+	CacheMedia  string      `yaml:"cache_media"`
+	DirectMedia DirectMedia `yaml:"direct_media"`
 
 	AnimatedSticker struct {
 		Target string `yaml:"target"`
@@ -96,111 +95,12 @@ type BridgeConfig struct {
 	guildNameTemplate   *template.Template `yaml:"-"`
 }
 
-type MediaPatterns struct {
-	Enabled        bool   `yaml:"enabled"`
-	TplAttachments string `yaml:"attachments"`
-	TplEmojis      string `yaml:"emojis"`
-	TplStickers    string `yaml:"stickers"`
-	TplAvatars     string `yaml:"avatars"`
-
-	attachments *template.Template `yaml:"-"`
-	emojis      *template.Template `yaml:"-"`
-	stickers    *template.Template `yaml:"-"`
-	avatars     *template.Template `yaml:"-"`
-}
-
-type umMediaPatterns MediaPatterns
-
-func (mp *MediaPatterns) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	err := unmarshal((*umMediaPatterns)(mp))
-	if err != nil {
-		return err
-	}
-	tpl := template.New("media_patterns")
-
-	pairs := []struct {
-		ptr      **template.Template
-		name     string
-		template string
-	}{
-		{&mp.attachments, "attachments", mp.TplAttachments},
-		{&mp.emojis, "emojis", mp.TplEmojis},
-		{&mp.stickers, "stickers", mp.TplStickers},
-		{&mp.avatars, "avatars", mp.TplAvatars},
-	}
-	for _, pair := range pairs {
-		if pair.template == "" {
-			continue
-		}
-		*pair.ptr, err = tpl.New(pair.name).Parse(pair.template)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-type attachmentParams struct {
-	ChannelID    string
-	AttachmentID string
-	FileName     string
-}
-
-type emojiStickerParams struct {
-	ID  string
-	Ext string
-}
-
-type avatarParams struct {
-	UserID   string
-	AvatarID string
-	Ext      string
-}
-
-func (mp *MediaPatterns) execute(tpl *template.Template, params any) id.ContentURI {
-	if tpl == nil || !mp.Enabled {
-		return id.ContentURI{}
-	}
-	var out strings.Builder
-	err := tpl.Execute(&out, params)
-	if err != nil {
-		panic(err)
-	}
-	uri, err := id.ParseContentURI(out.String())
-	if err != nil {
-		panic(err)
-	}
-	return uri
-}
-
-func (mp *MediaPatterns) Attachment(channelID, attachmentID, filename string) id.ContentURI {
-	return mp.execute(mp.attachments, attachmentParams{
-		ChannelID:    channelID,
-		AttachmentID: attachmentID,
-		FileName:     filename,
-	})
-}
-
-func (mp *MediaPatterns) Emoji(emojiID, ext string) id.ContentURI {
-	return mp.execute(mp.emojis, emojiStickerParams{
-		ID:  emojiID,
-		Ext: ext,
-	})
-}
-
-func (mp *MediaPatterns) Sticker(stickerID, ext string) id.ContentURI {
-	return mp.execute(mp.stickers, emojiStickerParams{
-		ID:  stickerID,
-		Ext: ext,
-	})
-}
-
-func (mp *MediaPatterns) Avatar(userID, avatarID, ext string) id.ContentURI {
-	return mp.execute(mp.avatars, avatarParams{
-		UserID:   userID,
-		AvatarID: avatarID,
-		Ext:      ext,
-	})
+type DirectMedia struct {
+	Enabled           bool   `yaml:"enabled"`
+	ServerName        string `yaml:"server_name"`
+	WellKnownResponse string `yaml:"well_known_response"`
+	AllowProxy        bool   `yaml:"allow_proxy"`
+	ServerKey         string `yaml:"server_key"`
 }
 
 type BackfillLimitPart struct {

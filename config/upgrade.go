@@ -20,6 +20,7 @@ import (
 	up "go.mau.fi/util/configupgrade"
 	"go.mau.fi/util/random"
 	"maunium.net/go/mautrix/bridge/bridgeconfig"
+	"maunium.net/go/mautrix/federation"
 )
 
 func DoUpgrade(helper *up.Helper) {
@@ -58,12 +59,17 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Bool, "bridge", "prefix_webhook_messages")
 	helper.Copy(up.Bool, "bridge", "enable_webhook_avatars")
 	helper.Copy(up.Bool, "bridge", "use_discord_cdn_upload")
-	helper.Copy(up.Bool, "bridge", "media_patterns", "enabled")
 	helper.Copy(up.Str, "bridge", "cache_media")
-	helper.Copy(up.Str|up.Null, "bridge", "media_patterns", "attachments")
-	helper.Copy(up.Str|up.Null, "bridge", "media_patterns", "emojis")
-	helper.Copy(up.Str|up.Null, "bridge", "media_patterns", "stickers")
-	helper.Copy(up.Str|up.Null, "bridge", "media_patterns", "avatars")
+	helper.Copy(up.Bool, "bridge", "direct_media", "enabled")
+	helper.Copy(up.Str, "bridge", "direct_media", "server_name")
+	helper.Copy(up.Str|up.Null, "bridge", "direct_media", "well_known_response")
+	helper.Copy(up.Bool, "bridge", "direct_media", "allow_proxy")
+	if serverKey, ok := helper.Get(up.Str, "bridge", "direct_media", "server_key"); !ok || serverKey == "generate" {
+		serverKey = federation.GenerateSigningKey().SynapseString()
+		helper.Set(up.Str, serverKey, "bridge", "direct_media", "server_key")
+	} else {
+		helper.Copy(up.Str, "bridge", "direct_media", "server_key")
+	}
 	helper.Copy(up.Str, "bridge", "animated_sticker", "target")
 	helper.Copy(up.Int, "bridge", "animated_sticker", "args", "width")
 	helper.Copy(up.Int, "bridge", "animated_sticker", "args", "height")

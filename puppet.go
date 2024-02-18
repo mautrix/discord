@@ -217,27 +217,23 @@ func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
 }
 
 func (br *DiscordBridge) reuploadUserAvatar(intent *appservice.IntentAPI, guildID, userID, avatarID string) (id.ContentURI, string, error) {
-	var downloadURL, ext string
+	var downloadURL string
 	if guildID == "" {
-		downloadURL = discordgo.EndpointUserAvatar(userID, avatarID)
-		ext = "png"
 		if strings.HasPrefix(avatarID, "a_") {
 			downloadURL = discordgo.EndpointUserAvatarAnimated(userID, avatarID)
-			ext = "gif"
+		} else {
+			downloadURL = discordgo.EndpointUserAvatar(userID, avatarID)
 		}
 	} else {
-		downloadURL = discordgo.EndpointGuildMemberAvatar(guildID, userID, avatarID)
-		ext = "png"
 		if strings.HasPrefix(avatarID, "a_") {
 			downloadURL = discordgo.EndpointGuildMemberAvatarAnimated(guildID, userID, avatarID)
-			ext = "gif"
+		} else {
+			downloadURL = discordgo.EndpointGuildMemberAvatar(guildID, userID, avatarID)
 		}
 	}
-	if guildID == "" {
-		url := br.Config.Bridge.MediaPatterns.Avatar(userID, avatarID, ext)
-		if !url.IsEmpty() {
-			return url, downloadURL, nil
-		}
+	url := br.DMA.AvatarMXC(guildID, userID, avatarID)
+	if !url.IsEmpty() {
+		return url, downloadURL, nil
 	}
 	copied, err := br.copyAttachmentToMatrix(intent, downloadURL, false, AttachmentMeta{
 		AttachmentID: fmt.Sprintf("avatar/%s/%s/%s", guildID, userID, avatarID),

@@ -168,20 +168,22 @@ bridge:
     # This can be `never` to never cache, `unencrypted` to only cache unencrypted mxc uris, or `always` to cache everything.
     # If you have a media repo that generates non-unique mxc uris, you should set this to never.
     cache_media: unencrypted
-    # Patterns for converting Discord media to custom mxc:// URIs instead of reuploading.
-    # Each of the patterns can be set to null to disable custom URIs for that type of media.
+    # Settings for converting Discord media to custom mxc:// URIs instead of reuploading.
     # More details can be found at https://docs.mau.fi/bridges/go/discord/direct-media.html
-    media_patterns:
+    direct_media:
         # Should custom mxc:// URIs be used instead of reuploading media?
         enabled: false
-        # Pattern for normal message attachments.
-        attachments: mxc://discord-media.mau.dev/attachments|{{.ChannelID}}|{{.AttachmentID}}|{{.FileName}}
-        # Pattern for custom emojis.
-        emojis: mxc://discord-media.mau.dev/emojis|{{.ID}}.{{.Ext}}
-        # Pattern for stickers. Note that animated lottie stickers will not be converted if this is enabled.
-        stickers: mxc://discord-media.mau.dev/stickers|{{.ID}}.{{.Ext}}
-        # Pattern for static user avatars.
-        avatars: mxc://discord-media.mau.dev/avatars|{{.UserID}}|{{.AvatarID}}.{{.Ext}}
+        # The server name to use for the custom mxc:// URIs.
+        # This server name will effectively be a real Matrix server, it just won't implement anything other than media.
+        # You must either set up .well-known delegation from this domain to the bridge, or proxy the domain directly to the bridge.
+        server_name: discord-media.example.com
+        # Optionally a custom .well-known response. This defaults to `server_name:443`
+        well_known_response:
+        # The bridge supports MSC3860 media download redirects and will use them if the requester supports it.
+        # Optionally, you can force redirects and not allow proxying at all by setting this to false.
+        allow_proxy: true
+        # Matrix server signing key to make the federation tester pass, same format as synapse's .signing.key file.
+        server_key: generate
     # Settings for converting animated stickers.
     animated_sticker:
         # Format to which animated stickers should be converted.

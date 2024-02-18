@@ -27,12 +27,11 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"golang.org/x/exp/slices"
-	"maunium.net/go/mautrix/id"
-
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
+	"maunium.net/go/mautrix/id"
 )
 
 type ConvertedMessage struct {
@@ -103,20 +102,16 @@ func (portal *Portal) cleanupConvertedStickerInfo(content *event.MessageEventCon
 }
 
 func (portal *Portal) convertDiscordSticker(ctx context.Context, intent *appservice.IntentAPI, sticker *discordgo.Sticker) *ConvertedMessage {
-	var mime, ext string
+	var mime string
 	switch sticker.FormatType {
 	case discordgo.StickerFormatTypePNG:
 		mime = "image/png"
-		ext = "png"
 	case discordgo.StickerFormatTypeAPNG:
 		mime = "image/apng"
-		ext = "png"
 	case discordgo.StickerFormatTypeLottie:
 		mime = "application/json"
-		ext = "json"
 	case discordgo.StickerFormatTypeGIF:
 		mime = "image/gif"
-		ext = "gif"
 	default:
 		zerolog.Ctx(ctx).Warn().
 			Int("sticker_format", int(sticker.FormatType)).
@@ -130,7 +125,7 @@ func (portal *Portal) convertDiscordSticker(ctx context.Context, intent *appserv
 		},
 	}
 
-	mxc := portal.bridge.Config.Bridge.MediaPatterns.Sticker(sticker.ID, ext)
+	mxc := portal.bridge.DMA.StickerMXC(sticker.ID, sticker.FormatType)
 	if mxc.IsEmpty() {
 		content = portal.convertDiscordFile(ctx, "sticker", intent, sticker.ID, sticker.URL(), content)
 	} else {
@@ -144,7 +139,7 @@ func (portal *Portal) convertDiscordSticker(ctx context.Context, intent *appserv
 	}
 }
 
-func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *appservice.IntentAPI, att *discordgo.MessageAttachment) *ConvertedMessage {
+func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *appservice.IntentAPI, messageID string, att *discordgo.MessageAttachment) *ConvertedMessage {
 	content := &event.MessageEventContent{
 		Body: att.Filename,
 		Info: &event.FileInfo{
@@ -182,7 +177,7 @@ func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *apps
 	default:
 		content.MsgType = event.MsgFile
 	}
-	mxc := portal.bridge.Config.Bridge.MediaPatterns.Attachment(portal.Key.ChannelID, att.ID, att.Filename)
+	mxc := portal.bridge.DMA.AttachmentMXC(portal.Key.ChannelID, messageID, att)
 	if mxc.IsEmpty() {
 		content = portal.convertDiscordFile(ctx, "attachment", intent, att.ID, att.URL, content)
 	} else {
@@ -287,7 +282,7 @@ func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet,
 		}
 		handledIDs[att.ID] = struct{}{}
 		log := log.With().Str("attachment_id", att.ID).Logger()
-		if part := portal.convertDiscordAttachment(log.WithContext(ctx), intent, att); part != nil {
+		if part := portal.convertDiscordAttachment(log.WithContext(ctx), intent, msg.ID, att); part != nil {
 			parts = append(parts, part)
 		}
 	}

@@ -281,7 +281,7 @@ func (re *RespError) Error() string {
 var ErrNoUsersWithAccessFound = errors.New("no users found to fetch message")
 var ErrAttachmentNotFound = errors.New("attachment not found")
 
-func (dma *DirectMediaAPI) FetchNewAttachmentURL(ctx context.Context, meta *AttachmentMediaData) (string, error) {
+func (dma *DirectMediaAPI) fetchNewAttachmentURL(ctx context.Context, meta *AttachmentMediaData) (string, error) {
 	var client *discordgo.Session
 	channelIDStr := strconv.FormatUint(meta.ChannelID, 10)
 	users := dma.bridge.DB.GetUsersInPortal(channelIDStr)
@@ -342,7 +342,7 @@ func (dma *DirectMediaAPI) GetEmojiInfo(contentURI id.ContentURI) *EmojiMediaDat
 
 }
 
-func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID string) (url string, expiry time.Time, err error) {
+func (dma *DirectMediaAPI) getMediaURL(ctx context.Context, encodedMediaID string) (url string, expiry time.Time, err error) {
 	var mediaID *MediaID
 	mediaID, err = ParseMediaID(encodedMediaID, dma.signatureKey)
 	if err != nil {
@@ -366,7 +366,7 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 			Uint64("message_id", mediaData.MessageID).
 			Uint64("attachment_id", mediaData.AttachmentID).
 			Msg("Refreshing attachment URL")
-		url, err = dma.FetchNewAttachmentURL(ctx, mediaData)
+		url, err = dma.fetchNewAttachmentURL(ctx, mediaData)
 		if err != nil {
 			zerolog.Ctx(ctx).Err(err).Msg("Failed to refresh attachment URL")
 			msg := "Failed to refresh attachment URL"
@@ -433,7 +433,7 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 	return
 }
 
-func (dma *DirectMediaAPI) ProxyDownload(ctx context.Context, w http.ResponseWriter, url, fileName string) {
+func (dma *DirectMediaAPI) proxyDownload(ctx context.Context, w http.ResponseWriter, url, fileName string) {
 	log := zerolog.Ctx(ctx)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -504,7 +504,7 @@ func (dma *DirectMediaAPI) DownloadMedia(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	url, expiresAt, err := dma.GetMediaURL(ctx, vars["mediaID"])
+	url, expiresAt, err := dma.getMediaURL(ctx, vars["mediaID"])
 	if err != nil {
 		var respError *RespError
 		if errors.As(err, &respError) {
@@ -525,7 +525,7 @@ func (dma *DirectMediaAPI) DownloadMedia(w http.ResponseWriter, r *http.Request)
 	// Proxy if the config allows proxying and the request doesn't allow redirects.
 	// In any other case, redirect to the Discord CDN.
 	if dma.cfg.AllowProxy && r.URL.Query().Get("allow_redirect") != "true" {
-		dma.ProxyDownload(ctx, w, url, vars["fileName"])
+		dma.proxyDownload(ctx, w, url, vars["fileName"])
 		return
 	}
 	w.Header().Set("Location", url)

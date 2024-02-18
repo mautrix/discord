@@ -126,7 +126,8 @@ func (portal *Portal) convertDiscordSticker(ctx context.Context, intent *appserv
 	}
 
 	mxc := portal.bridge.DMA.StickerMXC(sticker.ID, sticker.FormatType)
-	if mxc.IsEmpty() {
+	// TODO add config option to use direct media even for lottie stickers
+	if mxc.IsEmpty() && mime != "application/json" {
 		content = portal.convertDiscordFile(ctx, "sticker", intent, sticker.ID, sticker.URL(), content)
 	} else {
 		content.URL = mxc.CUString()

@@ -143,6 +143,21 @@ func (dma *DirectMediaAPI) makeMXC(data MediaIDData) id.ContentURI {
 	}
 }
 
+func (dma *DirectMediaAPI) addAttachmentToCache(channelID uint64, att *discordgo.MessageAttachment) {
+	attachmentID, err := strconv.ParseUint(att.ID, 10, 64)
+	if err != nil {
+		return
+	}
+	dma.attachmentCache[AttachmentCacheKey{
+		ChannelID:    channelID,
+		AttachmentID: attachmentID,
+	}] = AttachmentCacheValue{
+		URL: att.URL,
+		// TODO find expiry somehow properly?
+		Expiry: time.Now().Add(23 * time.Hour),
+	}
+}
+
 func (dma *DirectMediaAPI) AttachmentMXC(channelID, messageID string, att *discordgo.MessageAttachment) (mxc id.ContentURI) {
 	if dma == nil {
 		return
@@ -163,14 +178,7 @@ func (dma *DirectMediaAPI) AttachmentMXC(channelID, messageID string, att *disco
 		return
 	}
 	dma.attachmentCacheLock.Lock()
-	dma.attachmentCache[AttachmentCacheKey{
-		ChannelID:    channelIDInt,
-		AttachmentID: attachmentIDInt,
-	}] = AttachmentCacheValue{
-		URL: att.URL,
-		// TODO find expiry somehow properly?
-		Expiry: time.Now().Add(23 * time.Hour),
-	}
+	dma.addAttachmentToCache(channelIDInt, att)
 	dma.attachmentCacheLock.Unlock()
 	return dma.makeMXC(&AttachmentMediaData{
 		AttachmentMediaDataInner: AttachmentMediaDataInner{
@@ -264,34 +272,52 @@ func (re *RespError) Error() string {
 	return re.Message
 }
 
-var ErrNoUsersWithAccessFound = errors.New("no users found with access to channel")
-var ErrAttachmentNotFound = errors.New("attachment not found in message")
+var ErrNoUsersWithAccessFound = errors.New("no users found to fetch message")
+var ErrAttachmentNotFound = errors.New("attachment not found")
 
 func (dma *DirectMediaAPI) FetchNewAttachmentURL(ctx context.Context, meta AttachmentMediaDataInner) (string, error) {
 	var client *discordgo.Session
-	dma.bridge.usersLock.Lock()
-	for _, user := range dma.bridge.usersByID {
-		permissions, err := user.Session.State.UserChannelPermissions(user.DiscordID, strconv.FormatUint(meta.ChannelID, 10))
-		if err == nil && permissions&discordgo.PermissionViewChannel > 0 {
+	channelIDStr := strconv.FormatUint(meta.ChannelID, 10)
+	users := dma.bridge.DB.GetUsersInPortal(channelIDStr)
+	for _, userID := range users {
+		user := dma.bridge.GetCachedUserByMXID(userID)
+		if user != nil && user.Session != nil {
 			client = user.Session
-			break
+			if !client.IsUser {
+				break
+			}
 		}
 	}
-	dma.bridge.usersLock.Unlock()
 	if client == nil {
 		return "", ErrNoUsersWithAccessFound
 	}
-	msg, err := client.ChannelMessage(strconv.FormatUint(meta.ChannelID, 10), strconv.FormatUint(meta.MessageID, 10))
+	var url string
+	var msgs []*discordgo.Message
+	var err error
+	messageIDStr := strconv.FormatUint(meta.MessageID, 10)
+	if client.IsUser {
+		msgs, err = client.ChannelMessages(channelIDStr, 5, "", "", messageIDStr)
+	} else {
+		var msg *discordgo.Message
+		msg, err = client.ChannelMessage(channelIDStr, messageIDStr)
+		msgs = []*discordgo.Message{msg}
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch message: %w", err)
 	}
-	attachmentID := strconv.FormatUint(meta.AttachmentID, 10)
-	for _, att := range msg.Attachments {
-		if att.ID == attachmentID {
-			return att.URL, nil
+	attachmentIDStr := strconv.FormatUint(meta.AttachmentID, 10)
+	for _, item := range msgs {
+		for _, att := range item.Attachments {
+			dma.addAttachmentToCache(meta.ChannelID, att)
+			if att.ID == attachmentIDStr {
+				url = att.URL
+			}
 		}
 	}
-	return "", ErrAttachmentNotFound
+	if url == "" {
+		return "", ErrAttachmentNotFound
+	}
+	return url, nil
 }
 
 func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID string) (url string, expiry time.Time, err error) {
@@ -336,10 +362,6 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 			zerolog.Ctx(ctx).Debug().Msg("Successfully refreshed attachment URL")
 			// TODO find expiry somehow properly?
 			expiry = time.Now().Add(23 * time.Hour)
-			dma.attachmentCache[mediaData.AttachmentMediaDataInner.CacheKey()] = AttachmentCacheValue{
-				URL:    url,
-				Expiry: expiry,
-			}
 		}
 	case *EmojiMediaData:
 		if mediaData.Animated {

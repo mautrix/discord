@@ -394,7 +394,7 @@ func (dma *DirectMediaAPI) ProxyDownload(ctx context.Context, w http.ResponseWri
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		log.Err(err).Str("url", url).Msg("Failed to create proxy request")
-		jsonResponse(w, http.StatusInternalServerError, mautrix.RespError{
+		jsonResponse(w, http.StatusInternalServerError, &mautrix.RespError{
 			ErrCode: "M_UNKNOWN",
 			Err:     "Failed to create proxy request",
 		})
@@ -411,14 +411,14 @@ func (dma *DirectMediaAPI) ProxyDownload(ctx context.Context, w http.ResponseWri
 	}()
 	if err != nil {
 		log.Err(err).Str("url", url).Msg("Failed to proxy download")
-		jsonResponse(w, http.StatusServiceUnavailable, mautrix.RespError{
+		jsonResponse(w, http.StatusServiceUnavailable, &mautrix.RespError{
 			ErrCode: "M_UNKNOWN",
 			Err:     "Failed to proxy download",
 		})
 		return
 	} else if resp.StatusCode != http.StatusOK {
 		log.Warn().Str("url", url).Int("status", resp.StatusCode).Msg("Unexpected status code proxying download")
-		jsonResponse(w, resp.StatusCode, mautrix.RespError{
+		jsonResponse(w, resp.StatusCode, &mautrix.RespError{
 			ErrCode: "M_UNKNOWN",
 			Err:     "Unexpected status code proxying download",
 		})
@@ -454,7 +454,7 @@ func (dma *DirectMediaAPI) DownloadMedia(w http.ResponseWriter, r *http.Request)
 	log := zerolog.Ctx(ctx)
 	vars := mux.Vars(r)
 	if vars["serverName"] != dma.cfg.ServerName {
-		jsonResponse(w, http.StatusNotFound, mautrix.RespError{
+		jsonResponse(w, http.StatusNotFound, &mautrix.RespError{
 			ErrCode: mautrix.MNotFound.ErrCode,
 			Err:     fmt.Sprintf("This is a Discord media proxy for %q, other media downloads are not available here", dma.cfg.ServerName),
 		})
@@ -464,13 +464,13 @@ func (dma *DirectMediaAPI) DownloadMedia(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		var respError *RespError
 		if errors.As(err, &respError) {
-			jsonResponse(w, respError.Status, mautrix.RespError{
+			jsonResponse(w, respError.Status, &mautrix.RespError{
 				ErrCode: respError.Code,
 				Err:     respError.Message,
 			})
 		} else {
 			log.Err(err).Str("media_id", vars["mediaID"]).Msg("Failed to get media URL")
-			jsonResponse(w, http.StatusNotFound, mautrix.RespError{
+			jsonResponse(w, http.StatusNotFound, &mautrix.RespError{
 				ErrCode: mautrix.MNotFound.ErrCode,
 				Err:     "Media not found",
 			})
@@ -498,28 +498,28 @@ func (dma *DirectMediaAPI) DownloadMedia(w http.ResponseWriter, r *http.Request)
 }
 
 func (dma *DirectMediaAPI) UploadNotSupported(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, http.StatusNotImplemented, mautrix.RespError{
+	jsonResponse(w, http.StatusNotImplemented, &mautrix.RespError{
 		ErrCode: mautrix.MUnrecognized.ErrCode,
 		Err:     "This bridge only supports proxying Discord media downloads and does not support media uploads.",
 	})
 }
 
 func (dma *DirectMediaAPI) PreviewURLNotSupported(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, http.StatusNotImplemented, mautrix.RespError{
+	jsonResponse(w, http.StatusNotImplemented, &mautrix.RespError{
 		ErrCode: mautrix.MUnrecognized.ErrCode,
 		Err:     "This bridge only supports proxying Discord media downloads and does not support URL previews.",
 	})
 }
 
 func (dma *DirectMediaAPI) UnknownEndpoint(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, http.StatusNotFound, mautrix.RespError{
+	jsonResponse(w, http.StatusNotFound, &mautrix.RespError{
 		ErrCode: mautrix.MUnrecognized.ErrCode,
 		Err:     "Unrecognized endpoint",
 	})
 }
 
 func (dma *DirectMediaAPI) UnsupportedMethod(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, http.StatusMethodNotAllowed, mautrix.RespError{
+	jsonResponse(w, http.StatusMethodNotAllowed, &mautrix.RespError{
 		ErrCode: mautrix.MUnrecognized.ErrCode,
 		Err:     "Invalid method for endpoint",
 	})

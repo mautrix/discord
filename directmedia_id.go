@@ -153,7 +153,7 @@ func (amd *AttachmentMediaData) Read(from io.Reader) (err error) {
 }
 
 func (amd *AttachmentMediaData) Size() int {
-	return binary.Size(amd.AttachmentMediaDataInner) + len(amd.FileName)
+	return binary.Size(&amd.AttachmentMediaDataInner) + len(amd.FileName)
 }
 
 func (amd *AttachmentMediaData) Wrap() *MediaID {
@@ -218,7 +218,7 @@ func (emd *EmojiMediaData) Read(from io.Reader) (err error) {
 }
 
 func (emd *EmojiMediaData) Size() int {
-	return binary.Size(emd.EmojiMediaDataInner) + len(emd.Name)
+	return binary.Size(&emd.EmojiMediaDataInner) + len(emd.Name)
 }
 
 func (emd *EmojiMediaData) Wrap() *MediaID {

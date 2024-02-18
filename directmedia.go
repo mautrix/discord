@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -102,6 +103,7 @@ func newDirectMediaAPI(br *DiscordBridge) *DirectMediaAPI {
 		dma.ks.WellKnownTarget = fmt.Sprintf("%s:443", dma.cfg.ServerName)
 	}
 	mediaRouter := r.PathPrefix("/_matrix/media").Subrouter()
+	var reqIDCounter atomic.Uint64
 	mediaRouter.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -110,6 +112,7 @@ func newDirectMediaAPI(br *DiscordBridge) *DirectMediaAPI {
 			log := dma.log.With().
 				Str("remote_addr", r.RemoteAddr).
 				Str("request_path", r.URL.Path).
+				Uint64("req_id", reqIDCounter.Add(1)).
 				Logger()
 			next.ServeHTTP(w, r.WithContext(log.WithContext(r.Context())))
 		})
@@ -310,6 +313,11 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 		if ok && time.Until(cached.Expiry) > 5*time.Minute {
 			return cached.URL, cached.Expiry, nil
 		}
+		zerolog.Ctx(ctx).Debug().
+			Uint64("channel_id", mediaData.AttachmentMediaDataInner.ChannelID).
+			Uint64("message_id", mediaData.AttachmentMediaDataInner.MessageID).
+			Uint64("attachment_id", mediaData.AttachmentMediaDataInner.AttachmentID).
+			Msg("Refreshing attachment URL")
 		url, err = dma.FetchNewAttachmentURL(ctx, mediaData.AttachmentMediaDataInner)
 		if err != nil {
 			zerolog.Ctx(ctx).Err(err).Msg("Failed to refresh attachment URL")
@@ -325,6 +333,7 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 				Status:  http.StatusNotFound,
 			}
 		} else {
+			zerolog.Ctx(ctx).Debug().Msg("Successfully refreshed attachment URL")
 			// TODO find expiry somehow properly?
 			expiry = time.Now().Add(23 * time.Hour)
 			dma.attachmentCache[mediaData.AttachmentMediaDataInner.CacheKey()] = AttachmentCacheValue{

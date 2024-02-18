@@ -181,12 +181,9 @@ func (dma *DirectMediaAPI) AttachmentMXC(channelID, messageID string, att *disco
 	dma.addAttachmentToCache(channelIDInt, att)
 	dma.attachmentCacheLock.Unlock()
 	return dma.makeMXC(&AttachmentMediaData{
-		AttachmentMediaDataInner: AttachmentMediaDataInner{
-			ChannelID:    channelIDInt,
-			MessageID:    messageIDInt,
-			AttachmentID: attachmentIDInt,
-		},
-		FileName: att.Filename,
+		ChannelID:    channelIDInt,
+		MessageID:    messageIDInt,
+		AttachmentID: attachmentIDInt,
 	})
 }
 
@@ -275,7 +272,7 @@ func (re *RespError) Error() string {
 var ErrNoUsersWithAccessFound = errors.New("no users found to fetch message")
 var ErrAttachmentNotFound = errors.New("attachment not found")
 
-func (dma *DirectMediaAPI) FetchNewAttachmentURL(ctx context.Context, meta AttachmentMediaDataInner) (string, error) {
+func (dma *DirectMediaAPI) FetchNewAttachmentURL(ctx context.Context, meta *AttachmentMediaData) (string, error) {
 	var client *discordgo.Session
 	channelIDStr := strconv.FormatUint(meta.ChannelID, 10)
 	users := dma.bridge.DB.GetUsersInPortal(channelIDStr)
@@ -335,16 +332,16 @@ func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID strin
 	case *AttachmentMediaData:
 		dma.attachmentCacheLock.Lock()
 		defer dma.attachmentCacheLock.Unlock()
-		cached, ok := dma.attachmentCache[mediaData.AttachmentMediaDataInner.CacheKey()]
+		cached, ok := dma.attachmentCache[mediaData.CacheKey()]
 		if ok && time.Until(cached.Expiry) > 5*time.Minute {
 			return cached.URL, cached.Expiry, nil
 		}
 		zerolog.Ctx(ctx).Debug().
-			Uint64("channel_id", mediaData.AttachmentMediaDataInner.ChannelID).
-			Uint64("message_id", mediaData.AttachmentMediaDataInner.MessageID).
-			Uint64("attachment_id", mediaData.AttachmentMediaDataInner.AttachmentID).
+			Uint64("channel_id", mediaData.ChannelID).
+			Uint64("message_id", mediaData.MessageID).
+			Uint64("attachment_id", mediaData.AttachmentID).
 			Msg("Refreshing attachment URL")
-		url, err = dma.FetchNewAttachmentURL(ctx, mediaData.AttachmentMediaDataInner)
+		url, err = dma.FetchNewAttachmentURL(ctx, mediaData)
 		if err != nil {
 			zerolog.Ctx(ctx).Err(err).Msg("Failed to refresh attachment URL")
 			msg := "Failed to refresh attachment URL"

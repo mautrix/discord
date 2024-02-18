@@ -116,44 +116,22 @@ func (mid *MediaID) Read(from io.Reader) error {
 	return nil
 }
 
-type AttachmentMediaDataInner struct {
+type AttachmentMediaData struct {
 	ChannelID    uint64
 	MessageID    uint64
 	AttachmentID uint64
 }
 
-func (amdi AttachmentMediaDataInner) CacheKey() AttachmentCacheKey {
-	return AttachmentCacheKey{
-		ChannelID:    amdi.ChannelID,
-		AttachmentID: amdi.AttachmentID,
-	}
-}
-
-type AttachmentMediaData struct {
-	AttachmentMediaDataInner
-	FileName string
-}
-
 func (amd *AttachmentMediaData) Write(to io.Writer) {
-	_ = binary.Write(to, binary.BigEndian, &amd.AttachmentMediaDataInner)
-	_, _ = to.Write([]byte(amd.FileName))
+	_ = binary.Write(to, binary.BigEndian, amd)
 }
 
 func (amd *AttachmentMediaData) Read(from io.Reader) (err error) {
-	err = binary.Read(from, binary.BigEndian, &amd.AttachmentMediaDataInner)
-	if err != nil {
-		return
-	}
-	name, err := io.ReadAll(from)
-	if err != nil {
-		return
-	}
-	amd.FileName = string(name)
-	return
+	return binary.Read(from, binary.BigEndian, amd)
 }
 
 func (amd *AttachmentMediaData) Size() int {
-	return binary.Size(&amd.AttachmentMediaDataInner) + len(amd.FileName)
+	return binary.Size(amd)
 }
 
 func (amd *AttachmentMediaData) Wrap() *MediaID {
@@ -161,6 +139,13 @@ func (amd *AttachmentMediaData) Wrap() *MediaID {
 		Version:   MediaIDVersion,
 		TypeClass: MediaIDClassAttachment,
 		Data:      amd,
+	}
+}
+
+func (amd *AttachmentMediaData) CacheKey() AttachmentCacheKey {
+	return AttachmentCacheKey{
+		ChannelID:    amd.ChannelID,
+		AttachmentID: amd.AttachmentID,
 	}
 }
 

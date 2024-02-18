@@ -183,6 +183,7 @@ bridge:
         # Optionally, you can force redirects and not allow proxying at all by setting this to false.
         allow_proxy: true
         # Matrix server signing key to make the federation tester pass, same format as synapse's .signing.key file.
+        # This key is also used to sign the mxc:// URIs to ensure only the bridge can generate them.
         server_key: generate
     # Settings for converting animated stickers.
     animated_sticker:

@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,8 @@ type DirectMediaAPI struct {
 	cfg    config.DirectMedia
 	log    zerolog.Logger
 	proxy  http.Client
+
+	signatureKey [32]byte
 
 	attachmentCache     map[AttachmentCacheKey]AttachmentCacheValue
 	attachmentCacheLock sync.Mutex
@@ -88,6 +91,7 @@ func newDirectMediaAPI(br *DiscordBridge) *DirectMediaAPI {
 		os.Exit(11)
 		return nil
 	}
+	dma.signatureKey = sha256.Sum256(parsed.Priv.Seed())
 	dma.ks = &federation.KeyServer{
 		KeyProvider: &federation.StaticServerKey{
 			ServerName: dma.cfg.ServerName,
@@ -139,7 +143,7 @@ func newDirectMediaAPI(br *DiscordBridge) *DirectMediaAPI {
 func (dma *DirectMediaAPI) makeMXC(data MediaIDData) id.ContentURI {
 	return id.ContentURI{
 		Homeserver: dma.cfg.ServerName,
-		FileID:     data.Wrap().String(),
+		FileID:     data.Wrap().SignedString(dma.signatureKey),
 	}
 }
 
@@ -319,7 +323,7 @@ func (dma *DirectMediaAPI) FetchNewAttachmentURL(ctx context.Context, meta *Atta
 
 func (dma *DirectMediaAPI) GetMediaURL(ctx context.Context, encodedMediaID string) (url string, expiry time.Time, err error) {
 	var mediaID *MediaID
-	mediaID, err = ParseMediaID(encodedMediaID)
+	mediaID, err = ParseMediaID(encodedMediaID, dma.signatureKey)
 	if err != nil {
 		err = &RespError{
 			Code:    mautrix.MNotFound.ErrCode,

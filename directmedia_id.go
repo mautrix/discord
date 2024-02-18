@@ -18,6 +18,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -51,10 +53,17 @@ type MediaID struct {
 	Data      MediaIDData
 }
 
-func ParseMediaID(id string) (*MediaID, error) {
+func ParseMediaID(id string, key [32]byte) (*MediaID, error) {
 	data, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode base64: %w", err)
+	}
+	hasher := hmac.New(sha256.New, key[:])
+	checksum := data[len(data)-TruncatedHashLength:]
+	data = data[:len(data)-TruncatedHashLength]
+	hasher.Write(data)
+	if !hmac.Equal(checksum, hasher.Sum(nil)[:TruncatedHashLength]) {
+		return nil, ErrMediaIDChecksumMismatch
 	}
 	mid := &MediaID{}
 	err = mid.Read(bytes.NewReader(data))
@@ -64,9 +73,14 @@ func ParseMediaID(id string) (*MediaID, error) {
 	return mid, nil
 }
 
-func (mid *MediaID) String() string {
-	buf := bytes.NewBuffer(make([]byte, 0, mid.Data.Size()))
+const TruncatedHashLength = 16
+
+func (mid *MediaID) SignedString(key [32]byte) string {
+	buf := bytes.NewBuffer(make([]byte, 0, mid.Size()))
 	mid.Write(buf)
+	hasher := hmac.New(sha256.New, key[:])
+	hasher.Write(buf.Bytes())
+	buf.Write(hasher.Sum(nil)[:TruncatedHashLength])
 	return base64.RawURLEncoding.EncodeToString(buf.Bytes())
 }
 
@@ -77,9 +91,14 @@ func (mid *MediaID) Write(to io.Writer) {
 	mid.Data.Write(to)
 }
 
+func (mid *MediaID) Size() int {
+	return len(MediaIDPrefix) + 2 + mid.Data.Size() + TruncatedHashLength
+}
+
 var (
-	ErrInvalidMediaID     = errors.New("invalid media ID")
-	ErrUnsupportedMediaID = errors.New("unsupported media ID")
+	ErrInvalidMediaID          = errors.New("invalid media ID")
+	ErrMediaIDChecksumMismatch = errors.New("invalid checksum in media ID")
+	ErrUnsupportedMediaID      = errors.New("unsupported media ID")
 )
 
 func (mid *MediaID) Read(from io.Reader) error {

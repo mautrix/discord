@@ -107,7 +107,7 @@ func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
 	params[0] = key.ChannelID
 	params[1] = key.Receiver
 	for i, msg := range msgs {
-		baseIndex := 2 + i*7
+		baseIndex := 2 + i*8
 		params[baseIndex] = msg.DiscordID
 		params[baseIndex+1] = msg.AttachmentID
 		params[baseIndex+2] = msg.SenderID

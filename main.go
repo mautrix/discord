@@ -48,6 +48,7 @@ type DiscordBridge struct {
 	Config *config.Config
 	DB     *database.Database
 
+	DMA          *DirectMediaAPI
 	provisioning *ProvisioningAPI
 
 	usersByMXID map[id.UserID]*User
@@ -104,6 +105,7 @@ func (br *DiscordBridge) Start() {
 	if br.Config.Bridge.Provisioning.SharedSecret != "disable" {
 		br.provisioning = newProvisioningAPI(br)
 	}
+	br.DMA = newDirectMediaAPI(br)
 	br.WaitWebsocketConnected()
 	go br.startUsers()
 }

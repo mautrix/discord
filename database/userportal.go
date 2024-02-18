@@ -7,6 +7,7 @@ import (
 
 	"go.mau.fi/util/dbutil"
 	log "maunium.net/go/maulogger/v2"
+	"maunium.net/go/mautrix/id"
 )
 
 const (
@@ -42,6 +43,24 @@ func (u *User) scanUserPortals(rows dbutil.Rows) []UserPortal {
 		}
 	}
 	return ups
+}
+
+func (db *Database) GetUsersInPortal(channelID string) []id.UserID {
+	rows, err := db.Query("SELECT user_mxid FROM user_portal WHERE discord_id=$1", channelID)
+	if err != nil {
+		db.Portal.log.Errorln("Failed to get users in portal:", err)
+	}
+	var users []id.UserID
+	for rows.Next() {
+		var mxid id.UserID
+		err = rows.Scan(&mxid)
+		if err != nil {
+			db.Portal.log.Errorln("Failed to scan user in portal:", err)
+		} else {
+			users = append(users, mxid)
+		}
+	}
+	return users
 }
 
 func (u *User) GetPortals() []UserPortal {

@@ -195,6 +195,12 @@ func (br *DiscordBridge) GetCachedUserByID(id string) *User {
 	return br.usersByID[id]
 }
 
+func (br *DiscordBridge) GetCachedUserByMXID(userID id.UserID) *User {
+	br.usersLock.Lock()
+	defer br.usersLock.Unlock()
+	return br.usersByMXID[userID]
+}
+
 func (br *DiscordBridge) NewUser(dbUser *database.User) *User {
 	user := &User{
 		User:   dbUser,

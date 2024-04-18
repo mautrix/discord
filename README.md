@@ -12,8 +12,7 @@ All setup and usage instructions are located on [docs.mau.fi]. Some quick links:
   [Relaying with webhooks](https://docs.mau.fi/bridges/go/discord/relay.html)
 
 ### Features & Roadmap
-[ROADMAP.md](https://github.com/mautrix/discord/blob/main/ROADMAP.md)
-contains a general overview of what is supported by the bridge.
+[ROADMAP.md](ROADMAP.md) contains a general overview of what is supported by the bridge.
 
 ## Discussion
 Matrix room: [#discord:maunium.net](https://matrix.to/#/#discord:maunium.net)

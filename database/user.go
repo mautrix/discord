@@ -1,23 +1,34 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
 	"database/sql"
 
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
 
 type UserQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*User]
 }
 
-func (uq *UserQuery) New() *User {
-	return &User{
-		db:  uq.db,
-		log: uq.log,
-	}
+func newUser(qh *dbutil.QueryHelper[*User]) *User {
+	return &User{qh: qh}
 }
 
 func (uq *UserQuery) GetByMXID(userID id.UserID) *User {
@@ -51,8 +62,7 @@ func (uq *UserQuery) GetAllWithToken() []*User {
 }
 
 type User struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*User]
 
 	MXID           id.UserID
 	DiscordID      string
@@ -64,22 +74,18 @@ type User struct {
 	ReadStateVersion int
 }
 
-func (u *User) Scan(row dbutil.Scannable) *User {
+func (u *User) Scan(row dbutil.Scannable) (*User, error) {
 	var discordID, managementRoom, spaceRoom, dmSpaceRoom, discordToken sql.NullString
 	err := row.Scan(&u.MXID, &discordID, &discordToken, &managementRoom, &spaceRoom, &dmSpaceRoom, &u.ReadStateVersion)
 	if err != nil {
-		if err != sql.ErrNoRows {
-			u.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-		return nil
+		return nil, err
 	}
 	u.DiscordID = discordID.String
 	u.DiscordToken = discordToken.String
 	u.ManagementRoom = id.RoomID(managementRoom.String)
 	u.SpaceRoom = id.RoomID(spaceRoom.String)
 	u.DMSpaceRoom = id.RoomID(dmSpaceRoom.String)
-	return u
+	return u, nil
 }
 
 func (u *User) Insert() {

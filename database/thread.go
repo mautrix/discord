@@ -1,28 +1,36 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
-	"database/sql"
-	"errors"
-
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
 
 type ThreadQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*Thread]
 }
 
 const (
 	threadSelect = "SELECT dcid, parent_chan_id, root_msg_dcid, root_msg_mxid, creation_notice_mxid FROM thread"
 )
 
-func (tq *ThreadQuery) New() *Thread {
-	return &Thread{
-		db:  tq.db,
-		log: tq.log,
-	}
+func newThread(qh *dbutil.QueryHelper[*Thread]) *Thread {
+	return &Thread{qh: qh}
 }
 
 func (tq *ThreadQuery) GetByDiscordID(discordID string) *Thread {
@@ -59,8 +67,7 @@ func (tq *ThreadQuery) GetByMatrixRootOrCreationNoticeMsg(mxid id.EventID) *Thre
 }
 
 type Thread struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Thread]
 
 	ID       string
 	ParentID string
@@ -71,16 +78,8 @@ type Thread struct {
 	CreationNoticeMXID id.EventID
 }
 
-func (t *Thread) Scan(row dbutil.Scannable) *Thread {
-	err := row.Scan(&t.ID, &t.ParentID, &t.RootDiscordID, &t.RootMXID, &t.CreationNoticeMXID)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			t.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-		return nil
-	}
-	return t
+func (t *Thread) Scan(row dbutil.Scannable) (*Thread, error) {
+	return dbutil.ValueOrErr(t, row.Scan(&t.ID, &t.ParentID, &t.RootDiscordID, &t.RootMXID, &t.CreationNoticeMXID))
 }
 
 func (t *Thread) Insert() {

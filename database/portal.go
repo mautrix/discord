@@ -1,3 +1,19 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
@@ -5,7 +21,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -39,15 +54,11 @@ func (key PortalKey) String() string {
 }
 
 type PortalQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*Portal]
 }
 
-func (pq *PortalQuery) New() *Portal {
-	return &Portal{
-		db:  pq.db,
-		log: pq.log,
-	}
+func newPortal(qh *dbutil.QueryHelper[*Portal]) *Portal {
+	return &Portal{qh: qh}
 }
 
 func (pq *PortalQuery) GetAll() []*Portal {
@@ -100,8 +111,7 @@ func (pq *PortalQuery) get(query string, args ...interface{}) *Portal {
 }
 
 type Portal struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Portal]
 
 	Key         PortalKey
 	Type        discordgo.ChannelType
@@ -129,22 +139,15 @@ type Portal struct {
 	RelayWebhookSecret string
 }
 
-func (p *Portal) Scan(row dbutil.Scannable) *Portal {
+func (p *Portal) Scan(row dbutil.Scannable) (*Portal, error) {
 	var otherUserID, guildID, parentID, mxid, firstEventID, relayWebhookID, relayWebhookSecret sql.NullString
 	var chanType int32
 	var avatarURL string
-
 	err := row.Scan(&p.Key.ChannelID, &p.Key.Receiver, &chanType, &otherUserID, &guildID, &parentID,
 		&mxid, &p.PlainName, &p.Name, &p.NameSet, &p.FriendNick, &p.Topic, &p.TopicSet, &p.Avatar, &avatarURL, &p.AvatarSet,
 		&p.Encrypted, &p.InSpace, &firstEventID, &relayWebhookID, &relayWebhookSecret)
-
 	if err != nil {
-		if err != sql.ErrNoRows {
-			p.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-
-		return nil
+		return nil, err
 	}
 
 	p.MXID = id.RoomID(mxid.String)
@@ -156,8 +159,7 @@ func (p *Portal) Scan(row dbutil.Scannable) *Portal {
 	p.AvatarURL, _ = id.ParseContentURI(avatarURL)
 	p.RelayWebhookID = relayWebhookID.String
 	p.RelayWebhookSecret = relayWebhookSecret.String
-
-	return p
+	return p, nil
 }
 
 func (p *Portal) Insert() {

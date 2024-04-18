@@ -1,28 +1,36 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
-	"database/sql"
-	"errors"
-
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
 
 type ReactionQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*Reaction]
 }
 
 const (
 	reactionSelect = "SELECT dc_chan_id, dc_chan_receiver, dc_msg_id, dc_sender, dc_emoji_name, dc_thread_id, mxid FROM reaction"
 )
 
-func (rq *ReactionQuery) New() *Reaction {
-	return &Reaction{
-		db:  rq.db,
-		log: rq.log,
-	}
+func newReaction(qh *dbutil.QueryHelper[*Reaction]) *Reaction {
+	return &Reaction{qh: qh}
 }
 
 func (rq *ReactionQuery) GetAllForMessage(key PortalKey, discordMessageID string) []*Reaction {
@@ -67,8 +75,7 @@ func (rq *ReactionQuery) get(query string, args ...interface{}) *Reaction {
 }
 
 type Reaction struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Reaction]
 
 	Channel   PortalKey
 	MessageID string
@@ -81,17 +88,8 @@ type Reaction struct {
 	FirstAttachmentID string
 }
 
-func (r *Reaction) Scan(row dbutil.Scannable) *Reaction {
-	err := row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &r.ThreadID, &r.MXID)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			r.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-		return nil
-	}
-
-	return r
+func (r *Reaction) Scan(row dbutil.Scannable) (*Reaction, error) {
+	return dbutil.ValueOrErr(r, row.Scan(&r.Channel.ChannelID, &r.Channel.Receiver, &r.MessageID, &r.Sender, &r.EmojiName, &r.ThreadID, &r.MXID))
 }
 
 func (r *Reaction) DiscordProtoChannelID() string {

@@ -1,13 +1,27 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -75,19 +89,15 @@ func (gbm GuildBridgingMode) Description() string {
 }
 
 type GuildQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*Guild]
 }
 
 const (
 	guildSelect = "SELECT dcid, mxid, plain_name, name, name_set, avatar, avatar_url, avatar_set, bridging_mode FROM guild"
 )
 
-func (gq *GuildQuery) New() *Guild {
-	return &Guild{
-		db:  gq.db,
-		log: gq.log,
-	}
+func newGuild(qh *dbutil.QueryHelper[*Guild]) *Guild {
+	return &Guild{qh: qh}
 }
 
 func (gq *GuildQuery) GetByID(dcid string) *Guild {
@@ -119,8 +129,7 @@ func (gq *GuildQuery) GetAll() []*Guild {
 }
 
 type Guild struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Guild]
 
 	ID        string
 	MXID      id.RoomID
@@ -134,24 +143,19 @@ type Guild struct {
 	BridgingMode GuildBridgingMode
 }
 
-func (g *Guild) Scan(row dbutil.Scannable) *Guild {
+func (g *Guild) Scan(row dbutil.Scannable) (*Guild, error) {
 	var mxid sql.NullString
 	var avatarURL string
 	err := row.Scan(&g.ID, &mxid, &g.PlainName, &g.Name, &g.NameSet, &g.Avatar, &avatarURL, &g.AvatarSet, &g.BridgingMode)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			g.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-
-		return nil
+		return nil, err
 	}
 	if g.BridgingMode < GuildBridgeNothing || g.BridgingMode > GuildBridgeEverything {
 		panic(fmt.Errorf("invalid guild bridging mode %d in guild %s", g.BridgingMode, g.ID))
 	}
 	g.MXID = id.RoomID(mxid.String)
 	g.AvatarURL, _ = id.ParseContentURI(avatarURL)
-	return g
+	return g, nil
 }
 
 func (g *Guild) mxidPtr() *id.RoomID {

@@ -1,10 +1,25 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
 	"database/sql"
 
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -15,15 +30,11 @@ const (
 )
 
 type PuppetQuery struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Puppet]
 }
 
-func (pq *PuppetQuery) New() *Puppet {
-	return &Puppet{
-		db:  pq.db,
-		log: pq.log,
-	}
+func newPuppet(qh *dbutil.QueryHelper[*Puppet]) *Puppet {
+	return &Puppet{qh: qh}
 }
 
 func (pq *PuppetQuery) Get(id string) *Puppet {
@@ -62,8 +73,7 @@ func (pq *PuppetQuery) getAll(query string, args ...interface{}) []*Puppet {
 }
 
 type Puppet struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Puppet]
 
 	ID        string
 	Name      string
@@ -86,28 +96,20 @@ type Puppet struct {
 	NextBatch   string
 }
 
-func (p *Puppet) Scan(row dbutil.Scannable) *Puppet {
+func (p *Puppet) Scan(row dbutil.Scannable) (*Puppet, error) {
 	var avatarURL string
 	var customMXID, accessToken, nextBatch sql.NullString
-
 	err := row.Scan(&p.ID, &p.Name, &p.NameSet, &p.Avatar, &avatarURL, &p.AvatarSet, &p.ContactInfoSet,
 		&p.GlobalName, &p.Username, &p.Discriminator, &p.IsBot, &p.IsWebhook, &p.IsApplication, &customMXID, &accessToken, &nextBatch)
-
 	if err != nil {
-		if err != sql.ErrNoRows {
-			p.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-
-		return nil
+		return nil, err
 	}
 
 	p.AvatarURL, _ = id.ParseContentURI(avatarURL)
 	p.CustomMXID = id.UserID(customMXID.String)
 	p.AccessToken = accessToken.String
 	p.NextBatch = nextBatch.String
-
-	return p
+	return p, nil
 }
 
 func (p *Puppet) Insert() {

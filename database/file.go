@@ -1,51 +1,66 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
+	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"time"
 
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/id"
 )
 
 type FileQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*File]
 }
 
 // language=postgresql
 const (
-	fileSelect = "SELECT url, encrypted, mxc, id, emoji_name, size, width, height, mime_type, decryption_info, timestamp FROM discord_file"
-	fileInsert = `
+	getFileByURLQuery = `
+		SELECT url, encrypted, mxc, id, emoji_name, size, width, height, mime_type, decryption_info, timestamp
+		FROM discord_file WHERE url=$1 AND encrypted=$2
+	`
+	getFileByEmojiMXCQuery = `
+		SELECT url, encrypted, mxc, id, emoji_name, size, width, height, mime_type, decryption_info, timestamp
+		FROM discord_file WHERE mxc=$1 AND emoji_name<>'' LIMIT 1
+	`
+	insertFileQuery = `
 		INSERT INTO discord_file (url, encrypted, mxc, id, emoji_name, size, width, height, mime_type, decryption_info, timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
+	deleteFileQuery = "DELETE FROM discord_file WHERE url=$1 AND encrypted=$2"
 )
 
-func (fq *FileQuery) New() *File {
-	return &File{
-		db:  fq.db,
-		log: fq.log,
-	}
+func newFile(qh *dbutil.QueryHelper[*File]) *File {
+	return &File{qh: qh}
 }
 
-func (fq *FileQuery) Get(url string, encrypted bool) *File {
-	query := fileSelect + " WHERE url=$1 AND encrypted=$2"
-	return fq.New().Scan(fq.db.QueryRow(query, url, encrypted))
+func (fq *FileQuery) Get(ctx context.Context, url string, encrypted bool) (*File, error) {
+	return fq.QueryOne(ctx, getFileByURLQuery, url, encrypted)
 }
 
-func (fq *FileQuery) GetEmojiByMXC(mxc id.ContentURI) *File {
-	query := fileSelect + " WHERE mxc=$1 AND emoji_name<>'' LIMIT 1"
-	return fq.New().Scan(fq.db.QueryRow(query, mxc.String()))
+func (fq *FileQuery) GetEmojiByMXC(ctx context.Context, mxc id.ContentURI) (*File, error) {
+	return fq.QueryOne(ctx, getFileByEmojiMXCQuery, mxc.String())
 }
 
 type File struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*File]
 
 	URL       string
 	Encrypted bool
@@ -63,76 +78,38 @@ type File struct {
 	Timestamp      time.Time
 }
 
-func (f *File) Scan(row dbutil.Scannable) *File {
-	var fileID, emojiName, decryptionInfo sql.NullString
+func (f *File) Scan(row dbutil.Scannable) (*File, error) {
+	var fileID, emojiName sql.NullString
 	var width, height sql.NullInt32
 	var timestamp int64
-	var mxc string
-	err := row.Scan(&f.URL, &f.Encrypted, &mxc, &fileID, &emojiName, &f.Size, &width, &height, &f.MimeType, &decryptionInfo, &timestamp)
+	err := row.Scan(
+		&f.URL, &f.Encrypted, &f.MXC, &fileID, &emojiName, &f.Size,
+		&width, &height, &f.MimeType,
+		dbutil.JSON{Data: &f.DecryptionInfo}, &timestamp,
+	)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			f.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-		return nil
+		return nil, err
 	}
 	f.ID = fileID.String
 	f.EmojiName = emojiName.String
 	f.Timestamp = time.UnixMilli(timestamp).UTC()
 	f.Width = int(width.Int32)
 	f.Height = int(height.Int32)
-	f.MXC, err = id.ParseContentURI(mxc)
-	if err != nil {
-		f.log.Errorfln("Failed to parse content URI %s: %v", mxc, err)
-		panic(err)
-	}
-	if decryptionInfo.Valid {
-		err = json.Unmarshal([]byte(decryptionInfo.String), &f.DecryptionInfo)
-		if err != nil {
-			f.log.Errorfln("Failed to unmarshal decryption info of %v: %v", f.MXC, err)
-			panic(err)
-		}
-	}
-	return f
+	return f, nil
 }
 
-func positiveIntToNullInt32(val int) (ptr sql.NullInt32) {
-	if val > 0 {
-		ptr.Valid = true
-		ptr.Int32 = int32(val)
-	}
-	return
-}
-
-func (f *File) Insert(txn dbutil.Execable) {
-	if txn == nil {
-		txn = f.db
-	}
-	var decryptionInfoStr sql.NullString
-	if f.DecryptionInfo != nil {
-		decryptionInfo, err := json.Marshal(f.DecryptionInfo)
-		if err != nil {
-			f.log.Warnfln("Failed to marshal decryption info of %v: %v", f.MXC, err)
-			panic(err)
-		}
-		decryptionInfoStr.Valid = true
-		decryptionInfoStr.String = string(decryptionInfo)
-	}
-	_, err := txn.Exec(fileInsert,
-		f.URL, f.Encrypted, f.MXC.String(), strPtr(f.ID), strPtr(f.EmojiName), f.Size,
-		positiveIntToNullInt32(f.Width), positiveIntToNullInt32(f.Height), f.MimeType,
-		decryptionInfoStr, f.Timestamp.UnixMilli(),
-	)
-	if err != nil {
-		f.log.Warnfln("Failed to insert copied file %v: %v", f.MXC, err)
-		panic(err)
+func (f *File) sqlVariables() []any {
+	return []any{
+		f.URL, f.Encrypted, f.MXC.String(), dbutil.StrPtr(f.ID), dbutil.StrPtr(f.EmojiName), f.Size,
+		dbutil.NumPtr(f.Width), dbutil.NumPtr(f.Height), f.MimeType,
+		dbutil.JSONPtr(f.DecryptionInfo), f.Timestamp.UnixMilli(),
 	}
 }
 
-func (f *File) Delete() {
-	_, err := f.db.Exec("DELETE FROM discord_file WHERE url=$1 AND encrypted=$2", f.URL, f.Encrypted)
-	if err != nil {
-		f.log.Warnfln("Failed to delete copied file %v: %v", f.MXC, err)
-		panic(err)
-	}
+func (f *File) Insert(ctx context.Context) error {
+	return f.qh.Exec(ctx, insertFileQuery, f.sqlVariables()...)
+}
+
+func (f *File) Delete(ctx context.Context) error {
+	return f.qh.Exec(ctx, deleteFileQuery, f.URL, f.Encrypted)
 }

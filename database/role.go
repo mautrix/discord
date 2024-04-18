@@ -1,17 +1,30 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
 	"database/sql"
-	"errors"
 
 	"github.com/bwmarrin/discordgo"
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 )
 
 type RoleQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*Role]
 }
 
 // language=postgresql
@@ -27,11 +40,8 @@ const (
 	roleDelete = "DELETE FROM role WHERE dc_guild_id=$1 AND dcid=$2"
 )
 
-func (rq *RoleQuery) New() *Role {
-	return &Role{
-		db:  rq.db,
-		log: rq.log,
-	}
+func newRole(qh *dbutil.QueryHelper[*Role]) *Role {
+	return &Role{qh: qh}
 }
 
 func (rq *RoleQuery) GetByID(guildID, dcid string) *Role {
@@ -66,27 +76,21 @@ func (rq *RoleQuery) GetAll(guildID string) []*Role {
 }
 
 type Role struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Role]
 
 	GuildID string
 
 	discordgo.Role
 }
 
-func (r *Role) Scan(row dbutil.Scannable) *Role {
+func (r *Role) Scan(row dbutil.Scannable) (*Role, error) {
 	var icon sql.NullString
 	err := row.Scan(&r.GuildID, &r.ID, &r.Name, &icon, &r.Mentionable, &r.Managed, &r.Hoist, &r.Color, &r.Position, &r.Permissions)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			r.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-
-		return nil
+		return nil, err
 	}
 	r.Icon = icon.String
-	return r
+	return r, nil
 }
 
 func (r *Role) Upsert(txn dbutil.Execable) {

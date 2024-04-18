@@ -1,97 +1,92 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
-	"database/sql"
-	"errors"
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"go.mau.fi/util/dbutil"
-	log "maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix/id"
 )
 
 type MessageQuery struct {
-	db  *Database
-	log log.Logger
+	*dbutil.QueryHelper[*Message]
 }
 
 const (
-	messageSelect = "SELECT dcid, dc_attachment_id, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_edit_timestamp, dc_thread_id, mxid, sender_mxid FROM message"
+	getMessageBaseQuery = `
+		SELECT dcid, dc_attachment_id, dc_chan_id, dc_chan_receiver, dc_sender, timestamp,
+		       dc_edit_timestamp, dc_thread_id, mxid, sender_mxid
+		FROM message
+	`
+	getMessageByDiscordIDQuery = getMessageBaseQuery +
+		"WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 ORDER BY dc_attachment_id"
+	getFirstMessageByDiscordIDQuery = getMessageByDiscordIDQuery +
+		" LIMIT 1"
+	getLastMessageByDiscordIDQuery = getMessageByDiscordIDQuery +
+		" DESC LIMIT 1"
+	getClosestMessageBeforeTimeQuery = getMessageBaseQuery +
+		"WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 AND timestamp<=$4 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
+	getLastMessageInThreadQuery = getMessageBaseQuery +
+		" WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
+	getLastMessageInPortalQuery = getMessageBaseQuery +
+		" WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 ORDER BY timestamp DESC LIMIT 1"
+	getMessageByMXIDQuery = getMessageBaseQuery +
+		" WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND mxid=$3"
+	deleteAllMessagesInPortalQuery = "DELETE FROM message WHERE dc_chan_id=$1 AND dc_chan_receiver=$2"
 )
 
-func (mq *MessageQuery) New() *Message {
-	return &Message{
-		db:  mq.db,
-		log: mq.log,
-	}
+func newMessage(qh *dbutil.QueryHelper[*Message]) *Message {
+	return &Message{qh: qh}
 }
 
-func (mq *MessageQuery) scanAll(rows dbutil.Rows, err error) []*Message {
-	if err != nil {
-		mq.log.Warnfln("Failed to query many messages: %v", err)
-		panic(err)
-	} else if rows == nil {
-		return nil
-	}
-
-	var messages []*Message
-	for rows.Next() {
-		messages = append(messages, mq.New().Scan(rows))
-	}
-
-	return messages
+func (mq *MessageQuery) GetByDiscordID(ctx context.Context, key PortalKey, discordID string) ([]*Message, error) {
+	return mq.QueryMany(ctx, getMessageByDiscordIDQuery, key.ChannelID, key.Receiver, discordID)
 }
 
-func (mq *MessageQuery) GetByDiscordID(key PortalKey, discordID string) []*Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 ORDER BY dc_attachment_id ASC"
-	return mq.scanAll(mq.db.Query(query, key.ChannelID, key.Receiver, discordID))
+func (mq *MessageQuery) GetFirstByDiscordID(ctx context.Context, key PortalKey, discordID string) (*Message, error) {
+	return mq.QueryOne(ctx, getFirstMessageByDiscordIDQuery, key.ChannelID, key.Receiver, discordID)
 }
 
-func (mq *MessageQuery) GetFirstByDiscordID(key PortalKey, discordID string) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 ORDER BY dc_attachment_id ASC LIMIT 1"
-	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
+func (mq *MessageQuery) GetLastByDiscordID(ctx context.Context, key PortalKey, discordID string) (*Message, error) {
+	return mq.QueryOne(ctx, getLastMessageByDiscordIDQuery, key.ChannelID, key.Receiver, discordID)
 }
 
-func (mq *MessageQuery) GetLastByDiscordID(key PortalKey, discordID string) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dcid=$3 ORDER BY dc_attachment_id DESC LIMIT 1"
-	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, discordID))
+func (mq *MessageQuery) GetClosestBefore(ctx context.Context, key PortalKey, threadID string, ts time.Time) (*Message, error) {
+	return mq.QueryOne(ctx, getClosestMessageBeforeTimeQuery, key.ChannelID, key.Receiver, threadID, ts.UnixMilli())
 }
 
-func (mq *MessageQuery) GetClosestBefore(key PortalKey, threadID string, ts time.Time) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 AND timestamp<=$4 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
-	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID, ts.UnixMilli()))
+func (mq *MessageQuery) GetLastInThread(ctx context.Context, key PortalKey, threadID string) (*Message, error) {
+	return mq.QueryOne(ctx, getLastMessageInThreadQuery, key.ChannelID, key.Receiver, threadID)
 }
 
-func (mq *MessageQuery) GetLastInThread(key PortalKey, threadID string) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND dc_thread_id=$3 ORDER BY timestamp DESC, dc_attachment_id DESC LIMIT 1"
-	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver, threadID))
+func (mq *MessageQuery) GetLast(ctx context.Context, key PortalKey) (*Message, error) {
+	return mq.QueryOne(ctx, getLastMessageInPortalQuery, key.ChannelID, key.Receiver)
 }
 
-func (mq *MessageQuery) GetLast(key PortalKey) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 ORDER BY timestamp DESC LIMIT 1"
-	return mq.New().Scan(mq.db.QueryRow(query, key.ChannelID, key.Receiver))
+func (mq *MessageQuery) GetByMXID(ctx context.Context, key PortalKey, mxid id.EventID) (*Message, error) {
+	return mq.QueryOne(ctx, getMessageByMXIDQuery, key.ChannelID, key.Receiver, mxid)
 }
 
-func (mq *MessageQuery) DeleteAll(key PortalKey) {
-	query := "DELETE FROM message WHERE dc_chan_id=$1 AND dc_chan_receiver=$2"
-	_, err := mq.db.Exec(query, key.ChannelID, key.Receiver)
-	if err != nil {
-		mq.log.Warnfln("Failed to delete messages of %s: %v", key, err)
-		panic(err)
-	}
-}
-
-func (mq *MessageQuery) GetByMXID(key PortalKey, mxid id.EventID) *Message {
-	query := messageSelect + " WHERE dc_chan_id=$1 AND dc_chan_receiver=$2 AND mxid=$3"
-
-	row := mq.db.QueryRow(query, key.ChannelID, key.Receiver, mxid)
-	if row == nil {
-		return nil
-	}
-
-	return mq.New().Scan(row)
+func (mq *MessageQuery) DeleteAll(ctx context.Context, key PortalKey) error {
+	return mq.Exec(ctx, deleteAllMessagesInPortalQuery, key.ChannelID, key.Receiver)
 }
 
 func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
@@ -126,8 +121,7 @@ func (mq *MessageQuery) MassInsert(key PortalKey, msgs []Message) {
 }
 
 type Message struct {
-	db  *Database
-	log log.Logger
+	qh *dbutil.QueryHelper[*Message]
 
 	DiscordID     string
 	AttachmentID  string
@@ -149,17 +143,11 @@ func (m *Message) DiscordProtoChannelID() string {
 	}
 }
 
-func (m *Message) Scan(row dbutil.Scannable) *Message {
+func (m *Message) Scan(row dbutil.Scannable) (*Message, error) {
 	var ts, editTS int64
-
 	err := row.Scan(&m.DiscordID, &m.AttachmentID, &m.Channel.ChannelID, &m.Channel.Receiver, &m.SenderID, &ts, &editTS, &m.ThreadID, &m.MXID, &m.SenderMXID)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			m.log.Errorln("Database scan failed:", err)
-			panic(err)
-		}
-
-		return nil
+		return nil, err
 	}
 
 	if ts != 0 {
@@ -169,7 +157,7 @@ func (m *Message) Scan(row dbutil.Scannable) *Message {
 		m.EditTimestamp = time.Unix(0, editTS).UTC()
 	}
 
-	return m
+	return m, nil
 }
 
 const messageInsertQuery = `

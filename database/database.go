@@ -1,3 +1,19 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright (C) 2024 Tulir Asokan
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package database
 
 import (
@@ -6,7 +22,6 @@ import (
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	"go.mau.fi/util/dbutil"
-	"maunium.net/go/maulogger/v2"
 
 	"go.mau.fi/mautrix-discord/database/upgrades"
 )
@@ -25,52 +40,18 @@ type Database struct {
 	File     *FileQuery
 }
 
-func New(baseDB *dbutil.Database, log maulogger.Logger) *Database {
-	db := &Database{Database: baseDB}
+func New(db *dbutil.Database) *Database {
 	db.UpgradeTable = upgrades.Table
-	db.User = &UserQuery{
-		db:  db,
-		log: log.Sub("User"),
+	return &Database{
+		Database: db,
+		User:     &UserQuery{dbutil.MakeQueryHelper(db, newUser)},
+		Portal:   &PortalQuery{dbutil.MakeQueryHelper(db, newPortal)},
+		Puppet:   &PuppetQuery{dbutil.MakeQueryHelper(db, newPuppet)},
+		Message:  &MessageQuery{dbutil.MakeQueryHelper(db, newMessage)},
+		Thread:   &ThreadQuery{dbutil.MakeQueryHelper(db, newThread)},
+		Reaction: &ReactionQuery{dbutil.MakeQueryHelper(db, newReaction)},
+		Guild:    &GuildQuery{dbutil.MakeQueryHelper(db, newGuild)},
+		Role:     &RoleQuery{dbutil.MakeQueryHelper(db, newRole)},
+		File:     &FileQuery{dbutil.MakeQueryHelper(db, newFile)},
 	}
-	db.Portal = &PortalQuery{
-		db:  db,
-		log: log.Sub("Portal"),
-	}
-	db.Puppet = &PuppetQuery{
-		db:  db,
-		log: log.Sub("Puppet"),
-	}
-	db.Message = &MessageQuery{
-		db:  db,
-		log: log.Sub("Message"),
-	}
-	db.Thread = &ThreadQuery{
-		db:  db,
-		log: log.Sub("Thread"),
-	}
-	db.Reaction = &ReactionQuery{
-		db:  db,
-		log: log.Sub("Reaction"),
-	}
-	db.Guild = &GuildQuery{
-		db:  db,
-		log: log.Sub("Guild"),
-	}
-	db.Role = &RoleQuery{
-		db:  db,
-		log: log.Sub("Role"),
-	}
-	db.File = &FileQuery{
-		db:  db,
-		log: log.Sub("File"),
-	}
-	return db
-}
-
-func strPtr[T ~string](val T) *string {
-	if val == "" {
-		return nil
-	}
-	valStr := string(val)
-	return &valStr
 }

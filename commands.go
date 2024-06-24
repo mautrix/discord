@@ -62,6 +62,7 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdBridge,
 		cmdUnbridge,
 		cmdDeletePortal,
+		cmdCreatePortal,
 		cmdSetRelay,
 		cmdUnsetRelay,
 		cmdGuilds,
@@ -783,6 +784,45 @@ var cmdUnbridge = &commands.FullHandler{
 	},
 	RequiresPortal:     true,
 	RequiresEventLevel: roomModerator,
+}
+
+var cmdCreatePortal = &commands.FullHandler{
+	Func: wrapCommand(fnCreatePortal),
+	Name: "create-portal",
+	Help: commands.HelpMeta{
+		Section:     HelpSectionPortalManagement,
+		Description: "Create a portal for a specific channel",
+		Args:        "<_channel ID_>",
+	},
+	RequiresLogin: true,
+}
+
+func fnCreatePortal(ce *WrappedCommandEvent) {
+	meta, err := ce.User.Session.Channel(ce.Args[0])
+	if err != nil {
+		ce.Reply("Failed to get channel info: %v", err)
+		return
+	} else if meta == nil {
+		ce.Reply("Channel not found")
+		return
+	} else if !ce.User.channelIsBridgeable(meta) {
+		ce.Reply("That channel can't be bridged")
+		return
+	}
+	portal := ce.User.GetPortalByMeta(meta)
+	if portal.Guild != nil && portal.Guild.BridgingMode == database.GuildBridgeNothing {
+		ce.Reply("That guild is set to not bridge any messages. Bridge the guild with `$cmdprefix guilds bridge %s` first", portal.Guild.ID)
+		return
+	} else if portal.MXID != "" {
+		ce.Reply("That channel is already bridged: [%s](%s)", portal.Name, portal.MXID.URI(portal.bridge.Config.Homeserver.Domain).MatrixToURL())
+		return
+	}
+	err = portal.CreateMatrixRoom(ce.User, meta)
+	if err != nil {
+		ce.Reply("Failed to create portal: %v", err)
+	} else {
+		ce.Reply("Portal created: [%s](%s)", portal.Name, portal.MXID.URI(portal.bridge.Config.Homeserver.Domain).MatrixToURL())
+	}
 }
 
 var cmdDeletePortal = &commands.FullHandler{

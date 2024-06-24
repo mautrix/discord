@@ -459,7 +459,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 			Content: event.Content{Parsed: &event.JoinRulesEventContent{
 				JoinRule: event.JoinRuleRestricted,
 				Allow: []event.JoinRuleAllow{{
-					RoomID: spaceID,
+					RoomID: portal.Guild.MXID,
 					Type:   event.JoinRuleAllowRoomMembership,
 				}},
 			}},

@@ -519,7 +519,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	if portal.GuildID == "" {
 		user.addPrivateChannelToSpace(portal)
 	} else {
-		portal.updateSpace()
+		portal.updateSpace(user)
 	}
 	portal.ensureUserInvited(user, true)
 	user.syncChatDoublePuppetDetails(portal, true)
@@ -2321,11 +2321,19 @@ func (portal *Portal) ExpectedSpaceID() id.RoomID {
 	return ""
 }
 
-func (portal *Portal) updateSpace() bool {
+func (portal *Portal) updateSpace(source *User) bool {
 	if portal.MXID == "" {
 		return false
 	}
 	if portal.Parent != nil {
+		if portal.Parent.MXID != "" {
+			portal.log.Warn().Str("parent_id", portal.ParentID).Msg("Parent portal has no Matrix room, creating...")
+			err := portal.Parent.CreateMatrixRoom(source, nil)
+			if err != nil {
+				portal.log.Err(err).Str("parent_id", portal.ParentID).Msg("Failed to create Matrix room for parent")
+				return false
+			}
+		}
 		return portal.addToSpace(portal.Parent.MXID)
 	} else if portal.Guild != nil {
 		return portal.addToSpace(portal.Guild.MXID)
@@ -2416,7 +2424,7 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 	changed = portal.UpdateParent(meta.ParentID) || changed
 	// Private channels are added to the space in User.handlePrivateChannel
 	if portal.GuildID != "" && portal.MXID != "" && portal.ExpectedSpaceID() != portal.InSpace {
-		changed = portal.updateSpace() || changed
+		changed = portal.updateSpace(source) || changed
 	}
 	if changed {
 		portal.UpdateBridgeInfo()

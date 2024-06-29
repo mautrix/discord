@@ -2,9 +2,6 @@
 homeserver:
     # The address that this appservice can use to connect to the homeserver.
     address: https://matrix.example.com
-    # Publicly accessible base URL for media, used for avatars in relay mode.
-    # If not set, the connection address above will be used.
-    public_address: null
     # The domain of the homeserver (also known as server_name, used for MXIDs, etc).
     domain: example.com
 
@@ -112,6 +109,13 @@ bridge:
     # If set to `always`, all DM rooms will have explicit names and avatars set.
     # If set to `never`, DM rooms will never have names and avatars set.
     private_chat_portal_meta: default
+
+    # Publicly accessible base URL that Discord can use to reach the bridge, used for avatars in relay mode.
+    # If not set, avatars will not be bridged. Only the /mautrix-discord/avatar/{server}/{id}/{hash} endpoint is used on this address.
+    # This should not have a trailing slash, the endpoint above will be appended to the provided address.
+    public_address: null
+    # A random key used to sign the avatar URLs. The bridge will only accept requests with a valid signature.
+    avatar_proxy_key: generate
 
     portal_message_buffer: 128
 

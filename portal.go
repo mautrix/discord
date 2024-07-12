@@ -3,9 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -17,6 +21,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exsync"
 	"go.mau.fi/util/variationselector"
@@ -1370,6 +1375,64 @@ func (portal *Portal) sendMessageMetrics(evt *event.Event, err error, part strin
 	}
 }
 
+func (br *DiscordBridge) serveMediaProxy(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	mxc := id.ContentURI{
+		Homeserver: vars["server"],
+		FileID:     vars["mediaID"],
+	}
+	checksum, err := base64.RawURLEncoding.DecodeString(vars["checksum"])
+	if err != nil || len(checksum) != 32 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	_, expectedChecksum := br.hashMediaProxyURL(mxc)
+	if !hmac.Equal(checksum, expectedChecksum) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	reader, err := br.Bot.Download(mxc)
+	if err != nil {
+		br.ZLog.Warn().Err(err).Msg("Failed to download media to proxy")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	buf := make([]byte, 32*1024)
+	n, err := io.ReadFull(reader, buf)
+	if err != nil && (!errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF)) {
+		br.ZLog.Warn().Err(err).Msg("Failed to read first part of media to proxy")
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	w.Header().Add("Content-Type", http.DetectContentType(buf[:n]))
+	if n < len(buf) {
+		w.Header().Add("Content-Length", strconv.Itoa(n))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write(buf[:n])
+	if err != nil {
+		return
+	}
+	if n >= len(buf) {
+		_, _ = io.CopyBuffer(w, reader, buf)
+	}
+}
+
+func (br *DiscordBridge) hashMediaProxyURL(mxc id.ContentURI) (string, []byte) {
+	path := fmt.Sprintf("/mautrix-discord/avatar/%s/%s/", mxc.Homeserver, mxc.FileID)
+	checksum := hmac.New(sha256.New, []byte(br.Config.Bridge.AvatarProxyKey))
+	checksum.Write([]byte(path))
+	return path, checksum.Sum(nil)
+}
+
+func (br *DiscordBridge) makeMediaProxyURL(mxc id.ContentURI) string {
+	if br.Config.Bridge.PublicAddress == "" {
+		return ""
+	}
+	path, checksum := br.hashMediaProxyURL(mxc)
+	return br.Config.Bridge.PublicAddress + path + base64.RawURLEncoding.EncodeToString(checksum)
+}
+
 func (portal *Portal) getRelayUserMeta(sender *User) (name, avatarURL string) {
 	member := portal.bridge.StateStore.GetMember(portal.MXID, sender.MXID)
 	name = member.Displayname
@@ -1377,11 +1440,8 @@ func (portal *Portal) getRelayUserMeta(sender *User) (name, avatarURL string) {
 		name = sender.MXID.String()
 	}
 	mxc := member.AvatarURL.ParseOrIgnore()
-	if !mxc.IsEmpty() {
-		avatarURL = mautrix.BuildURL(
-			portal.bridge.PublicHSAddress,
-			"_matrix", "media", "v3", "download", mxc.Homeserver, mxc.FileID,
-		).String()
+	if !mxc.IsEmpty() && portal.bridge.Config.Bridge.PublicAddress != "" {
+		avatarURL = portal.bridge.makeMediaProxyURL(mxc)
 	}
 	return
 }

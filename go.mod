@@ -14,11 +14,11 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.8.4
 	github.com/yuin/goldmark v1.6.0
-	go.mau.fi/util v0.2.1
+	go.mau.fi/util v0.2.2-0.20231228160422-22fdd4bbddeb
 	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848
 	golang.org/x/sync v0.5.0
 	maunium.net/go/maulogger/v2 v2.4.1
-	maunium.net/go/mautrix v0.16.3-0.20240218195727-4ceb1123b660
+	maunium.net/go/mautrix v0.16.3-0.20240712164054-e6046fbf432c
 )
 
 require (

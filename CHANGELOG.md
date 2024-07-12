@@ -1,6 +1,14 @@
 # v0.7.0 (unreleased)
 
 * Bumped minimum Go version to 1.21.
+* Added support for Matrix v1.11 authenticated media.
+  * This also changes how avatars are sent to Discord when using relay webhooks.
+    To keep avatars working, you must configure `public_address` in the *bridge*
+    section of the config and proxy `/mautrix-discord/avatar/*` from that
+    address to the bridge.
+* Added `create-portal` command to create individual portals bypassing the
+  bridging mode. When used in combination with the `if-portal-exists` bridging
+  mode, this can be used to bridge individual channels from a guild.
 * Changed how direct media access works to make it compatible with Discord's
   signed URL requirement. The new system must be enabled manually, see
   [docs](https://docs.mau.fi/bridges/go/discord/direct-media.html) for info.

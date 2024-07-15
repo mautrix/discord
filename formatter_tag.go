@@ -30,6 +30,7 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
+	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/database"
 )
@@ -262,11 +263,19 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 	}
 	switch node := n.(type) {
 	case *astDiscordUserMention:
-		if user := node.portal.bridge.GetUserByID(strconv.FormatInt(node.id, 10)); user != nil {
-			_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, user.MXID.URI().MatrixToURL(), user.MXID)
-		} else if puppet := node.portal.bridge.GetPuppetByID(strconv.FormatInt(node.id, 10)); puppet != nil {
-			_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, puppet.MXID.URI().MatrixToURL(), puppet.Name)
+		var mxid id.UserID
+		var name string
+		if puppet := node.portal.bridge.GetPuppetByID(strconv.FormatInt(node.id, 10)); puppet != nil {
+			mxid = puppet.MXID
+			name = puppet.Name
 		}
+		if user := node.portal.bridge.GetUserByID(strconv.FormatInt(node.id, 10)); user != nil {
+			mxid = user.MXID
+			if name == "" {
+				name = user.MXID.Localpart()
+			}
+		}
+		_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, mxid.URI().MatrixToURL(), name)
 		return
 	case *astDiscordRoleMention:
 		role := node.portal.bridge.DB.Role.GetByID(node.portal.GuildID, strconv.FormatInt(node.id, 10))

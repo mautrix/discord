@@ -1,4 +1,4 @@
-# v0.7.0 (unreleased)
+# v0.7.0 (2024-07-16)
 
 * Bumped minimum Go version to 1.21.
 * Added support for Matrix v1.11 authenticated media.

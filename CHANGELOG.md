@@ -1,3 +1,11 @@
+# v0.8.0 (unreleased)
+
+* Bumped minimum Go version to 1.22.
+* Rewrote bridge using bridgev2 architecture.
+  * It is recommended to check the config file after upgrading. If you have
+    prevented the bridge from writing to the config, you should update it
+    manually.
+
 # v0.7.0 (2024-07-16)
 
 * Bumped minimum Go version to 1.21.

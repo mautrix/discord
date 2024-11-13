@@ -1674,7 +1674,6 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			Content:         sendReq.Content,
 			Username:        username,
 			AvatarURL:       avatarURL,
-			TTS:             sendReq.TTS,
 			Files:           sendReq.Files,
 			Components:      sendReq.Components,
 			Embeds:          sendReq.Embeds,

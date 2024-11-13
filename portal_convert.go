@@ -101,7 +101,7 @@ func (portal *Portal) cleanupConvertedStickerInfo(content *event.MessageEventCon
 	}
 }
 
-func (portal *Portal) convertDiscordSticker(ctx context.Context, intent *appservice.IntentAPI, sticker *discordgo.Sticker) *ConvertedMessage {
+func (portal *Portal) convertDiscordSticker(ctx context.Context, intent *appservice.IntentAPI, sticker *discordgo.StickerItem) *ConvertedMessage {
 	var mime string
 	switch sticker.FormatType {
 	case discordgo.StickerFormatTypePNG:

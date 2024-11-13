@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -579,6 +580,15 @@ func (user *User) eventHandlerSync(rawEvt any) {
 }
 
 func (user *User) eventHandler(rawEvt any) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			user.log.Error().
+				Bytes(zerolog.ErrorStackFieldName, debug.Stack()).
+				Any(zerolog.ErrorFieldName, err).
+				Msg("Panic in Discord event handler")
+		}
+	}()
 	switch evt := rawEvt.(type) {
 	case *discordgo.Ready:
 		user.readyHandler(evt)
@@ -997,6 +1007,15 @@ func (user *User) invalidAuthHandler(_ *discordgo.InvalidAuth) {
 	user.wasLoggedOut = true
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-websocket-disconnect-4004", Message: "Discord access token is no longer valid, please log in again"})
 	go user.Logout(false)
+}
+
+func (user *User) handlePossible40002(err error) bool {
+	var restErr *discordgo.RESTError
+	if !errors.As(err, &restErr) || restErr.Message == nil || restErr.Message.Code != discordgo.ErrCodeActionRequiredVerifiedAccount {
+		return false
+	}
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBadCredentials, Error: "dc-http-40002", Message: restErr.Message.Message})
+	return true
 }
 
 func (user *User) guildCreateHandler(g *discordgo.GuildCreate) {

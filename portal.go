@@ -1680,6 +1680,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			AllowedMentions: sendReq.AllowedMentions,
 		})
 	}
+	sender.handlePossible40002(err)
 	go portal.sendMessageMetrics(evt, err, "Error sending")
 	if msg != nil {
 		dbMsg := portal.bridge.DB.Message.New()

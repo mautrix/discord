@@ -151,6 +151,9 @@ func (portal *Portal) collectBackfillMessages(log zerolog.Logger, source *User, 
 func (portal *Portal) backfillLimited(log zerolog.Logger, source *User, limit int, after string, thread *Thread) {
 	messages, foundAll, err := portal.collectBackfillMessages(log, source, limit, after, thread)
 	if err != nil {
+		if source.handlePossible40002(err) {
+			panic(err)
+		}
 		log.Err(err).Msg("Error collecting messages to forward backfill")
 		return
 	}

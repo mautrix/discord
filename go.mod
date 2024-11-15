@@ -1,6 +1,8 @@
 module go.mau.fi/mautrix-discord
 
-go 1.21
+go 1.22.0
+
+toolchain go1.23.3
 
 require (
 	github.com/bwmarrin/discordgo v0.27.0
@@ -9,14 +11,14 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/lib/pq v1.10.9
-	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/rs/zerolog v1.31.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.8.4
 	github.com/yuin/goldmark v1.6.0
 	go.mau.fi/util v0.2.2-0.20231228160422-22fdd4bbddeb
-	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848
-	golang.org/x/sync v0.5.0
+	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f
+	golang.org/x/sync v0.9.0
 	maunium.net/go/maulogger/v2 v2.4.1
 	maunium.net/go/mautrix v0.16.3-0.20240712164054-e6046fbf432c
 )
@@ -32,9 +34,9 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.mau.fi/zeroconfig v0.1.2 // indirect
-	golang.org/x/crypto v0.15.0 // indirect
-	golang.org/x/net v0.18.0 // indirect
-	golang.org/x/sys v0.14.0 // indirect
+	golang.org/x/crypto v0.29.0 // indirect
+	golang.org/x/net v0.31.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	maunium.net/go/mauflag v1.0.0 // indirect

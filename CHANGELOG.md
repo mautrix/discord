@@ -1,3 +1,8 @@
+# v0.7.1 (2024-11-16)
+
+* Bumped minimum Go version to 1.22.
+* Updated Discord version numbers.
+
 # v0.7.0 (2024-07-16)
 
 * Bumped minimum Go version to 1.21.

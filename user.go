@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"sort"
@@ -546,6 +548,18 @@ func (user *User) Connect() error {
 	session, err := discordgo.New(user.DiscordToken)
 	if err != nil {
 		return err
+	}
+	if user.bridge.Config.Bridge.Proxy != "" {
+		u, _ := url.Parse(user.bridge.Config.Bridge.Proxy)
+		tlsConf := &tls.Config{
+			InsecureSkipVerify: os.Getenv("DISCORD_SKIP_TLS_VERIFICATION") == "true",
+		}
+		session.Client.Transport = &http.Transport{
+			Proxy:           http.ProxyURL(u),
+			TLSClientConfig: tlsConf,
+		}
+		session.Dialer.Proxy = http.ProxyURL(u)
+		session.Dialer.TLSClientConfig = tlsConf
 	}
 	// TODO move to config
 	if os.Getenv("DISCORD_DEBUG") == "1" {

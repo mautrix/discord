@@ -1647,7 +1647,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			}
 			prepared := prep.Attachments[0]
 			att.UploadedFilename = prepared.UploadFilename
-			err = uploadDiscordAttachment(prepared.UploadURL, data)
+			err = uploadDiscordAttachment(sender.Session.Client, prepared.UploadURL, data)
 			if err != nil {
 				go portal.sendMessageMetrics(evt, err, "Error reuploading media in")
 				return

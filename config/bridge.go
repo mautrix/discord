@@ -57,6 +57,8 @@ type BridgeConfig struct {
 	EnableWebhookAvatars        bool `yaml:"enable_webhook_avatars"`
 	UseDiscordCDNUpload         bool `yaml:"use_discord_cdn_upload"`
 
+	Proxy string `yaml:"proxy"`
+
 	CacheMedia  string      `yaml:"cache_media"`
 	DirectMedia DirectMedia `yaml:"direct_media"`
 

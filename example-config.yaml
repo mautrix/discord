@@ -168,6 +168,8 @@ bridge:
     # like the official client does? The other option is sending the media in the message send request as a form part
     # (which is always used by bots and webhooks).
     use_discord_cdn_upload: true
+    # Proxy for Discord connections
+    proxy:
     # Should mxc uris copied from Discord be cached?
     # This can be `never` to never cache, `unencrypted` to only cache unencrypted mxc uris, or `always` to cache everything.
     # If you have a media repo that generates non-unique mxc uris, you should set this to never.

@@ -29,7 +29,7 @@ import (
 	"go.mau.fi/mautrix-discord/database"
 )
 
-func downloadDiscordAttachment(url string, maxSize int64) ([]byte, error) {
+func downloadDiscordAttachment(cli *http.Client, url string, maxSize int64) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func downloadDiscordAttachment(url string, maxSize int64) ([]byte, error) {
 		req.Header.Set(key, value)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func downloadDiscordAttachment(url string, maxSize int64) ([]byte, error) {
 	}
 }
 
-func uploadDiscordAttachment(url string, data []byte) error {
+func uploadDiscordAttachment(cli *http.Client, url string, data []byte) error {
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func uploadDiscordAttachment(url string, data []byte) error {
 	req.Header.Del("X-Discord-Timezone")
 	req.Header.Del("X-Super-Properties")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cli.Do(req)
 	if err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, ur
 			}()
 
 			var data []byte
-			data, onceErr = downloadDiscordAttachment(url, br.MediaConfig.UploadSize)
+			data, onceErr = downloadDiscordAttachment(http.DefaultClient, url, br.MediaConfig.UploadSize)
 			if onceErr != nil {
 				return
 			}

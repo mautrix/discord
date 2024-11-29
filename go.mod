@@ -6,7 +6,7 @@ toolchain go1.23.3
 
 require (
 	github.com/bwmarrin/discordgo v0.27.0
-	github.com/gabriel-vasile/mimetype v1.4.3
+	github.com/gabriel-vasile/mimetype v1.4.7
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
@@ -14,7 +14,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/rs/zerolog v1.31.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.10.0
 	github.com/yuin/goldmark v1.6.0
 	go.mau.fi/util v0.2.2-0.20231228160422-22fdd4bbddeb
 	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f
@@ -42,4 +42,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20241129181343-6f7633fc47bd
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20241129182205-d6dffc9bf133

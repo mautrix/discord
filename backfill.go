@@ -117,7 +117,7 @@ func (portal *Portal) collectBackfillMessages(log zerolog.Logger, source *User, 
 	}
 	for {
 		log.Debug().Str("before_id", before).Msg("Fetching messages for backfill")
-		newMessages, err := source.Session.ChannelMessages(protoChannelID, messageFetchChunkSize, before, "", "")
+		newMessages, err := source.Session.ChannelMessages(protoChannelID, messageFetchChunkSize, before, "", "", portal.RefererOptIfUser(source.Session, protoChannelID)...)
 		if err != nil {
 			return nil, false, err
 		}
@@ -183,7 +183,7 @@ func (portal *Portal) backfillUnlimitedMissed(log zerolog.Logger, source *User, 
 	}
 	for {
 		log.Debug().Str("after_id", after).Msg("Fetching chunk of messages to backfill")
-		messages, err := source.Session.ChannelMessages(protoChannelID, messageFetchChunkSize, "", after, "")
+		messages, err := source.Session.ChannelMessages(protoChannelID, messageFetchChunkSize, "", after, "", portal.RefererOptIfUser(source.Session, protoChannelID)...)
 		if err != nil {
 			log.Err(err).Msg("Error fetching chunk of messages to forward backfill")
 			return

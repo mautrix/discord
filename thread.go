@@ -112,6 +112,10 @@ func (thread *Thread) maybeInitialBackfill(source *User) {
 	thread.Parent.forwardBackfillInitial(source, thread)
 }
 
+func (thread *Thread) RefererOpt() discordgo.RequestOption {
+	return discordgo.WithThreadReferer(thread.Parent.GuildID, thread.ParentID, thread.ID)
+}
+
 func (thread *Thread) Join(user *User) {
 	if user.IsInPortal(thread.ID) {
 		return
@@ -137,7 +141,7 @@ func (thread *Thread) Join(user *User) {
 
 	var err error
 	if user.Session.IsUser {
-		err = user.Session.ThreadJoinWithLocation(thread.ID, discordgo.ThreadJoinLocationContextMenu)
+		err = user.Session.ThreadJoin(thread.ID, discordgo.WithLocationParam(discordgo.ThreadJoinLocationContextMenu), thread.RefererOpt())
 	} else {
 		err = user.Session.ThreadJoin(thread.ID)
 	}

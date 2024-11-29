@@ -1167,7 +1167,7 @@ func (portal *Portal) startThreadFromMatrix(sender *User, threadRoot id.EventID)
 			AutoArchiveDuration: 24 * 60,
 			Type:                discordgo.ChannelTypeGuildPublicThread,
 			Location:            "Message",
-		})
+		}, portal.RefererOptIfUser(sender.Session, "")...)
 		if err != nil {
 			return "", fmt.Errorf("error starting thread: %v", err)
 		}
@@ -1497,6 +1497,20 @@ func (portal *Portal) convertReplyMessageToEmbed(eventID id.EventID, url string)
 	return embed, nil
 }
 
+func (portal *Portal) RefererOpt(threadID string) discordgo.RequestOption {
+	if threadID != "" && threadID != portal.Key.ChannelID {
+		return discordgo.WithThreadReferer(portal.GuildID, portal.Key.ChannelID, threadID)
+	}
+	return discordgo.WithChannelReferer(portal.GuildID, portal.Key.ChannelID)
+}
+
+func (portal *Portal) RefererOptIfUser(sess *discordgo.Session, threadID string) []discordgo.RequestOption {
+	if sess == nil || !sess.IsUser {
+		return nil
+	}
+	return []discordgo.RequestOption{portal.RefererOpt(threadID)}
+}
+
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
@@ -1626,7 +1640,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 					Name: att.Filename,
 					ID:   sender.NextDiscordUploadID(),
 				}},
-			})
+			}, portal.RefererOpt(threadID))
 			if err != nil {
 				go portal.sendMessageMetrics(evt, err, "Error preparing to reupload media in")
 				return
@@ -1667,7 +1681,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	var msg *discordgo.Message
 	var err error
 	if !isWebhookSend {
-		msg, err = sess.ChannelMessageSendComplex(channelID, &sendReq)
+		msg, err = sess.ChannelMessageSendComplex(channelID, &sendReq, portal.RefererOptIfUser(sess, threadID)...)
 	} else {
 		username, avatarURL := portal.getRelayUserMeta(sender)
 		msg, err = relayClient.WebhookThreadExecute(portal.RelayWebhookID, portal.RelayWebhookSecret, true, threadID, &discordgo.WebhookParams{
@@ -1915,7 +1929,7 @@ func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 		return
 	}
 
-	err := sender.Session.MessageReactionAdd(msg.DiscordProtoChannelID(), msg.DiscordID, emojiID)
+	err := sender.Session.MessageReactionAddUser(portal.GuildID, msg.DiscordProtoChannelID(), msg.DiscordID, emojiID)
 	go portal.sendMessageMetrics(evt, err, "Error sending")
 	if err == nil {
 		dbReaction := portal.bridge.DB.Reaction.New()
@@ -2051,7 +2065,7 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 		var err error
 		// TODO add support for deleting individual attachments from messages
 		if sess != nil {
-			err = sess.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID)
+			err = sess.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID, portal.RefererOptIfUser(sess, message.ThreadID)...)
 		} else {
 			// TODO pre-validate that the message was sent by the webhook?
 			err = relayClient.WebhookMessageDelete(portal.RelayWebhookID, portal.RelayWebhookSecret, message.DiscordID)
@@ -2066,7 +2080,7 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 	if sess != nil {
 		reaction := portal.bridge.DB.Reaction.GetByMXID(evt.Redacts)
 		if reaction != nil && reaction.Channel == portal.Key {
-			err := sess.MessageReactionRemove(reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
+			err := sess.MessageReactionRemoveUser(portal.GuildID, reaction.DiscordProtoChannelID(), reaction.MessageID, reaction.EmojiName, reaction.Sender)
 			go portal.sendMessageMetrics(evt, err, "Error sending")
 			if err == nil {
 				reaction.Delete()
@@ -2135,7 +2149,7 @@ func (portal *Portal) HandleMatrixReadReceipt(brUser bridge.User, eventID id.Eve
 			Msg("Dropping read receipt: thread ID mismatch")
 		return
 	}
-	resp, err := sender.Session.ChannelMessageAckNoToken(msg.DiscordProtoChannelID(), msg.DiscordID)
+	resp, err := sender.Session.ChannelMessageAckNoToken(msg.DiscordProtoChannelID(), msg.DiscordID, portal.RefererOpt(msg.DiscordProtoChannelID()))
 	if err != nil {
 		log.Err(err).Msg("Failed to send read receipt to Discord")
 	} else if resp.Token != nil {
@@ -2169,7 +2183,7 @@ func (portal *Portal) HandleMatrixTyping(newTyping []id.UserID) {
 		user := portal.bridge.GetUserByMXID(userID)
 		if user != nil && user.Session != nil {
 			user.ViewingChannel(portal)
-			err := user.Session.ChannelTyping(portal.Key.ChannelID)
+			err := user.Session.ChannelTyping(portal.Key.ChannelID, portal.RefererOptIfUser(user.Session, "")...)
 			if err != nil {
 				portal.log.Warn().Err(err).
 					Str("user_id", user.MXID.String()).

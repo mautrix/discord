@@ -73,6 +73,12 @@ func uploadDiscordAttachment(url string, data []byte) error {
 	for key, value := range discordgo.DroidFetchHeaders {
 		req.Header.Set(key, value)
 	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Referer", "https://discord.com/")
+	req.Header.Del("X-Debug-Options")
+	req.Header.Del("X-Discord-Locale")
+	req.Header.Del("X-Discord-Timezone")
+	req.Header.Del("X-Super-Properties")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -61,7 +61,7 @@ func (portal *Portal) getCommand(user *User, command string) (*discordgo.Applica
 	defer portal.commandsLock.Unlock()
 	cmd, ok := portal.commands[command]
 	if !ok {
-		results, err := user.Session.ApplicationCommandsSearch(portal.Key.ChannelID, command)
+		results, err := user.Session.ApplicationCommandsSearch(portal.Key.ChannelID, command, portal.RefererOpt(""))
 		if err != nil {
 			return nil, err
 		}
@@ -247,7 +247,7 @@ func fnCommands(ce *WrappedCommandEvent) {
 	}
 	subcmd := strings.ToLower(ce.Args[0])
 	if subcmd == "search" {
-		results, err := ce.User.Session.ApplicationCommandsSearch(ce.Portal.Key.ChannelID, ce.Args[1])
+		results, err := ce.User.Session.ApplicationCommandsSearch(ce.Portal.Key.ChannelID, ce.Args[1], ce.Portal.RefererOpt(""))
 		if err != nil {
 			ce.Reply("Error searching for commands: %v", err)
 			return
@@ -297,7 +297,7 @@ func fnExec(ce *WrappedCommandEvent) {
 		ce.User.pendingInteractionsLock.Lock()
 		ce.User.pendingInteractions[nonce] = ce
 		ce.User.pendingInteractionsLock.Unlock()
-		err = ce.User.Session.SendInteractions(ce.Portal.GuildID, ce.Portal.Key.ChannelID, cmd, options, nonce)
+		err = ce.User.Session.SendInteractions(ce.Portal.GuildID, ce.Portal.Key.ChannelID, cmd, options, nonce, ce.Portal.RefererOpt(""))
 		if err != nil {
 			ce.Reply("Error sending interaction: %v", err)
 			ce.User.pendingInteractionsLock.Lock()

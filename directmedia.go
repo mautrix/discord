@@ -357,7 +357,11 @@ func (dma *DirectMediaAPI) fetchNewAttachmentURL(ctx context.Context, meta *Atta
 	var err error
 	messageIDStr := strconv.FormatUint(meta.MessageID, 10)
 	if client.IsUser {
-		msgs, err = client.ChannelMessages(channelIDStr, 5, "", "", messageIDStr)
+		var refs []discordgo.RequestOption
+		if portal != nil {
+			refs = append(refs, discordgo.WithChannelReferer(portal.GuildID, channelIDStr))
+		}
+		msgs, err = client.ChannelMessages(channelIDStr, 5, "", "", messageIDStr, refs...)
 	} else {
 		var msg *discordgo.Message
 		msg, err = client.ChannelMessage(channelIDStr, messageIDStr)

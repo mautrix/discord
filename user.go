@@ -555,8 +555,9 @@ func (user *User) Connect() error {
 			InsecureSkipVerify: os.Getenv("DISCORD_SKIP_TLS_VERIFICATION") == "true",
 		}
 		session.Client.Transport = &http.Transport{
-			Proxy:           http.ProxyURL(u),
-			TLSClientConfig: tlsConf,
+			Proxy:             http.ProxyURL(u),
+			TLSClientConfig:   tlsConf,
+			ForceAttemptHTTP2: true,
 		}
 		session.Dialer.Proxy = http.ProxyURL(u)
 		session.Dialer.TLSClientConfig = tlsConf
@@ -575,6 +576,11 @@ func (user *User) Connect() error {
 		session.Identify.Intents = BotIntents
 	}
 	session.EventHandler = user.eventHandlerSync
+
+	err = session.LoadMainPage(context.TODO())
+	if err != nil {
+		user.log.Warn().Err(err).Msg("Failed to load main page")
+	}
 
 	user.Session = session
 

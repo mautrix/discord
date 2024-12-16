@@ -1,3 +1,7 @@
+# v0.7.2 (2024-12-16)
+
+* Fixed some headers being set incorrectly.
+
 # v0.7.1 (2024-11-16)
 
 * Bumped minimum Go version to 1.22.

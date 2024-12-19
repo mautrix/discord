@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1590,9 +1591,12 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}
 	}
 
-	if replyToMXID := content.RelatesTo.GetNonFallbackReplyTo(); replyToMXID != "" {
+	replyToMXID := content.RelatesTo.GetNonFallbackReplyTo()
+	var replyToUser id.UserID
+	if replyToMXID != "" {
 		replyTo := portal.bridge.DB.Message.GetByMXID(portal.Key, replyToMXID)
 		if replyTo != nil && replyTo.ThreadID == threadID {
+			replyToUser = replyTo.SenderMXID
 			if isWebhookSend {
 				messageURL := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", portal.GuildID, channelID, replyTo.DiscordID)
 				embed, err := portal.convertReplyMessageToEmbed(replyTo.MXID, messageURL)
@@ -1663,10 +1667,22 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		go portal.sendMessageMetrics(evt, fmt.Errorf("%w %q", errUnknownMsgType, content.MsgType), "Ignoring")
 		return
 	}
+	silentReply := content.Mentions != nil && replyToMXID != "" &&
+		(len(content.Mentions.UserIDs) == 0 || (replyToUser != "" && !slices.Contains(content.Mentions.UserIDs, replyToUser)))
+	if silentReply && sendReq.AllowedMentions != nil {
+		sendReq.AllowedMentions.RepliedUser = false
+	}
 	if !isWebhookSend {
 		// AllowedMentions must not be set for real users, and it's also not that useful for personal bots.
 		// It's only important for relaying, where the webhook may have higher permissions than the user on Matrix.
-		sendReq.AllowedMentions = nil
+		if silentReply {
+			sendReq.AllowedMentions = &discordgo.MessageAllowedMentions{
+				Parse:       []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone},
+				RepliedUser: false,
+			}
+		} else {
+			sendReq.AllowedMentions = nil
+		}
 	} else if strings.Contains(sendReq.Content, "@everyone") || strings.Contains(sendReq.Content, "@here") {
 		powerLevels, err := portal.MainIntent().PowerLevels(portal.MXID)
 		if err != nil {

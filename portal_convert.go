@@ -342,10 +342,10 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 	var discordAvatarURL string
 	if msg.Member.Avatar != "" {
 		var err error
-		avatarURL, discordAvatarURL, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), msg.GuildID, msg.Author.ID, msg.Author.Avatar)
+		avatarURL, discordAvatarURL, err = puppet.bridge.reuploadUserAvatar(puppet.DefaultIntent(), msg.GuildID, msg.Author.ID, msg.Member.Avatar)
 		if err != nil {
 			puppet.log.Warn().Err(err).
-				Str("avatar_id", msg.Author.Avatar).
+				Str("avatar_id", msg.Member.Avatar).
 				Msg("Failed to reupload guild user avatar")
 		}
 	}

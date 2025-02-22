@@ -577,9 +577,11 @@ func (user *User) Connect() error {
 	}
 	session.EventHandler = user.eventHandlerSync
 
-	err = session.LoadMainPage(context.TODO())
-	if err != nil {
-		user.log.Warn().Err(err).Msg("Failed to load main page")
+	if session.IsUser {
+		err = session.LoadMainPage(context.TODO())
+		if err != nil {
+			user.log.Warn().Err(err).Msg("Failed to load main page")
+		}
 	}
 
 	user.Session = session

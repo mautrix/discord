@@ -239,9 +239,10 @@ func sendQRCode(ce *WrappedCommandEvent, code string) id.EventID {
 	}
 
 	content := event.MessageEventContent{
-		MsgType: event.MsgImage,
-		Body:    code,
-		URL:     url.CUString(),
+		MsgType:  event.MsgImage,
+		Body:     code,
+		FileName: "qr.png",
+		URL:      url.CUString(),
 	}
 
 	resp, err := ce.Bot.SendMessageEvent(ce.RoomID, event.EventMessage, &content)

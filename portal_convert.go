@@ -723,6 +723,11 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 		"com.beeper.linkpreviews": previews,
 	}
 
+	if msg.Flags&discordgo.MessageFlagsSuppressNotifications != 0 {
+		// Send messages sent with @silent as m.notice
+		content.MsgType = event.MsgNotice
+	}
+
 	if msg.WebhookID != "" && msg.ApplicationID == "" && portal.bridge.Config.Bridge.PrefixWebhookMessages {
 		content.EnsureHasHTML()
 		content.Body = fmt.Sprintf("%s: %s", msg.Author.Username, content.Body)

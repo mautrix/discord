@@ -396,8 +396,7 @@ func (puppet *Puppet) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Mess
 		"avatar_mxc": avatarURL.String(),
 	}
 	part.Extra["com.beeper.per_message_profile"] = map[string]any{
-		"is_multiple_users": true,
-
+		"id": msg.Author.ID,
 		"avatar_url":  avatarURL.String(),
 		"displayname": msg.Author.Username,
 	}

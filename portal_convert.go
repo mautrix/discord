@@ -357,8 +357,7 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 	}
 	if msg.Member.Nick != "" || !avatarURL.IsEmpty() {
 		perMessageProfile := map[string]any{
-			"is_multiple_users": false,
-
+			"id": msg.Author.ID,
 			"displayname": msg.Member.Nick,
 			"avatar_url":  avatarURL.String(),
 		}

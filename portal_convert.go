@@ -357,7 +357,7 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 	}
 	if msg.Member.Nick != "" || !avatarURL.IsEmpty() {
 		perMessageProfile := map[string]any{
-			"id": msg.Author.ID,
+			"id":          msg.Author.ID,
 			"displayname": msg.Member.Nick,
 			"avatar_url":  avatarURL.String(),
 		}
@@ -396,7 +396,7 @@ func (puppet *Puppet) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Mess
 		"avatar_mxc": avatarURL.String(),
 	}
 	part.Extra["com.beeper.per_message_profile"] = map[string]any{
-		"id": msg.Author.ID,
+		"id":          msg.Author.ID,
 		"avatar_url":  avatarURL.String(),
 		"displayname": msg.Author.Username,
 	}

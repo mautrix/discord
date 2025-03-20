@@ -302,6 +302,7 @@ func (portal *Portal) MainIntent() *appservice.IntentAPI {
 type CustomBridgeInfoContent struct {
 	event.BridgeEventContent
 	RoomType string `json:"com.beeper.room_type,omitempty"`
+	RoomTypeV2 string `json:"com.beeper.room_type.v2,omitempty"`
 }
 
 func init() {
@@ -344,7 +345,14 @@ func (portal *Portal) getBridgeInfo() (string, CustomBridgeInfoContent) {
 	if portal.Type == discordgo.ChannelTypeDM || portal.Type == discordgo.ChannelTypeGroupDM {
 		roomType = "dm"
 	}
-	return bridgeInfoStateKey, CustomBridgeInfoContent{bridgeInfo, roomType}
+	var roomTypeV2 string
+	if portal.Type == discordgo.ChannelTypeDM {
+		roomTypeV2 = "dm"
+	} else if portal.Type == discordgo.ChannelTypeGuildText {
+		roomTypeV2 = "group_dm"
+	}
+
+	return bridgeInfoStateKey, CustomBridgeInfoContent{bridgeInfo, roomType, roomTypeV2}
 }
 
 func (portal *Portal) UpdateBridgeInfo() {

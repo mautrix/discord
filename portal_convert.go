@@ -18,6 +18,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"html"
 	"strconv"
@@ -357,8 +359,7 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 	}
 	if msg.Member.Nick != "" || !avatarURL.IsEmpty() {
 		perMessageProfile := map[string]any{
-			"is_multiple_users": false,
-
+			"id":          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
 			"displayname": msg.Member.Nick,
 			"avatar_url":  avatarURL.String(),
 		}
@@ -396,9 +397,9 @@ func (puppet *Puppet) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Mess
 		"avatar_url": msg.Author.AvatarURL(""),
 		"avatar_mxc": avatarURL.String(),
 	}
+	profileID := sha256.Sum256(fmt.Appendf(nil, "%s:%s", msg.Author.Username, msg.Author.Avatar))
 	part.Extra["com.beeper.per_message_profile"] = map[string]any{
-		"is_multiple_users": true,
-
+		"id":          hex.EncodeToString(profileID[:]),
 		"avatar_url":  avatarURL.String(),
 		"displayname": msg.Author.Username,
 	}

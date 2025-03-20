@@ -301,7 +301,7 @@ func (portal *Portal) MainIntent() *appservice.IntentAPI {
 
 type CustomBridgeInfoContent struct {
 	event.BridgeEventContent
-	RoomType string `json:"com.beeper.room_type,omitempty"`
+	RoomType   string `json:"com.beeper.room_type,omitempty"`
 	RoomTypeV2 string `json:"com.beeper.room_type.v2,omitempty"`
 }
 

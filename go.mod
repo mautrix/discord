@@ -2,7 +2,7 @@ module go.mau.fi/mautrix-discord
 
 go 1.23.0
 
-toolchain go1.24.0
+toolchain go1.24.1
 
 require (
 	github.com/bwmarrin/discordgo v0.27.0
@@ -42,4 +42,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20250222175443-74051f604a97
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20250320154217-0d7f942e6b38

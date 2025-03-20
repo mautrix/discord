@@ -348,7 +348,7 @@ func (portal *Portal) getBridgeInfo() (string, CustomBridgeInfoContent) {
 	var roomTypeV2 string
 	if portal.Type == discordgo.ChannelTypeDM {
 		roomTypeV2 = "dm"
-	} else if portal.Type == discordgo.ChannelTypeGuildText {
+	} else if portal.Type == discordgo.ChannelTypeGroupDM {
 		roomTypeV2 = "group_dm"
 	}
 

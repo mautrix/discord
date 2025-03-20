@@ -167,7 +167,7 @@ func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *apps
 		if att.Waveform != nil {
 			// TODO convert waveform
 			extra = map[string]any{
-				"org.matrix.1767.audio": map[string]any{
+				"org.matrix.msc1767.audio": map[string]any{
 					"duration": int(att.DurationSeconds * 1000),
 				},
 				"org.matrix.msc3245.voice": map[string]any{},

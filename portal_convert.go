@@ -634,7 +634,7 @@ func isPlainGifMessage(msg *discordgo.Message) bool {
 	}
 	embed := msg.Embeds[0]
 	isGifVideo := embed.Type == discordgo.EmbedTypeGifv && embed.Video != nil
-	isGifImage := embed.Type == discordgo.EmbedTypeImage && embed.Image == nil && embed.Thumbnail != nil
+	isGifImage := embed.Type == discordgo.EmbedTypeImage && embed.Image == nil && embed.Thumbnail != nil && embed.Title == ""
 	contentIsOnlyURL := msg.Content == embed.URL || discordLinkRegexFull.MatchString(msg.Content)
 	return contentIsOnlyURL && (isGifVideo || isGifImage)
 }

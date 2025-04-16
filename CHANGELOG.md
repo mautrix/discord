@@ -1,3 +1,19 @@
+# v0.7.3 (2025-04-16)
+
+* Added support for sending no-mention replies from Matrix
+  (uses intentional mentions and requires client support).
+* Added file name to QR image message when logging in to fix rendering in dumb
+  clients that validate the file extension.
+* Added `id` field to per-message profiles to match [MSC4144].
+* Fixed guild avatars in per-message profiles (thanks to [@mat-1] in [#172]).
+* Fixed typo in MSC1767 field name in voice messages (thanks to [@ginnyTheCat] in [#177]).
+
+[@mat-1]: https://github.com/mat-1
+[@ginnyTheCat]: https://github.com/ginnyTheCat
+[#172]: https://github.com/mautrix/discord/pull/172
+[#177]: https://github.com/mautrix/discord/pull/177
+[MSC4144]: https://github.com/matrix-org/matrix-spec-proposals/pull/4144
+
 # v0.7.2 (2024-12-16)
 
 * Fixed some headers being set incorrectly.

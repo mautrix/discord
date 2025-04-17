@@ -4,6 +4,9 @@ go 1.23.0
 
 toolchain go1.24.2
 
+// Remove and upgrade maunium.net/go/mautrix version below once https://github.com/mautrix/go/pull/371 is merged
+replace maunium.net/go/mautrix => ./go
+
 require (
 	github.com/bwmarrin/discordgo v0.27.0
 	github.com/gabriel-vasile/mimetype v1.4.8

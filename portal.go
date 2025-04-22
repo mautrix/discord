@@ -659,7 +659,26 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	mentions := portal.convertDiscordMentions(msg, true)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg)
+
+	msgBody := msg
+
+	if msg.MessageReference != nil && msg.MessageReference.Type == discordgo.MessageReferenceTypeForward {
+		if len(msg.MessageSnapshots) == 0 {
+			log.Debug().Msg("No message snapshot available for forwarded message, skipping")
+			return
+		}
+
+		msgBody = msg.MessageSnapshots[0].Message
+
+		var content = msgBody.Content
+		msgBody.Content = "↷ Forwarded"
+
+		if content != "" {
+			msgBody.Content += "\n" + content
+		}
+	}
+
+	parts := portal.convertDiscordMessage(ctx, puppet, intent, msgBody)
 	dbParts := make([]database.MessagePart, 0, len(parts))
 	eventIDs := zerolog.Dict()
 	for i, part := range parts {

@@ -719,6 +719,10 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 		fullHTML = strings.ReplaceAll(fullHTML, "@room", "@\u2063ro\u2063om")
 	}
 
+	if strings.HasPrefix(msg.Content, "↷ Forwarded") {
+		fullHTML = fmt.Sprintf("<blockquote>%s</blockquote>", fullHTML)
+	}
+
 	content := format.HTMLToContent(fullHTML)
 	extraContent := map[string]any{
 		"com.beeper.linkpreviews": previews,

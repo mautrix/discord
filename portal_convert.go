@@ -154,6 +154,11 @@ func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *apps
 			Size: att.Size,
 		},
 	}
+
+	if strings.HasPrefix(att.Filename, "SPOILER_") {
+		content.EveryPizzaSpoiler = true
+	}
+
 	if att.Description != "" {
 		content.Body = att.Description
 		content.FileName = att.Filename

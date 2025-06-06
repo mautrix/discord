@@ -1639,7 +1639,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content)
 		}
 
-		if content.EveryPizzaSpoiler {
+		if evt.Content.Raw["page.codeberg.everypizza.msc4193.spoiler"] == true {
 			filename = "SPOILER_" + filename
 		}
 

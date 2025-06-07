@@ -74,7 +74,7 @@ var discordRendererWithInlineLinks = goldmark.New(
 	fixIndentedParagraphs, format.HTMLOptions, discordExtensions,
 )
 
-func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLinks bool) string {
+func (portal *Portal) renderDiscordMarkdownOnlyHTMLNoUnwrap(text string, allowInlineLinks bool) string {
 	text = escapeFixer.ReplaceAllStringFunc(text, escapeReplacement)
 
 	var buf strings.Builder
@@ -88,7 +88,11 @@ func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLink
 	if err != nil {
 		panic(fmt.Errorf("markdown parser errored: %w", err))
 	}
-	return format.UnwrapSingleParagraph(buf.String())
+	return buf.String()
+}
+
+func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLinks bool) string {
+	return format.UnwrapSingleParagraph(portal.renderDiscordMarkdownOnlyHTMLNoUnwrap(text, allowInlineLinks))
 }
 
 const formatterContextPortalKey = "fi.mau.discord.portal"

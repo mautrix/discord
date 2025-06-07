@@ -34,6 +34,8 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
+
+	"go.mau.fi/mautrix-discord/database"
 )
 
 type ConvertedMessage struct {
@@ -664,6 +666,12 @@ func (portal *Portal) convertDiscordMentions(msg *discordgo.Message, syncGhosts 
 	return &matrixMentions
 }
 
+const forwardTemplateHTML = `<blockquote>
+<p>↷ Forwarded</p>
+%s
+<p>%s</p>
+</blockquote>`
+
 func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *appservice.IntentAPI, msg *discordgo.Message) *ConvertedMessage {
 	log := zerolog.Ctx(ctx)
 	if msg.Type == discordgo.MessageTypeCall {
@@ -685,6 +693,36 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	}
 	if msg.Content != "" && !isPlainGifMessage(msg) {
 		htmlParts = append(htmlParts, portal.renderDiscordMarkdownOnlyHTML(msg.Content, true))
+	} else if msg.MessageReference != nil &&
+		msg.MessageReference.Type == discordgo.MessageReferenceTypeForward &&
+		len(msg.MessageSnapshots) > 0 &&
+		msg.MessageSnapshots[0].Message != nil {
+		forwardedHTML := portal.renderDiscordMarkdownOnlyHTMLNoUnwrap(msg.MessageSnapshots[0].Message.Content, true)
+		msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
+		origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
+		forwardedFromPortal := portal.bridge.GetExistingPortalByID(database.NewPortalKey(msg.MessageReference.ChannelID, ""))
+		if forwardedFromPortal != nil {
+			origMessage := portal.bridge.DB.Message.GetFirstByDiscordID(forwardedFromPortal.Key, msg.MessageReference.MessageID)
+			if origMessage != nil {
+				origLink = fmt.Sprintf(
+					`<a href="%s">#%s • %s</a>`,
+					forwardedFromPortal.MXID.EventURI(origMessage.MXID, portal.bridge.AS.HomeserverDomain),
+					forwardedFromPortal.PlainName,
+					msgTSText,
+				)
+			} else if forwardedFromPortal.MXID != "" {
+				origLink = fmt.Sprintf(
+					`<a href="%s">#%s</a> • %s`,
+					forwardedFromPortal.MXID.URI(portal.bridge.AS.HomeserverDomain),
+					forwardedFromPortal.PlainName,
+					msgTSText,
+				)
+			} else if forwardedFromPortal.PlainName != "" {
+				origLink = fmt.Sprintf("%s • %s", forwardedFromPortal.PlainName, msgTSText)
+			}
+		}
+
+		htmlParts = append(htmlParts, fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink))
 	}
 	previews := make([]*BeeperLinkPreview, 0)
 	for i, embed := range msg.Embeds {

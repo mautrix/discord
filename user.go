@@ -1153,7 +1153,7 @@ func (user *User) channelUpdateHandler(c *discordgo.ChannelUpdate) {
 	portal := user.GetPortalByMeta(c.Channel)
 	if c.GuildID == "" {
 		user.handlePrivateChannel(portal, c.Channel, time.Now(), true, user.IsInSpace(portal.Key.String()))
-	} else {
+	} else if user.channelIsBridgeable(c.Channel) {
 		portal.UpdateInfo(user, c.Channel)
 	}
 }

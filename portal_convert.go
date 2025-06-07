@@ -154,24 +154,27 @@ func (portal *Portal) convertDiscordAttachment(ctx context.Context, intent *apps
 			Size: att.Size,
 		},
 	}
+
+	var extra = make(map[string]any)
+
+	if strings.HasPrefix(att.Filename, "SPOILER_") {
+		extra["page.codeberg.everypizza.msc4193.spoiler"] = true
+	}
+
 	if att.Description != "" {
 		content.Body = att.Description
 		content.FileName = att.Filename
 	}
-
-	var extra map[string]any
 
 	switch strings.ToLower(strings.Split(att.ContentType, "/")[0]) {
 	case "audio":
 		content.MsgType = event.MsgAudio
 		if att.Waveform != nil {
 			// TODO convert waveform
-			extra = map[string]any{
-				"org.matrix.msc1767.audio": map[string]any{
-					"duration": int(att.DurationSeconds * 1000),
-				},
-				"org.matrix.msc3245.voice": map[string]any{},
+			extra["org.matrix.msc1767.audio"] = map[string]any{
+				"duration": int(att.DurationSeconds * 1000),
 			}
+			extra["org.matrix.msc3245.voice"] = map[string]any{}
 		}
 	case "image":
 		content.MsgType = event.MsgImage

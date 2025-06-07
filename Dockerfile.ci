@@ -1,6 +1,6 @@
-FROM dock.mau.dev/tulir/lottieconverter:alpine-3.18 AS lottie
+FROM dock.mau.dev/tulir/lottieconverter:alpine-3.22 AS lottie
 
-FROM alpine:3.18
+FROM alpine:3.22
 
 ENV UID=1337 \
     GID=1337

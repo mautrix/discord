@@ -1,3 +1,15 @@
+# v0.7.4 (2025-06-16)
+
+* Added support for forwarded messages
+* Added support for [MSC4193] media spoilers (thanks to [@LeaPhant] in [#189]).
+* Added support for [MSC4190] for MAS-compatible encryption.
+* Updated Docker image to Alpine 3.22
+
+[MSC4193]: https://github.com/matrix-org/matrix-spec-proposals/pull/4193
+[MSC4190]: https://github.com/matrix-org/matrix-spec-proposals/pull/4190
+[@LeaPhant]: https://github.com/mautrix/discord/pull/189
+[#189]: https://github.com/mautrix/discord/pull/189
+
 # v0.7.3 (2025-04-16)
 
 * Added support for sending no-mention replies from Matrix

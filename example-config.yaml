@@ -91,7 +91,7 @@ bridge:
     #   .System - Whether the user is an official system user
     #   .Webhook - Whether the user is a webhook and is not an application
     #   .Application - Whether the user is an application
-    displayname_template: '{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}'
+    displayname_template: '{{if .Webhook}}Webhook{{else}}{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}{{end}}'
     # Displayname template for Discord channels (bridged as rooms, or spaces when type=4).
     # Available variables:
     #   .Name - Channel name, or user displayname (pre-formatted with displayname_template) in DMs.
@@ -161,9 +161,12 @@ bridge:
     federate_rooms: true
     # Prefix messages from webhooks with the profile info? This can be used along with a custom displayname_template
     # to better handle webhooks that change their name all the time (like ones used by bridges).
-    prefix_webhook_messages: false
+    #
+    # This will use the fallback mode in MSC4144, which means clients that support MSC4144 will not show the prefix
+    # (and will instead show the name and avatar as the message sender).
+    prefix_webhook_messages: true
     # Bridge webhook avatars?
-    enable_webhook_avatars: true
+    enable_webhook_avatars: false
     # Should the bridge upload media to the Discord CDN directly before sending the message when using a user token,
     # like the official client does? The other option is sending the media in the message send request as a form part
     # (which is always used by bots and webhooks).

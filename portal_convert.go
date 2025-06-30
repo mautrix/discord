@@ -403,10 +403,20 @@ func (puppet *Puppet) addWebhookMeta(part *ConvertedMessage, msg *discordgo.Mess
 		"avatar_mxc": avatarURL.String(),
 	}
 	profileID := sha256.Sum256(fmt.Appendf(nil, "%s:%s", msg.Author.Username, msg.Author.Avatar))
+	hasFallback := false
+	if msg.ApplicationID == "" &&
+		puppet.bridge.Config.Bridge.PrefixWebhookMessages &&
+		(part.Content.MsgType == event.MsgText || part.Content.MsgType == event.MsgNotice || (part.Content.FileName != "" && part.Content.FileName != part.Content.Body)) {
+		part.Content.EnsureHasHTML()
+		part.Content.Body = fmt.Sprintf("%s: %s", msg.Author.Username, part.Content.Body)
+		part.Content.FormattedBody = fmt.Sprintf("<strong data-mx-profile-fallback>%s: </strong>%s", html.EscapeString(msg.Author.Username), part.Content.FormattedBody)
+		hasFallback = true
+	}
 	part.Extra["com.beeper.per_message_profile"] = map[string]any{
-		"id":          hex.EncodeToString(profileID[:]),
-		"avatar_url":  avatarURL.String(),
-		"displayname": msg.Author.Username,
+		"id":           hex.EncodeToString(profileID[:]),
+		"avatar_url":   avatarURL.String(),
+		"displayname":  msg.Author.Username,
+		"has_fallback": hasFallback,
 	}
 }
 
@@ -763,12 +773,6 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	content := format.HTMLToContent(fullHTML)
 	extraContent := map[string]any{
 		"com.beeper.linkpreviews": previews,
-	}
-
-	if msg.WebhookID != "" && msg.ApplicationID == "" && portal.bridge.Config.Bridge.PrefixWebhookMessages {
-		content.EnsureHasHTML()
-		content.Body = fmt.Sprintf("%s: %s", msg.Author.Username, content.Body)
-		content.FormattedBody = fmt.Sprintf("<strong>%s</strong>: %s", html.EscapeString(msg.Author.Username), content.FormattedBody)
 	}
 
 	return &ConvertedMessage{Type: event.EventMessage, Content: &content, Extra: extraContent}

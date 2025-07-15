@@ -344,6 +344,7 @@ func (user *User) getSpaceRoom(ptr *id.RoomID, name, topic string, parent id.Roo
 				user.MXID:              50,
 			},
 		},
+		RoomVersion: "11",
 	})
 
 	if err != nil {

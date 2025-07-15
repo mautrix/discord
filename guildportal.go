@@ -205,6 +205,7 @@ func (guild *Guild) CreateMatrixRoom(user *User, meta *discordgo.Guild) error {
 		Preset:          "private_chat",
 		InitialState:    initialState,
 		CreationContent: creationContent,
+		RoomVersion:     "11",
 	})
 	if err != nil {
 		guild.log.Warnln("Failed to create room:", err)

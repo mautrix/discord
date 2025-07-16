@@ -1,3 +1,11 @@
+# v0.7.5 (2025-07-16)
+
+* Fixed federation key response when using direct media.
+* Changed `prefix_webhook_messages` option to generate [MSC4144] fallbacks,
+  so that any compatible clients will hide the prefix.
+* Changed new room creation to hardcode room v11 to avoid v12 rooms being
+  created before proper support for them can be added.
+
 # v0.7.4 (2025-06-16)
 
 * Added support for forwarded messages

@@ -2535,3 +2535,74 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 	}
 	return meta
 }
+
+func (br *DiscordBridge) HandleTombstone(evt *event.Event) {
+	if evt.StateKey == nil || *evt.StateKey != "" {
+		return
+	}
+	content, ok := evt.Content.Parsed.(*event.TombstoneEventContent)
+	if !ok {
+		return
+	}
+	defer br.MatrixHandler.TrackEventDuration(evt.Type)()
+	portal := br.GetPortalByMXID(evt.RoomID)
+	if portal == nil {
+		return
+	}
+	logEvt := portal.log.Debug().
+		Stringer("sender", evt.Sender).
+		Stringer("replacement_room", content.ReplacementRoom).
+		Str("body", content.Body)
+	if content.ReplacementRoom == "" {
+		logEvt.Msg("Received tombstone event with no replacement room, cleaning up portal")
+		portal.cleanup(true)
+		portal.RemoveMXID()
+		return
+	}
+	logEvt.Msg("Received tombstone event, joining new room")
+	_, err := br.Bot.JoinRoom(content.ReplacementRoom.String(), evt.Sender.Homeserver(), nil)
+	if err != nil {
+		portal.log.Err(err).Msg("Failed to join replacement room")
+		return
+	}
+	_, err = br.Bot.State(content.ReplacementRoom)
+	if err != nil {
+		portal.log.Err(err).Msg("Failed to get state of replacement room")
+		return
+	}
+
+	encrypted := br.AS.StateStore.IsEncrypted(portal.MXID)
+	br.portalsLock.Lock()
+	defer br.portalsLock.Unlock()
+	if portal.MXID != evt.RoomID {
+		portal.log.Warn().
+			Stringer("old_mxid", evt.RoomID).
+			Stringer("new_mxid", portal.MXID).
+			Msg("Portal MXID changed while processing tombstone event, not updating")
+		return
+	}
+	_, alreadyAPortal := br.portalsByMXID[content.ReplacementRoom]
+	if alreadyAPortal {
+		portal.log.Warn().
+			Stringer("replacement_room", content.ReplacementRoom).
+			Msg("Replacement room is already a portal, not updating")
+		return
+	}
+	delete(portal.bridge.portalsByMXID, portal.MXID)
+	portal.MXID = content.ReplacementRoom
+	portal.bridge.portalsByMXID[portal.MXID] = portal
+	portal.log = portal.bridge.ZLog.With().
+		Str("channel_id", portal.Key.ChannelID).
+		Str("channel_receiver", portal.Key.Receiver).
+		Str("room_id", portal.MXID.String()).
+		Logger()
+	portal.AvatarSet = false
+	portal.NameSet = false
+	portal.TopicSet = false
+	portal.Encrypted = encrypted
+	portal.InSpace = ""
+	portal.FirstEventID = ""
+	portal.Update()
+	portal.log.Info().Msg("Followed tombstone and updated portal MXID")
+	portal.UpdateBridgeInfo()
+}

@@ -26,6 +26,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/commands"
+	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/config"
@@ -95,6 +96,7 @@ func (br *DiscordBridge) GetConfigPtr() interface{} {
 func (br *DiscordBridge) Init() {
 	br.CommandProcessor = commands.NewProcessor(&br.Bridge)
 	br.RegisterCommands()
+	br.EventProcessor.On(event.StateTombstone, br.HandleTombstone)
 
 	matrixHTMLParser.PillConverter = br.pillConverter
 

@@ -98,6 +98,7 @@ func (portal *Portal) renderDiscordMarkdownOnlyHTML(text string, allowInlineLink
 const formatterContextPortalKey = "fi.mau.discord.portal"
 const formatterContextAllowedMentionsKey = "fi.mau.discord.allowed_mentions"
 const formatterContextInputAllowedMentionsKey = "fi.mau.discord.input_allowed_mentions"
+const formatterContextInputAllowedLinkPreviewsKey = "fi.mau.discord.input_allowed_link_previews"
 
 func appendIfNotContains(arr []string, newItem string) []string {
 	for _, item := range arr {
@@ -221,16 +222,24 @@ var matrixHTMLParser = &format.HTMLParser{
 		return fmt.Sprintf("||%s||", text)
 	},
 	LinkConverter: func(text, href string, ctx format.Context) string {
+		linkPreviews := ctx.ReturnData[formatterContextInputAllowedLinkPreviewsKey].([]string)
+		allowPreview := linkPreviews == nil || slices.Contains(linkPreviews, href)
 		if text == href {
+			if !allowPreview {
+				return fmt.Sprintf("<%s>", text)
+			}
 			return text
 		} else if !discordLinkRegexFull.MatchString(href) {
 			return fmt.Sprintf("%s (%s)", escapeDiscordMarkdown(text), escapeDiscordMarkdown(href))
+		} else if !allowPreview {
+			return fmt.Sprintf("[%s](<%s>)", escapeDiscordMarkdown(text), href)
+		} else {
+			return fmt.Sprintf("[%s](%s)", escapeDiscordMarkdown(text), href)
 		}
-		return fmt.Sprintf("[%s](%s)", escapeDiscordMarkdown(text), href)
 	},
 }
 
-func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent) (string, *discordgo.MessageAllowedMentions) {
+func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent, allowedLinkPreviews []string) (string, *discordgo.MessageAllowedMentions) {
 	allowedMentions := &discordgo.MessageAllowedMentions{
 		Parse:       []discordgo.AllowedMentionType{},
 		Users:       []string{},
@@ -238,6 +247,7 @@ func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent) (strin
 	}
 	if content.Format == event.FormatHTML && len(content.FormattedBody) > 0 {
 		ctx := format.NewContext()
+		ctx.ReturnData[formatterContextInputAllowedLinkPreviewsKey] = allowedLinkPreviews
 		ctx.ReturnData[formatterContextPortalKey] = portal
 		ctx.ReturnData[formatterContextAllowedMentionsKey] = allowedMentions
 		if content.Mentions != nil {

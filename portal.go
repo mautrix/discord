@@ -489,6 +489,7 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 		IsDirect:        portal.IsPrivateChat(),
 		InitialState:    initialState,
 		CreationContent: creationContent,
+		RoomVersion:     "11",
 	}
 	if !portal.shouldSetDMRoomMetadata() && !portal.FriendNick {
 		req.Name = ""

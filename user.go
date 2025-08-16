@@ -340,9 +340,11 @@ func (user *User) getSpaceRoom(ptr *id.RoomID, name, topic string, parent id.Roo
 		},
 		PowerLevelOverride: &event.PowerLevelsEventContent{
 			Users: map[id.UserID]int{
-				user.MXID: 50,
+				user.bridge.Bot.UserID: 9001,
+				user.MXID:              50,
 			},
 		},
+		RoomVersion: "11",
 	})
 
 	if err != nil {

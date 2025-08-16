@@ -1,8 +1,8 @@
 module go.mau.fi/mautrix-discord
 
-go 1.23.0
+go 1.24.0
 
-toolchain go1.24.5
+toolchain go1.25.0
 
 require (
 	github.com/bwmarrin/discordgo v0.27.0

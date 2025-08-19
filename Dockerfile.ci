@@ -1,15 +1,10 @@
-FROM dock.mau.dev/tulir/lottieconverter:alpine-3.22 AS lottie
-
 FROM alpine:3.22
 
 ENV UID=1337 \
     GID=1337
 
-RUN apk add --no-cache ffmpeg su-exec ca-certificates bash jq curl yq \
-    zlib libpng giflib libstdc++ libgcc
+RUN apk add --no-cache ffmpeg su-exec ca-certificates bash jq curl yq-go lottieconverter
 
-COPY --from=lottie /usr/lib/librlottie.so* /usr/lib/
-COPY --from=lottie /usr/local/bin/lottieconverter /usr/local/bin/lottieconverter
 ARG EXECUTABLE=./mautrix-discord
 COPY $EXECUTABLE /usr/bin/mautrix-discord
 COPY ./example-config.yaml /opt/mautrix-discord/example-config.yaml

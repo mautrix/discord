@@ -807,6 +807,7 @@ func (user *User) subscribeGuilds(delay time.Duration) {
 func (user *User) resumeHandler(_ *discordgo.Resumed) {
 	user.log.Debug().Msg("Discord connection resumed")
 	user.subscribeGuilds(0 * time.Second)
+	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 }
 
 func (user *User) addPrivateChannelToSpace(portal *Portal) bool {
@@ -1007,7 +1008,6 @@ func (user *User) connectedHandler(_ *discordgo.Connect) {
 	user.log.Debug().Msg("Connected to Discord")
 	if user.wasDisconnected {
 		user.wasDisconnected = false
-		user.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 	}
 }
 

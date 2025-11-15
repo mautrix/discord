@@ -550,6 +550,18 @@ func (user *User) Connect() error {
 	if err != nil {
 		return err
 	}
+
+	if user.HeartbeatSession == nil || user.HeartbeatSession.IsExpired() {
+		user.log.Debug().Msg("Creating new heartbeat session")
+		sess := discordgo.NewHeartbeatSession()
+		user.HeartbeatSession = &sess
+	}
+	user.HeartbeatSession.BumpLastUsed()
+	user.Update()
+	user.log.Debug().Msgf("Heartbeat session ID: %s", user.HeartbeatSession.ID)
+	// make discordgo use our session instead of the one it creates automatically
+	session.HeartbeatSession = *user.HeartbeatSession
+
 	if user.bridge.Config.Bridge.Proxy != "" {
 		u, _ := url.Parse(user.bridge.Config.Bridge.Proxy)
 		tlsConf := &tls.Config{

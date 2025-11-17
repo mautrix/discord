@@ -558,7 +558,6 @@ func (user *User) Connect() error {
 	}
 	user.HeartbeatSession.BumpLastUsed()
 	user.Update()
-	user.log.Debug().Msgf("Heartbeat session ID: %s", user.HeartbeatSession.ID)
 	// make discordgo use our session instead of the one it creates automatically
 	session.HeartbeatSession = *user.HeartbeatSession
 
@@ -581,7 +580,10 @@ func (user *User) Connect() error {
 	} else {
 		session.LogLevel = discordgo.LogInformational
 	}
-	userDiscordLog := user.log.With().Str("component", "discordgo").Logger()
+	userDiscordLog := user.log.With().
+		Str("component", "discordgo").
+		Str("heartbeat_session", session.HeartbeatSession.ID.String()).
+		Logger()
 	session.Logger = func(msgL, caller int, format string, a ...interface{}) {
 		userDiscordLog.WithLevel(discordToZeroLevel(msgL)).Caller(caller+1).Msgf(strings.TrimSpace(format), a...) // zerolog-allow-msgf
 	}

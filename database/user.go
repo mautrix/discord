@@ -2,7 +2,6 @@ package database
 
 import (
 	"database/sql"
-	"encoding/json"
 
 	"github.com/bwmarrin/discordgo"
 	"go.mau.fi/util/dbutil"
@@ -68,8 +67,8 @@ type User struct {
 }
 
 func (u *User) Scan(row dbutil.Scannable) *User {
-	var discordID, managementRoom, spaceRoom, dmSpaceRoom, discordToken, heartbeatSessionJSON sql.NullString
-	err := row.Scan(&u.MXID, &discordID, &discordToken, &managementRoom, &spaceRoom, &dmSpaceRoom, &u.ReadStateVersion, &heartbeatSessionJSON)
+	var discordID, managementRoom, spaceRoom, dmSpaceRoom, discordToken sql.NullString
+	err := row.Scan(&u.MXID, &discordID, &discordToken, &managementRoom, &spaceRoom, &dmSpaceRoom, &u.ReadStateVersion, dbutil.JSON{Data: &u.HeartbeatSession})
 	if err != nil {
 		if err != sql.ErrNoRows {
 			u.log.Errorln("Database scan failed:", err)
@@ -82,12 +81,6 @@ func (u *User) Scan(row dbutil.Scannable) *User {
 	u.ManagementRoom = id.RoomID(managementRoom.String)
 	u.SpaceRoom = id.RoomID(spaceRoom.String)
 	u.DMSpaceRoom = id.RoomID(dmSpaceRoom.String)
-	if heartbeatSessionJSON.Valid {
-		err = json.Unmarshal([]byte(heartbeatSessionJSON.String), &u.HeartbeatSession)
-		if err != nil {
-			u.log.Errorfln("Failed to parse persisted heartbeat session, leaving zeroed: %v", err)
-		}
-	}
 	return u
 }
 

@@ -1101,11 +1101,6 @@ func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	portal.forwardBackfillLock.Lock()
 	defer portal.forwardBackfillLock.Unlock()
 
-	if !msg.user.IsLoggedIn() {
-		go portal.sendMessageMetrics(msg.evt, errUserNotLoggedIn, "Ignoring")
-		return
-	}
-
 	switch msg.evt.Type {
 	case event.EventMessage, event.EventSticker:
 		portal.handleMatrixMessage(msg.user, msg.evt)
@@ -1528,9 +1523,15 @@ func (portal *Portal) RefererOptIfUser(sess *discordgo.Session, threadID string)
 }
 
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
-	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
-		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
-		return
+	if portal.IsPrivateChat() {
+		if !sender.IsLoggedIn() {
+			go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
+			return
+		}
+		if sender.DiscordID != portal.Key.Receiver {
+			go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
+			return
+		}
 	}
 
 	content, ok := evt.Content.Parsed.(*event.MessageEventContent)
@@ -1924,6 +1925,10 @@ func (portal *Portal) getMatrixUsers() ([]id.UserID, error) {
 }
 
 func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
+	if !sender.IsLoggedIn() {
+		go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
+		return
+	}
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
 		return

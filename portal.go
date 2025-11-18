@@ -1100,7 +1100,6 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	portal.forwardBackfillLock.Lock()
 	defer portal.forwardBackfillLock.Unlock()
-
 	switch msg.evt.Type {
 	case event.EventMessage, event.EventSticker:
 		portal.handleMatrixMessage(msg.user, msg.evt)

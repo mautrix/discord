@@ -91,26 +91,9 @@ func (u *User) Scan(row dbutil.Scannable) *User {
 	return u
 }
 
-func (u *User) marshalHeartbeatSession() sql.NullString {
-	if u.HeartbeatSession == nil {
-		return sql.NullString{}
-	}
-
-	encoded, err := json.Marshal(u.HeartbeatSession)
-	if err != nil {
-		u.log.Errorfln("Failed to marshal heartbeat session: %v", err)
-		panic(err)
-	}
-
-	return sql.NullString{
-		Valid:  true,
-		String: string(encoded),
-	}
-}
-
 func (u *User) Insert() {
 	query := `INSERT INTO "user" (mxid, dcid, discord_token, management_room, space_room, dm_space_room, read_state_version, heartbeat_session) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-	_, err := u.db.Exec(query, u.MXID, strPtr(u.DiscordID), strPtr(u.DiscordToken), strPtr(string(u.ManagementRoom)), strPtr(string(u.SpaceRoom)), strPtr(string(u.DMSpaceRoom)), u.ReadStateVersion, u.marshalHeartbeatSession())
+	_, err := u.db.Exec(query, u.MXID, strPtr(u.DiscordID), strPtr(u.DiscordToken), strPtr(string(u.ManagementRoom)), strPtr(string(u.SpaceRoom)), strPtr(string(u.DMSpaceRoom)), u.ReadStateVersion, JSONPtr(u.HeartbeatSession))
 	if err != nil {
 		u.log.Warnfln("Failed to insert %s: %v", u.MXID, err)
 		panic(err)
@@ -119,7 +102,7 @@ func (u *User) Insert() {
 
 func (u *User) Update() {
 	query := `UPDATE "user" SET dcid=$1, discord_token=$2, management_room=$3, space_room=$4, dm_space_room=$5, read_state_version=$6, heartbeat_session=$7 WHERE mxid=$8`
-	_, err := u.db.Exec(query, strPtr(u.DiscordID), strPtr(u.DiscordToken), strPtr(string(u.ManagementRoom)), strPtr(string(u.SpaceRoom)), strPtr(string(u.DMSpaceRoom)), u.ReadStateVersion, u.marshalHeartbeatSession(), u.MXID)
+	_, err := u.db.Exec(query, strPtr(u.DiscordID), strPtr(u.DiscordToken), strPtr(string(u.ManagementRoom)), strPtr(string(u.SpaceRoom)), strPtr(string(u.DMSpaceRoom)), u.ReadStateVersion, JSONPtr(u.HeartbeatSession), u.MXID)
 	if err != nil {
 		u.log.Warnfln("Failed to update %q: %v", u.MXID, err)
 		panic(err)

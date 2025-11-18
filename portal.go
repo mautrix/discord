@@ -1100,6 +1100,12 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	portal.forwardBackfillLock.Lock()
 	defer portal.forwardBackfillLock.Unlock()
+
+	if !msg.user.IsLoggedIn() {
+		go portal.sendMessageMetrics(msg.evt, errUserNotLoggedIn, "Ignoring")
+		return
+	}
+
 	switch msg.evt.Type {
 	case event.EventMessage, event.EventSticker:
 		portal.handleMatrixMessage(msg.user, msg.evt)
@@ -1920,9 +1926,6 @@ func (portal *Portal) getMatrixUsers() ([]id.UserID, error) {
 func (portal *Portal) handleMatrixReaction(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
 		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
-		return
-	} else if !sender.IsLoggedIn() {
-		//go portal.sendMessageMetrics(evt, errReactionUserNotLoggedIn, "Ignoring")
 		return
 	}
 

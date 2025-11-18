@@ -93,7 +93,7 @@ CREATE TABLE "user" (
     dm_space_room   TEXT,
 
     read_state_version INTEGER NOT NULL DEFAULT 0,
-    heartbeat_session json
+    heartbeat_session jsonb
 );
 
 CREATE TABLE user_portal (

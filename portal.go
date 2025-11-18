@@ -2109,9 +2109,15 @@ func (portal *Portal) handleDiscordReaction(user *User, reaction *discordgo.Mess
 }
 
 func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
-	if portal.IsPrivateChat() && sender.DiscordID != portal.Key.Receiver {
-		go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
-		return
+	if portal.IsPrivateChat() {
+		if !sender.IsLoggedIn() {
+			go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
+			return
+		}
+		if sender.DiscordID != portal.Key.Receiver {
+			go portal.sendMessageMetrics(evt, errUserNotReceiver, "Ignoring")
+			return
+		}
 	}
 
 	sess := sender.Session

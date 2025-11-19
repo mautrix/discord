@@ -1,4 +1,4 @@
--- v0 -> v23 (compatible with v19+): Latest revision
+-- v0 -> v24 (compatible with v19+): Latest revision
 
 CREATE TABLE guild (
     dcid       TEXT PRIMARY KEY,
@@ -92,7 +92,8 @@ CREATE TABLE "user" (
     space_room      TEXT,
     dm_space_room   TEXT,
 
-    read_state_version INTEGER NOT NULL DEFAULT 0
+    read_state_version INTEGER NOT NULL DEFAULT 0,
+    heartbeat_session jsonb
 );
 
 CREATE TABLE user_portal (

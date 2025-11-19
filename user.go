@@ -550,6 +550,17 @@ func (user *User) Connect() error {
 	if err != nil {
 		return err
 	}
+
+	if user.HeartbeatSession == nil || user.HeartbeatSession.IsExpired() {
+		user.log.Debug().Msg("Creating new heartbeat session")
+		sess := discordgo.NewHeartbeatSession()
+		user.HeartbeatSession = &sess
+	}
+	user.HeartbeatSession.BumpLastUsed()
+	user.Update()
+	// make discordgo use our session instead of the one it creates automatically
+	session.HeartbeatSession = *user.HeartbeatSession
+
 	if user.bridge.Config.Bridge.Proxy != "" {
 		u, _ := url.Parse(user.bridge.Config.Bridge.Proxy)
 		tlsConf := &tls.Config{
@@ -569,7 +580,10 @@ func (user *User) Connect() error {
 	} else {
 		session.LogLevel = discordgo.LogInformational
 	}
-	userDiscordLog := user.log.With().Str("component", "discordgo").Logger()
+	userDiscordLog := user.log.With().
+		Str("component", "discordgo").
+		Str("heartbeat_session", session.HeartbeatSession.ID.String()).
+		Logger()
 	session.Logger = func(msgL, caller int, format string, a ...interface{}) {
 		userDiscordLog.WithLevel(discordToZeroLevel(msgL)).Caller(caller+1).Msgf(strings.TrimSpace(format), a...) // zerolog-allow-msgf
 	}

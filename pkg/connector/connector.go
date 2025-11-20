@@ -38,6 +38,12 @@ func (d *DiscordConnector) Start(ctx context.Context) error {
 }
 
 func (d *DiscordConnector) GetName() bridgev2.BridgeName {
-	//TODO implement me
-	panic("implement me")
+	return bridgev2.BridgeName{
+		DisplayName:      "Discord",
+		NetworkURL:       "https://discord.com",
+		NetworkIcon:      "mxc://maunium.net/nIdEykemnwdisvHbpxflpDlC",
+		NetworkID:        "discord",
+		BeeperBridgeType: "discordgo",
+		DefaultPort:      29334,
+	}
 }

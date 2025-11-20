@@ -1,10 +1,47 @@
-# v0.8.0 (unreleased)
+# v0.7.5 (2025-07-16)
+
+* Fixed federation key response when using direct media.
+* Changed `prefix_webhook_messages` option to generate [MSC4144] fallbacks,
+  so that any compatible clients will hide the prefix.
+* Changed new room creation to hardcode room v11 to avoid v12 rooms being
+  created before proper support for them can be added.
+
+# v0.7.4 (2025-06-16)
+
+* Added support for forwarded messages
+* Added support for [MSC4193] media spoilers (thanks to [@LeaPhant] in [#189]).
+* Added support for [MSC4190] for MAS-compatible encryption.
+* Updated Docker image to Alpine 3.22
+
+[MSC4193]: https://github.com/matrix-org/matrix-spec-proposals/pull/4193
+[MSC4190]: https://github.com/matrix-org/matrix-spec-proposals/pull/4190
+[@LeaPhant]: https://github.com/mautrix/discord/pull/189
+[#189]: https://github.com/mautrix/discord/pull/189
+
+# v0.7.3 (2025-04-16)
+
+* Added support for sending no-mention replies from Matrix
+  (uses intentional mentions and requires client support).
+* Added file name to QR image message when logging in to fix rendering in dumb
+  clients that validate the file extension.
+* Added `id` field to per-message profiles to match [MSC4144].
+* Fixed guild avatars in per-message profiles (thanks to [@mat-1] in [#172]).
+* Fixed typo in MSC1767 field name in voice messages (thanks to [@ginnyTheCat] in [#177]).
+
+[@mat-1]: https://github.com/mat-1
+[@ginnyTheCat]: https://github.com/ginnyTheCat
+[#172]: https://github.com/mautrix/discord/pull/172
+[#177]: https://github.com/mautrix/discord/pull/177
+[MSC4144]: https://github.com/matrix-org/matrix-spec-proposals/pull/4144
+
+# v0.7.2 (2024-12-16)
+
+* Fixed some headers being set incorrectly.
+
+# v0.7.1 (2024-11-16)
 
 * Bumped minimum Go version to 1.22.
-* Rewrote bridge using bridgev2 architecture.
-  * It is recommended to check the config file after upgrading. If you have
-    prevented the bridge from writing to the config, you should update it
-    manually.
+* Updated Discord version numbers.
 
 # v0.7.0 (2024-07-16)
 

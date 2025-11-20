@@ -32,7 +32,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 
 var _ bridgev2.NetworkAPI = (*DiscordClient)(nil)
 
-func (d *DiscordClient) Connect(ctx context.Context) error {
+func (d *DiscordClient) Connect(ctx context.Context) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -48,11 +48,6 @@ func (d *DiscordClient) IsLoggedIn() bool {
 }
 
 func (d *DiscordClient) LogoutRemote(ctx context.Context) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (d *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *bridgev2.NetworkRoomCapabilities {
 	//TODO implement me
 	panic("implement me")
 }

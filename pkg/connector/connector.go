@@ -41,8 +41,3 @@ func (d *DiscordConnector) GetName() bridgev2.BridgeName {
 	//TODO implement me
 	panic("implement me")
 }
-
-func (d *DiscordConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
-	//TODO implement me
-	panic("implement me")
-}

@@ -24,8 +24,9 @@ import (
 )
 
 func (d *DiscordClient) IsThisUser(ctx context.Context, userID networkid.UserID) bool {
-	//TODO implement me
-	panic("implement me")
+	// We define `UserID`s and `UserLoginID`s to be interchangeable, i.e. they map
+	// directly to Discord user IDs ("snowflakes"), so we can perform a direct comparison.
+	return userID == networkid.UserID(d.UserLogin.ID)
 }
 
 func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {

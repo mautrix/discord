@@ -23,18 +23,17 @@ import (
 )
 
 type DiscordConnector struct {
+	bridge *bridgev2.Bridge
 }
 
 var _ bridgev2.NetworkConnector = (*DiscordConnector)(nil)
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
-	//TODO implement me
-	panic("implement me")
+	d.bridge = bridge
 }
 
 func (d *DiscordConnector) Start(ctx context.Context) error {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (d *DiscordConnector) GetName() bridgev2.BridgeName {

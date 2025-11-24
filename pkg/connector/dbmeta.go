@@ -17,10 +17,19 @@
 package connector
 
 import (
+	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/database"
 )
 
+type UserLoginMetadata struct {
+	Token            string                     `json:"token"`
+	HeartbeatSession discordgo.HeartbeatSession `json:"heartbeat_session"`
+}
+
 func (d *DiscordConnector) GetDBMetaTypes() database.MetaTypes {
-	//TODO implement me
-	panic("implement me")
+	return database.MetaTypes{
+		UserLogin: func() any {
+			return &UserLoginMetadata{}
+		},
+	}
 }

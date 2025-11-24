@@ -15,6 +15,7 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -40,4 +41,4 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20250607214857-f23a8518ece2
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20251117165013-20c39e9899ec

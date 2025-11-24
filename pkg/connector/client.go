@@ -161,11 +161,11 @@ func (d *DiscordClient) LogoutRemote(ctx context.Context) {
 func (d *DiscordClient) syncChannels(ctx context.Context) {
 	for _, dm := range d.Session.State.PrivateChannels {
 		d.UserLogin.Log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel")
-		d.syncChannel(ctx, dm)
+		d.syncChannel(ctx, dm, true)
 	}
 }
 
-func (d *DiscordClient) syncChannel(ctx context.Context, ch *discordgo.Channel) {
+func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
 	isGroup := len(ch.RecipientIDs) > 1
 
 	var roomType database.RoomType
@@ -175,18 +175,21 @@ func (d *DiscordClient) syncChannel(ctx context.Context, ch *discordgo.Channel) 
 		roomType = database.RoomTypeDM
 	}
 
+	selfEventSender := d.makeEventSender(d.Session.State.User)
+
 	var members bridgev2.ChatMemberList
 	members.IsFull = true
 	members.MemberMap = make(bridgev2.ChatMemberMap, len(ch.Recipients))
 	if len(ch.Recipients) > 0 {
+		if selfIsInChannel {
+			members.MemberMap[selfEventSender.Sender] = bridgev2.ChatMember{EventSender: selfEventSender}
+		}
+
 		for _, recipient := range ch.Recipients {
-			sender := bridgev2.EventSender{
-				IsFromMe:    recipient.ID == d.Session.State.User.ID,
-				SenderLogin: d.UserLogin.ID,
-				Sender:      networkid.UserID(recipient.ID),
-			}
+			sender := d.makeEventSender(recipient)
 			members.MemberMap[sender.Sender] = bridgev2.ChatMember{EventSender: sender}
 		}
+
 		members.TotalMemberCount = len(ch.Recipients)
 	}
 

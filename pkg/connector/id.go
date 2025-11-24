@@ -18,6 +18,7 @@ package connector
 
 import (
 	"github.com/bwmarrin/discordgo"
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
@@ -27,4 +28,12 @@ func (d *DiscordClient) makePortalKey(ch *discordgo.Channel, userLoginID network
 		key.Receiver = userLoginID
 	}
 	return
+}
+
+func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
+	return bridgev2.EventSender{
+		IsFromMe:    user.ID == d.Session.State.User.ID,
+		SenderLogin: d.UserLogin.ID,
+		Sender:      networkid.UserID(user.ID),
+	}
 }

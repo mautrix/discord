@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -165,6 +167,36 @@ func (d *DiscordClient) syncChannels(ctx context.Context) {
 	}
 }
 
+func simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download %s: %w", thing, err)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s data: %w", thing, err)
+	}
+	return data, nil
+}
+
+func makeChannelAvatar(ch *discordgo.Channel) *bridgev2.Avatar {
+	return &bridgev2.Avatar{
+		ID: networkid.AvatarID(ch.Icon),
+		Get: func(ctx context.Context) ([]byte, error) {
+			url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
+			return simpleDownload(ctx, url, "group dm icon")
+		},
+		Remove: ch.Icon == "",
+	}
+}
+
 func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
 	isGroup := len(ch.RecipientIDs) > 1
 
@@ -199,6 +231,7 @@ func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, se
 		info: &bridgev2.ChatInfo{
 			Name:    &ch.Name,
 			Members: &members,
+			Avatar:  makeChannelAvatar(ch),
 			Type:    &roomType,
 		},
 	})

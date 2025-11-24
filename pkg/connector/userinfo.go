@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
@@ -30,6 +31,17 @@ func (d *DiscordClient) IsThisUser(ctx context.Context, userID networkid.UserID)
 	// We define `UserID`s and `UserLoginID`s to be interchangeable, i.e. they map
 	// directly to Discord user IDs ("snowflakes"), so we can perform a direct comparison.
 	return userID == networkid.UserID(d.UserLogin.ID)
+}
+
+func makeUserAvatar(u *discordgo.User) *bridgev2.Avatar {
+	url := u.AvatarURL("256")
+
+	return &bridgev2.Avatar{
+		ID: networkid.AvatarID(url),
+		Get: func(ctx context.Context) ([]byte, error) {
+			return simpleDownload(ctx, url, "user avatar")
+		},
+	}
 }
 
 func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
@@ -51,6 +63,7 @@ func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 	return &bridgev2.UserInfo{
 		Identifiers: []string{fmt.Sprintf("discord:%s", user.ID)},
 		Name:        ptr.Ptr(user.DisplayName()),
+		Avatar:      makeUserAvatar(user),
 		IsBot:       &user.Bot,
 	}, nil
 }

@@ -24,7 +24,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/status"
 )
@@ -35,11 +34,12 @@ type DiscordClient struct {
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
+	log := login.Log
 	meta := login.Metadata.(*UserLoginMetadata)
 
 	session, err := discordgo.New(meta.Token)
 	if meta.HeartbeatSession.IsExpired() {
-		log.Ctx(ctx).Info().Msg("Heartbeat session expired, creating a new one")
+		log.Info().Msg("Heartbeat session expired, creating a new one")
 		meta.HeartbeatSession = discordgo.NewHeartbeatSession()
 	}
 	meta.HeartbeatSession.BumpLastUsed()
@@ -88,7 +88,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 }
 
 func (cl *DiscordClient) connect(ctx context.Context) error {
-	log := log.Ctx(ctx)
+	log := zerolog.Ctx(ctx)
 	log.Info().Msg("Opening session")
 
 	err := cl.Session.Open()
@@ -130,7 +130,7 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 }
 
 func (d *DiscordClient) Disconnect() {
-	log.Debug().Msg("Disconnecting session")
+	d.UserLogin.Log.Info().Msg("Disconnecting session")
 	d.Session.Close()
 	d.Session = nil
 }

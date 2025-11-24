@@ -23,7 +23,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -150,10 +149,10 @@ func (dl *DiscordLogin) SubmitUserInput(ctx context.Context, input map[string]st
 }
 
 func (dl *DiscordLogin) softlyCloseSession() {
-	log.Debug().Msg("Closing session")
+	dl.User.Log.Debug().Msg("Closing session")
 	err := dl.Session.Close()
 	if err != nil {
-		log.Err(err).Msg("Couldn't close Discord session in response to login cancellation")
+		dl.User.Log.Err(err).Msg("Couldn't close Discord session in response to login cancellation")
 	}
 }
 

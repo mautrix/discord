@@ -24,7 +24,12 @@ import (
 	"maunium.net/go/mautrix/event"
 )
 
+// Whether to aggressively update user info. Only relevant during initial development
+// of this bridge.
+var aggressivelyUpdateInfoForBridgeDevelopment = true
+
 var DiscordGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
+	AggressiveUpdateInfo: aggressivelyUpdateInfoForBridgeDevelopment,
 	Provisioning: bridgev2.ProvisioningCapabilities{
 		ResolveIdentifier: bridgev2.ResolveIdentifierCapabilities{},
 		GroupCreation:     map[string]bridgev2.GroupTypeCapabilities{},

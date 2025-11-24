@@ -197,7 +197,7 @@ func makeChannelAvatar(ch *discordgo.Channel) *bridgev2.Avatar {
 	}
 }
 
-func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
+func (d *DiscordClient) syncChannel(ctx context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
 	isGroup := len(ch.RecipientIDs) > 1
 
 	var roomType database.RoomType
@@ -220,6 +220,12 @@ func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, se
 		for _, recipient := range ch.Recipients {
 			sender := d.makeEventSender(recipient)
 			members.MemberMap[sender.Sender] = bridgev2.ChatMember{EventSender: sender}
+
+			if aggressivelyUpdateInfoForBridgeDevelopment {
+				if ghost, err := d.connector.bridge.GetGhostByID(ctx, networkid.UserID(recipient.ID)); err == nil {
+					ghost.UpdateInfoIfNecessary(ctx, d.UserLogin, bridgev2.RemoteEventUnknown)
+				}
+			}
 		}
 
 		members.TotalMemberCount = len(ch.Recipients)

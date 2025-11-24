@@ -21,6 +21,5 @@ import (
 )
 
 func (d *DiscordConnector) GetConfig() (example string, data any, upgrader configupgrade.Upgrader) {
-	//TODO implement me
-	panic("implement me")
+	return "", nil, configupgrade.NoopUpgrader
 }

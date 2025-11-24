@@ -25,12 +25,16 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 )
 
 type DiscordClient struct {
-	UserLogin *bridgev2.UserLogin
-	Session   *discordgo.Session
+	connector      *DiscordConnector
+	usersFromReady map[string]*discordgo.User
+	UserLogin      *bridgev2.UserLogin
+	Session        *discordgo.Session
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -54,6 +58,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 	session.EventHandler = func(evt any) {}
 
 	login.Client = &DiscordClient{
+		connector: d,
 		UserLogin: login,
 		Session:   session,
 	}
@@ -126,6 +131,15 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 		}
 	}
 
+	// Stash all of the users we received in READY so we can perform quick lookups
+	// keyed by user ID.
+	cl.usersFromReady = make(map[string]*discordgo.User)
+	for _, user := range cl.Session.State.Ready.Users {
+		cl.usersFromReady[user.ID] = user
+	}
+
+	go cl.syncChannels(ctx)
+
 	return nil
 }
 
@@ -142,4 +156,47 @@ func (d *DiscordClient) IsLoggedIn() bool {
 func (d *DiscordClient) LogoutRemote(ctx context.Context) {
 	// FIXME(skip): Implement.
 	d.Disconnect()
+}
+
+func (d *DiscordClient) syncChannels(ctx context.Context) {
+	for _, dm := range d.Session.State.PrivateChannels {
+		d.UserLogin.Log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel")
+		d.syncChannel(ctx, dm)
+	}
+}
+
+func (d *DiscordClient) syncChannel(ctx context.Context, ch *discordgo.Channel) {
+	isGroup := len(ch.RecipientIDs) > 1
+
+	var roomType database.RoomType
+	if isGroup {
+		roomType = database.RoomTypeGroupDM
+	} else {
+		roomType = database.RoomTypeDM
+	}
+
+	var members bridgev2.ChatMemberList
+	members.IsFull = true
+	members.MemberMap = make(bridgev2.ChatMemberMap, len(ch.Recipients))
+	if len(ch.Recipients) > 0 {
+		for _, recipient := range ch.Recipients {
+			sender := bridgev2.EventSender{
+				IsFromMe:    recipient.ID == d.Session.State.User.ID,
+				SenderLogin: d.UserLogin.ID,
+				Sender:      networkid.UserID(recipient.ID),
+			}
+			members.MemberMap[sender.Sender] = bridgev2.ChatMember{EventSender: sender}
+		}
+		members.TotalMemberCount = len(ch.Recipients)
+	}
+
+	d.connector.bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
+		channel:   ch,
+		portalKey: d.makePortalKey(ch, d.UserLogin.ID, true),
+		info: &bridgev2.ChatInfo{
+			Name:    &ch.Name,
+			Members: &members,
+			Type:    &roomType,
+		},
+	})
 }

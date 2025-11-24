@@ -18,7 +18,10 @@ package connector
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/rs/zerolog"
+	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
@@ -30,6 +33,24 @@ func (d *DiscordClient) IsThisUser(ctx context.Context, userID networkid.UserID)
 }
 
 func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
-	//TODO implement me
-	panic("implement me")
+	log := zerolog.Ctx(ctx)
+
+	if ghost.ID == "" {
+		log.Warn().Msg("Tried to get user info for ghost with no ID")
+		return nil, nil
+	}
+
+	// FIXME(skip): This won't work for users in guilds.
+
+	user, ok := d.usersFromReady[string(ghost.ID)]
+	if !ok {
+		log.Error().Str("ghost_id", string(ghost.ID)).Msg("Couldn't find corresponding user from READY for ghost")
+		return nil, nil
+	}
+
+	return &bridgev2.UserInfo{
+		Identifiers: []string{fmt.Sprintf("discord:%s", user.ID)},
+		Name:        ptr.Ptr(user.DisplayName()),
+		IsBot:       &user.Bot,
+	}, nil
 }

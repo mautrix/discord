@@ -22,6 +22,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
@@ -33,6 +34,7 @@ type DiscordChatResync struct {
 
 var (
 	_ bridgev2.RemoteChatResyncWithInfo       = (*DiscordChatResync)(nil)
+	_ bridgev2.RemoteChatResyncBackfill       = (*DiscordChatResync)(nil)
 	_ bridgev2.RemoteEventThatMayCreatePortal = (*DiscordChatResync)(nil)
 )
 
@@ -62,4 +64,11 @@ func (d *DiscordChatResync) GetChatInfo(ctx context.Context, portal *bridgev2.Po
 
 func (d *DiscordChatResync) ShouldCreatePortal() bool {
 	return true
+}
+
+func (d *DiscordChatResync) CheckNeedsBackfill(ctx context.Context, latestBridged *database.Message) (bool, error) {
+	if latestBridged == nil {
+		return true, nil
+	}
+	return latestBridged.ID < networkid.MessageID(d.channel.LastMessageID), nil
 }

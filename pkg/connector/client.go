@@ -17,7 +17,6 @@
 package connector
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -181,7 +180,9 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 	dms := slices.Clone(d.Session.State.PrivateChannels)
 	// Only sync the top n private channels with recent activity.
 	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
-		return cmp.Compare(b.LastMessageID, a.LastMessageID)
+		ats, _ := discordgo.SnowflakeTimestamp(a.LastMessageID)
+		bts, _ := discordgo.SnowflakeTimestamp(b.LastMessageID)
+		return bts.Compare(ats)
 	})
 	// TODO(skip): This is startup_private_channel_create_limit. Support this in the config.
 	for _, dm := range dms[:10] {

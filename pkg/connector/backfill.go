@@ -24,6 +24,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 )
 
@@ -69,9 +70,9 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 
 		// FIXME(skip): Backfill reactions.
-
 		converted = append(converted, &bridgev2.BackfillMessage{
 			ConvertedMessage: dc.convertMessage(msg),
+			ID:               networkid.MessageID(msg.ID),
 			Sender:           dc.makeEventSender(msg.Author),
 			Timestamp:        ts,
 			StreamOrder:      streamOrder,

@@ -229,10 +229,11 @@ func (d *DiscordClient) syncChannel(ctx context.Context, ch *discordgo.Channel, 
 		channel:   ch,
 		portalKey: d.makePortalKey(ch, d.UserLogin.ID, true),
 		info: &bridgev2.ChatInfo{
-			Name:    &ch.Name,
-			Members: &members,
-			Avatar:  makeChannelAvatar(ch),
-			Type:    &roomType,
+			Name:        &ch.Name,
+			Members:     &members,
+			Avatar:      makeChannelAvatar(ch),
+			Type:        &roomType,
+			CanBackfill: true,
 		},
 	})
 }

@@ -126,10 +126,10 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 		cl.usersFromReady[user.ID] = user
 	}
 
-	// We won't have a UserLogin during provisioning, because the UserLogin can
-	// only be properly constructed once we know what the Discord user ID is
-	// (i.e. we have returned from this function). Thus, rely on the login
-	// process calling this method manually.
+	// NOTE: We won't have a UserLogin during provisioning, because the UserLogin
+	// can only be properly constructed once we know what the Discord user ID is
+	// (i.e. we have returned from this function). We'll rely on the login
+	// process calling this method manually instead.
 	cl.BeginSyncingIfUserLoginPresent(ctx)
 
 	return nil

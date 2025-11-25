@@ -33,10 +33,11 @@ import (
 )
 
 type DiscordClient struct {
-	connector      *DiscordConnector
-	usersFromReady map[string]*discordgo.User
-	UserLogin      *bridgev2.UserLogin
-	Session        *discordgo.Session
+	connector       *DiscordConnector
+	usersFromReady  map[string]*discordgo.User
+	UserLogin       *bridgev2.UserLogin
+	Session         *discordgo.Session
+	hasBegunSyncing bool
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -116,23 +117,6 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	user := cl.Session.State.User
 	log.Info().Str("user_id", user.ID).Str("user_username", user.Username).Msg("Connected to Discord")
 
-	if cl.UserLogin != nil {
-		// Feels a bit hacky to check for this here, but it should be true when
-		// logging in initially. The UserLogin is only ever created if we know
-		// that we connected successfully. We _do_ know that by now here, but we're
-		// not tasked with creating the UserLogin; the login code is. Alas.
-
-		// FIXME(skip): Avatar.
-		cl.UserLogin.RemoteProfile = status.RemoteProfile{
-			Email: user.Email,
-			Phone: user.Phone,
-			Name:  user.String(),
-		}
-		if err := cl.UserLogin.Save(ctx); err != nil {
-			log.Err(err).Msg("Couldn't save UserLogin after connecting")
-		}
-	}
-
 	// Stash all of the users we received in READY so we can perform quick lookups
 	// keyed by user ID.
 	cl.usersFromReady = make(map[string]*discordgo.User)
@@ -140,7 +124,11 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 		cl.usersFromReady[user.ID] = user
 	}
 
-	go cl.syncChannels(ctx)
+	// We won't have a UserLogin during provisioning, because the UserLogin can
+	// only be properly constructed once we know what the Discord user ID is
+	// (i.e. we have returned from this function). Thus, rely on the login
+	// process calling this method manually.
+	cl.BeginSyncingIfUserLoginPresent(ctx)
 
 	return nil
 }
@@ -158,6 +146,33 @@ func (d *DiscordClient) IsLoggedIn() bool {
 func (d *DiscordClient) LogoutRemote(ctx context.Context) {
 	// FIXME(skip): Implement.
 	d.Disconnect()
+}
+
+func (cl *DiscordClient) BeginSyncingIfUserLoginPresent(ctx context.Context) {
+	if cl.UserLogin == nil {
+		cl.connector.bridge.Log.Warn().Msg("Not syncing just yet as we don't have a UserLogin")
+		return
+	}
+	if cl.hasBegunSyncing {
+		cl.connector.bridge.Log.Warn().Msg("Not beginning sync more than once")
+		return
+	}
+	cl.hasBegunSyncing = true
+
+	log := cl.UserLogin.Log
+	user := cl.Session.State.User
+
+	// FIXME(skip): Avatar.
+	cl.UserLogin.RemoteProfile = status.RemoteProfile{
+		Email: user.Email,
+		Phone: user.Phone,
+		Name:  user.String(),
+	}
+	if err := cl.UserLogin.Save(ctx); err != nil {
+		log.Err(err).Msg("Couldn't save UserLogin after connecting")
+	}
+
+	go cl.syncChannels(ctx)
 }
 
 func (d *DiscordClient) syncChannels(ctx context.Context) {

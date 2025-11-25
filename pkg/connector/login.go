@@ -48,13 +48,14 @@ func (d *DiscordConnector) CreateLogin(ctx context.Context, user *bridgev2.User,
 		return nil, fmt.Errorf("unknown login flow ID")
 	}
 
-	return &DiscordLogin{User: user}, nil
+	return &DiscordLogin{connector: d, User: user}, nil
 }
 
 type DiscordLogin struct {
-	User    *bridgev2.User
-	Token   string
-	Session *discordgo.Session
+	connector *DiscordConnector
+	User      *bridgev2.User
+	Token     string
+	Session   *discordgo.Session
 }
 
 var _ bridgev2.LoginProcessUserInput = (*DiscordLogin)(nil)
@@ -104,7 +105,8 @@ func (dl *DiscordLogin) SubmitUserInput(ctx context.Context, input map[string]st
 	}
 
 	client := DiscordClient{
-		Session: session,
+		connector: dl.connector,
+		Session:   session,
 	}
 	err = client.connect(ctx)
 	if err != nil {
@@ -123,9 +125,14 @@ func (dl *DiscordLogin) SubmitUserInput(ctx context.Context, input map[string]st
 			HeartbeatSession: session.HeartbeatSession,
 		},
 	}, &bridgev2.NewLoginParams{
-		// We already have a Session; call this instead of the connector's main LoadUserLogin method and thread the Session through.
+		// We already have a Session; let's call this instead of the connector's
+		// main LoadUserLogin method, and thread the Session through.
 		LoadUserLogin: func(ctx context.Context, login *bridgev2.UserLogin) error {
 			login.Client = &client
+			client.UserLogin = login
+
+			// Only now that we have a UserLogin can we begin syncing.
+			client.BeginSyncingIfUserLoginPresent(ctx)
 			return nil
 		},
 		DeleteOnConflict:  true,

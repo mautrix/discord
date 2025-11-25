@@ -68,7 +68,8 @@ func (d *DiscordChatResync) ShouldCreatePortal() bool {
 
 func (d *DiscordChatResync) CheckNeedsBackfill(ctx context.Context, latestBridged *database.Message) (bool, error) {
 	if latestBridged == nil {
-		return true, nil
+		zerolog.Ctx(ctx).Debug().Str("channel_id", d.channel.ID).Msg("Haven't bridged any messages at all, not forward backfilling")
+		return false, nil
 	}
 	return latestBridged.ID < networkid.MessageID(d.channel.LastMessageID), nil
 }

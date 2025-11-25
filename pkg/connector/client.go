@@ -17,11 +17,13 @@
 package connector
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -172,12 +174,18 @@ func (cl *DiscordClient) BeginSyncingIfUserLoginPresent(ctx context.Context) {
 		log.Err(err).Msg("Couldn't save UserLogin after connecting")
 	}
 
-	go cl.syncChannels(ctx)
+	go cl.syncPrivateChannels(ctx)
 }
 
-func (d *DiscordClient) syncChannels(ctx context.Context) {
-	for _, dm := range d.Session.State.PrivateChannels {
-		d.UserLogin.Log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel")
+func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
+	dms := slices.Clone(d.Session.State.PrivateChannels)
+	// Only sync the top n private channels with recent activity.
+	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
+		return cmp.Compare(b.LastMessageID, a.LastMessageID)
+	})
+	// TODO(skip): This is startup_private_channel_create_limit. Support this in the config.
+	for _, dm := range dms[:10] {
+		zerolog.Ctx(ctx).Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
 		d.syncChannel(ctx, dm, true)
 	}
 }

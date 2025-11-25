@@ -221,7 +221,7 @@ func makeChannelAvatar(ch *discordgo.Channel) *bridgev2.Avatar {
 	}
 }
 
-func (d *DiscordClient) syncChannel(ctx context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
+func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
 	isGroup := len(ch.RecipientIDs) > 1
 
 	var roomType database.RoomType
@@ -237,6 +237,8 @@ func (d *DiscordClient) syncChannel(ctx context.Context, ch *discordgo.Channel, 
 	members.IsFull = true
 	members.MemberMap = make(bridgev2.ChatMemberMap, len(ch.Recipients))
 	if len(ch.Recipients) > 0 {
+		// Private channels' array of participants doesn't include ourselves,
+		// so this boolean can be used to inject ourselves as a member.
 		if selfIsInChannel {
 			members.MemberMap[selfEventSender.Sender] = bridgev2.ChatMember{EventSender: selfEventSender}
 		}

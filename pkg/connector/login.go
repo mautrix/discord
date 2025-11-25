@@ -103,10 +103,10 @@ func (dl *DiscordLogin) SubmitUserInput(ctx context.Context, input map[string]st
 		log.Debug().Str("component", "discordgo").Msgf(strings.TrimSpace(format), a...) // zerolog-allow-msgf
 	}
 
-	cl := DiscordClient{
+	client := DiscordClient{
 		Session: session,
 	}
-	err = cl.connect(ctx)
+	err = client.connect(ctx)
 	if err != nil {
 		dl.softlyCloseSession()
 		return nil, err
@@ -125,7 +125,7 @@ func (dl *DiscordLogin) SubmitUserInput(ctx context.Context, input map[string]st
 	}, &bridgev2.NewLoginParams{
 		// We already have a Session; call this instead of the connector's main LoadUserLogin method and thread the Session through.
 		LoadUserLogin: func(ctx context.Context, login *bridgev2.UserLogin) error {
-			login.Client = &cl
+			login.Client = &client
 			return nil
 		},
 		DeleteOnConflict:  true,

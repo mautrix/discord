@@ -253,7 +253,7 @@ func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, se
 
 	d.connector.bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
 		channel:   ch,
-		portalKey: d.makePortalKey(ch, d.UserLogin.ID, true),
+		portalKey: MakePortalKey(ch, d.UserLogin.ID, true),
 		info: &bridgev2.ChatInfo{
 			Name:        &ch.Name,
 			Members:     &members,

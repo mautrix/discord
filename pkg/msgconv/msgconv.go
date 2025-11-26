@@ -14,31 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package connector
+package msgconv
 
-import (
-	"github.com/bwmarrin/discordgo"
-	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/networkid"
-)
+import "maunium.net/go/mautrix/bridgev2"
 
-func MakePortalKey(ch *discordgo.Channel, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
-	key.ID = networkid.PortalID(ch.ID)
-	if wantReceiver {
-		key.Receiver = userLoginID
-	}
-	return
-}
-
-func MakePortalKeyWithID(channelID string) (key networkid.PortalKey) {
-	key.ID = networkid.PortalID(channelID)
-	return
-}
-
-func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
-	return bridgev2.EventSender{
-		IsFromMe:    user.ID == d.Session.State.User.ID,
-		SenderLogin: networkid.UserLoginID(user.ID),
-		Sender:      networkid.UserID(user.ID),
-	}
+type MessageConverter struct {
+	bridge *bridgev2.Bridge
 }

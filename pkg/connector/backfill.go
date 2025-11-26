@@ -99,6 +99,7 @@ func (dc *DiscordClient) convertMessage(msg *discordgo.Message) *bridgev2.Conver
 	switch msg.Type {
 	case discordgo.MessageTypeCall:
 		parts = append(parts, &bridgev2.ConvertedMessagePart{
+			Type: event.EventMessage,
 			Content: &event.MessageEventContent{
 				MsgType: event.MsgEmote,
 				Body:    "started a call",
@@ -106,6 +107,7 @@ func (dc *DiscordClient) convertMessage(msg *discordgo.Message) *bridgev2.Conver
 		})
 	case discordgo.MessageTypeGuildMemberJoin:
 		parts = append(parts, &bridgev2.ConvertedMessagePart{
+			Type: event.EventMessage,
 			Content: &event.MessageEventContent{
 				MsgType: event.MsgEmote,
 				Body:    "joined the server",

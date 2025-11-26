@@ -116,6 +116,7 @@ func (dc *DiscordClient) convertMessage(msg *discordgo.Message) *bridgev2.Conver
 	if msg.Content != "" {
 		// FIXME(skip): This needs to render into HTML.
 		parts = append(parts, &bridgev2.ConvertedMessagePart{
+			Type: event.EventMessage,
 			Content: &event.MessageEventContent{
 				MsgType: event.MsgText,
 				Body:    msg.Content,

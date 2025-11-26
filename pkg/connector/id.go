@@ -33,7 +33,7 @@ func (d *DiscordClient) makePortalKey(ch *discordgo.Channel, userLoginID network
 func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
 	return bridgev2.EventSender{
 		IsFromMe:    user.ID == d.Session.State.User.ID,
-		SenderLogin: d.UserLogin.ID,
+		SenderLogin: networkid.UserLoginID(user.ID),
 		Sender:      networkid.UserID(user.ID),
 	}
 }

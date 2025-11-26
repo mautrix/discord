@@ -19,7 +19,10 @@ package msgconv
 import (
 	"context"
 	"fmt"
+	"html"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -42,7 +45,7 @@ func (mc *MessageConverter) ToMatrix(
 		predictedLength++
 	}
 	parts := make([]*bridgev2.ConvertedMessagePart, 0, predictedLength)
-	if textPart := mc.renderDiscordTextMessage(ctx, intent, msg, source); textPart != nil {
+	if textPart := mc.renderDiscordTextMessage(ctx, intent, portal, msg, source); textPart != nil {
 		parts = append(parts, textPart)
 	}
 
@@ -56,7 +59,7 @@ func (mc *MessageConverter) ToMatrix(
 		handledIDs[att.ID] = struct{}{}
 
 		log := log.With().Str("attachment_id", att.ID).Logger()
-		if part := mc.renderDiscordAttachment(log.WithContext(ctx), intent, msg.ID, att); part != nil {
+		if part := mc.renderDiscordAttachment(log.WithContext(ctx), intent, portal, att); part != nil {
 			parts = append(parts, part)
 		}
 	}
@@ -89,7 +92,7 @@ func (mc *MessageConverter) ToMatrix(
 			Str("embed_type", string(embed.Type)).
 			Int("embed_index", i).
 			Logger()
-		part := mc.renderDiscordVideoEmbed(log.WithContext(ctx), intent, embed)
+		part := mc.renderDiscordVideoEmbed(log.WithContext(ctx), intent, portal, embed)
 		if part != nil {
 			parts = append(parts, part)
 		}
@@ -123,7 +126,7 @@ const msgInteractionTemplateHTML = `<blockquote>
 
 const msgComponentTemplateHTML = `<p>This message contains interactive elements. Use the Discord app to interact with the message.</p>`
 
-func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent bridgev2.MatrixAPI, msg *discordgo.Message, source *bridgev2.UserLogin) *bridgev2.ConvertedMessagePart {
+func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, msg *discordgo.Message, source *bridgev2.UserLogin) *bridgev2.ConvertedMessagePart {
 	log := zerolog.Ctx(ctx)
 	if msg.Type == discordgo.MessageTypeCall {
 		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
@@ -140,7 +143,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	var htmlParts []string
 
 	if msg.Interaction != nil {
-		ghost, err := mc.bridge.GetGhostByID(ctx, networkid.UserID(msg.Interaction.User.ID))
+		ghost, err := mc.connector.Bridge.GetGhostByID(ctx, networkid.UserID(msg.Interaction.User.ID))
 		// TODO(skip): Try doing ghost.UpdateInfoIfNecessary.
 		if err == nil {
 			htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, ghost.Intent.GetMXID(), ghost.Name, msg.Interaction.Name))
@@ -161,12 +164,12 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 		forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(msg.MessageSnapshots[0].Message.Content, true)
 		msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
 		origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
-		if forwardedFromPortal, err := mc.bridge.DB.Portal.GetByKey(ctx, connector.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
-			if origMessage, err := mc.bridge.DB.Message.GetFirstPartByID(ctx, source.ID, networkid.MessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
+		if forwardedFromPortal, err := mc.connector.Bridge.DB.Portal.GetByKey(ctx, connector.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
+			if origMessage, err := mc.connector.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, networkid.MessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
 				// We've bridged the message that was forwarded, so we can link to it directly.
 				origLink = fmt.Sprintf(
 					`<a href="%s">#%s • %s</a>`,
-					forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.bridge.Matrix.ServerName()),
+					forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.connector.Bridge.Matrix.ServerName()),
 					forwardedFromPortal.Name,
 					msgTSText,
 				)
@@ -176,7 +179,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 				// We don't have the message but we have the portal, so link to that.
 				origLink = fmt.Sprintf(
 					`<a href="%s">#%s</a> • %s`,
-					forwardedFromPortal.MXID.URI(mc.bridge.Matrix.ServerName()),
+					forwardedFromPortal.MXID.URI(mc.connector.Bridge.Matrix.ServerName()),
 					forwardedFromPortal.Name,
 					msgTSText,
 				)
@@ -204,12 +207,12 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 		switch getEmbedType(msg, embed) {
 		case EmbedRich:
 			log := with.Str("computed_embed_type", "rich").Logger()
-			htmlParts = append(htmlParts, mc.renderDiscordRichEmbed(log.WithContext(ctx), intent, embed, msg.ID, i))
+			htmlParts = append(htmlParts, mc.renderDiscordRichEmbed(log.WithContext(ctx), intent, portal, embed))
 		case EmbedLinkPreview:
 			log := with.Str("computed_embed_type", "link preview").Logger()
-			previews = append(previews, mc.renderDiscordLinkEmbed(log.WithContext(ctx), intent, embed))
+			previews = append(previews, mc.renderDiscordLinkEmbed(log.WithContext(ctx), intent, portal, embed))
 		case EmbedVideo:
-			// Ignore video embeds, they're handled as separate messages.
+			// Video embeds are handled as separate messages via renderDiscordVideoEmbed.
 		default:
 			log := with.Logger()
 			log.Warn().Msg("Unknown embed type in message")
@@ -237,8 +240,81 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
 }
 
-func (mc *MessageConverter) renderDiscordVideoEmbed(context context.Context, intent bridgev2.MatrixAPI, embed *discordgo.MessageEmbed) *bridgev2.ConvertedMessagePart {
-	panic("unimplemented")
+func mediaFailedMessage(err error) *event.MessageEventContent {
+	return &event.MessageEventContent{
+		Body:    fmt.Sprintf("Failed to bridge media: %v", err),
+		MsgType: event.MsgNotice,
+	}
+}
+
+func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, embed *discordgo.MessageEmbed) *bridgev2.ConvertedMessagePart {
+	var proxyURL string
+	if embed.Video != nil {
+		proxyURL = embed.Video.ProxyURL
+	} else if embed.Thumbnail != nil {
+		proxyURL = embed.Thumbnail.ProxyURL
+	} else {
+		zerolog.Ctx(ctx).Warn().Str("embed_url", embed.URL).Msg("No video or thumbnail proxy URL found in embed")
+		return &bridgev2.ConvertedMessagePart{
+			Type: event.EventMessage,
+			Content: &event.MessageEventContent{
+				Body:    "Failed to bridge media: no video or thumbnail proxy URL found in embed",
+				MsgType: event.MsgNotice,
+			},
+		}
+	}
+
+	upload := connector.AttachmentReupload{
+		DownloadingURL: proxyURL,
+	}
+	reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, upload)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy video embed to Matrix")
+		return &bridgev2.ConvertedMessagePart{
+			Type:    event.EventMessage,
+			Content: mediaFailedMessage(err),
+		}
+	}
+
+	content := &event.MessageEventContent{
+		Body: embed.URL,
+		Info: &event.FileInfo{
+			MimeType: reupload.MimeType,
+			Size:     reupload.DownloadedSize,
+		},
+		File: &event.EncryptedFileInfo{
+			EncryptedFile: reupload.EncryptedFile.EncryptedFile,
+			URL:           reupload.MXC,
+		},
+	}
+
+	if embed.Video != nil {
+		content.MsgType = event.MsgVideo
+		content.Info.Width = embed.Video.Width
+		content.Info.Height = embed.Video.Height
+	} else {
+		content.MsgType = event.MsgImage
+		content.Info.Width = embed.Thumbnail.Width
+		content.Info.Height = embed.Thumbnail.Height
+	}
+
+	extra := map[string]any{}
+	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
+		extra["info"] = map[string]any{
+			"fi.mau.discord.gifv":  true,
+			"fi.mau.gif":           true,
+			"fi.mau.loop":          true,
+			"fi.mau.autoplay":      true,
+			"fi.mau.hide_controls": true,
+			"fi.mau.no_audio":      true,
+		}
+	}
+
+	return &bridgev2.ConvertedMessagePart{
+		Type:    event.EventMessage,
+		Content: content,
+		Extra:   extra,
+	}
 }
 
 func (mc *MessageConverter) renderDiscordSticker(context context.Context, intent bridgev2.MatrixAPI, sticker *discordgo.StickerItem) *bridgev2.ConvertedMessagePart {
@@ -253,14 +329,257 @@ func (mc *MessageConverter) renderDiscordMarkdownOnlyHTMLNoUnwrap(text string, a
 	panic("unimplemented")
 }
 
-func (mc *MessageConverter) renderDiscordRichEmbed(context context.Context, intent bridgev2.MatrixAPI, embed *discordgo.MessageEmbed, messageID string, i int) string {
-	panic("unimplemented")
+const (
+	embedHTMLWrapper         = `<blockquote class="discord-embed">%s</blockquote>`
+	embedHTMLWrapperColor    = `<blockquote class="discord-embed" background-color="#%06X">%s</blockquote>`
+	embedHTMLAuthorWithImage = `<p class="discord-embed-author"><img data-mx-emoticon height="24" src="%s" title="Author icon" alt="">&nbsp;<span>%s</span></p>`
+	embedHTMLAuthorPlain     = `<p class="discord-embed-author"><span>%s</span></p>`
+	embedHTMLAuthorLink      = `<a href="%s">%s</a>`
+	embedHTMLTitleWithLink   = `<p class="discord-embed-title"><a href="%s"><strong>%s</strong></a></p>`
+	embedHTMLTitlePlain      = `<p class="discord-embed-title"><strong>%s</strong></p>`
+	embedHTMLDescription     = `<p class="discord-embed-description">%s</p>`
+	embedHTMLFieldName       = `<th>%s</th>`
+	embedHTMLFieldValue      = `<td>%s</td>`
+	embedHTMLFields          = `<table class="discord-embed-fields"><tr>%s</tr><tr>%s</tr></table>`
+	embedHTMLLinearField     = `<p class="discord-embed-field" x-inline="%s"><strong>%s</strong><br><span>%s</span></p>`
+	embedHTMLImage           = `<p class="discord-embed-image"><img src="%s" alt="" title="Embed image"></p>`
+	embedHTMLFooterWithImage = `<p class="discord-embed-footer"><sub><img data-mx-emoticon height="20" src="%s" title="Footer icon" alt="">&nbsp;<span>%s</span>%s</sub></p>`
+	embedHTMLFooterPlain     = `<p class="discord-embed-footer"><sub><span>%s</span>%s</sub></p>`
+	embedHTMLFooterOnlyDate  = `<p class="discord-embed-footer"><sub>%s</sub></p>`
+	embedHTMLDate            = `<time datetime="%s">%s</time>`
+	embedFooterDateSeparator = ` • `
+)
+
+func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, embed *discordgo.MessageEmbed) string {
+	log := zerolog.Ctx(ctx)
+	var htmlParts []string
+	if embed.Author != nil {
+		var authorHTML string
+		authorNameHTML := html.EscapeString(embed.Author.Name)
+		if embed.Author.URL != "" {
+			authorNameHTML = fmt.Sprintf(embedHTMLAuthorLink, embed.Author.URL, authorNameHTML)
+		}
+		authorHTML = fmt.Sprintf(embedHTMLAuthorPlain, authorNameHTML)
+		if embed.Author.ProxyIconURL != "" {
+			reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+				DownloadingURL: embed.Author.ProxyIconURL,
+			})
+
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to reupload author icon in embed")
+			} else {
+				authorHTML = fmt.Sprintf(embedHTMLAuthorWithImage, reupload.MXC, authorNameHTML)
+			}
+		}
+		htmlParts = append(htmlParts, authorHTML)
+	}
+
+	if embed.Title != "" {
+		var titleHTML string
+		baseTitleHTML := mc.renderDiscordMarkdownOnlyHTML(embed.Title, false)
+		if embed.URL != "" {
+			titleHTML = fmt.Sprintf(embedHTMLTitleWithLink, html.EscapeString(embed.URL), baseTitleHTML)
+		} else {
+			titleHTML = fmt.Sprintf(embedHTMLTitlePlain, baseTitleHTML)
+		}
+		htmlParts = append(htmlParts, titleHTML)
+	}
+
+	if embed.Description != "" {
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, mc.renderDiscordMarkdownOnlyHTML(embed.Description, true)))
+	}
+
+	for i := 0; i < len(embed.Fields); i++ {
+		item := embed.Fields[i]
+		// TODO(skip): Port EmbedFieldsAsTables.
+		if false {
+			splitItems := []*discordgo.MessageEmbedField{item}
+			if item.Inline && len(embed.Fields) > i+1 && embed.Fields[i+1].Inline {
+				splitItems = append(splitItems, embed.Fields[i+1])
+				i++
+				if len(embed.Fields) > i+1 && embed.Fields[i+1].Inline {
+					splitItems = append(splitItems, embed.Fields[i+1])
+					i++
+				}
+			}
+			headerParts := make([]string, len(splitItems))
+			contentParts := make([]string, len(splitItems))
+			for j, splitItem := range splitItems {
+				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, mc.renderDiscordMarkdownOnlyHTML(splitItem.Name, false))
+				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, mc.renderDiscordMarkdownOnlyHTML(splitItem.Value, true))
+			}
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFields, strings.Join(headerParts, ""), strings.Join(contentParts, "")))
+		} else {
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLLinearField,
+				strconv.FormatBool(item.Inline),
+				mc.renderDiscordMarkdownOnlyHTML(item.Name, false),
+				mc.renderDiscordMarkdownOnlyHTML(item.Value, true),
+			))
+		}
+	}
+
+	if embed.Image != nil {
+		reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+			DownloadingURL: embed.Image.ProxyURL,
+		})
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to reupload image in embed")
+		} else {
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, reupload.MXC))
+		}
+	}
+
+	var embedDateHTML string
+	if embed.Timestamp != "" {
+		formattedTime := embed.Timestamp
+		parsedTS, err := time.Parse(time.RFC3339, embed.Timestamp)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to parse timestamp in embed")
+		} else {
+			formattedTime = parsedTS.Format(discordTimestampStyle('F').Format())
+		}
+		embedDateHTML = fmt.Sprintf(embedHTMLDate, embed.Timestamp, formattedTime)
+	}
+
+	if embed.Footer != nil {
+		var footerHTML string
+		var datePart string
+		if embedDateHTML != "" {
+			datePart = embedFooterDateSeparator + embedDateHTML
+		}
+		footerHTML = fmt.Sprintf(embedHTMLFooterPlain, html.EscapeString(embed.Footer.Text), datePart)
+		if embed.Footer.ProxyIconURL != "" {
+			reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+				DownloadingURL: embed.Footer.ProxyIconURL,
+			})
+
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to reupload footer icon in embed")
+			} else {
+				footerHTML = fmt.Sprintf(embedHTMLFooterWithImage, reupload.MXC, html.EscapeString(embed.Footer.Text), datePart)
+			}
+		}
+		htmlParts = append(htmlParts, footerHTML)
+	} else if embed.Timestamp != "" {
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFooterOnlyDate, embedDateHTML))
+	}
+
+	if len(htmlParts) == 0 {
+		return ""
+	}
+
+	compiledHTML := strings.Join(htmlParts, "")
+	if embed.Color != 0 {
+		compiledHTML = fmt.Sprintf(embedHTMLWrapperColor, embed.Color, compiledHTML)
+	} else {
+		compiledHTML = fmt.Sprintf(embedHTMLWrapper, compiledHTML)
+	}
+	return compiledHTML
 }
 
-func (mc *MessageConverter) renderDiscordLinkEmbed(context context.Context, intent bridgev2.MatrixAPI, embed *discordgo.MessageEmbed) *event.BeeperLinkPreview {
-	panic("unimplemented")
+func (mc *MessageConverter) renderDiscordLinkEmbedImage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, url string, width, height int, preview *event.BeeperLinkPreview) {
+	reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+		DownloadingURL: url,
+	})
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to reupload image in URL preview, ignoring")
+		return
+	}
+
+	if width != 0 || height != 0 {
+		preview.ImageWidth = event.IntOrString(width)
+		preview.ImageHeight = event.IntOrString(height)
+	}
+	preview.ImageSize = event.IntOrString(reupload.DownloadedSize)
+	preview.ImageType = reupload.MimeType
+	preview.ImageEncryption = &event.EncryptedFileInfo{
+		EncryptedFile: reupload.EncryptedFile.EncryptedFile,
+		URL:           reupload.MXC,
+	}
 }
 
-func (mc *MessageConverter) renderDiscordAttachment(context context.Context, intent bridgev2.MatrixAPI, d string, att *discordgo.MessageAttachment) *bridgev2.ConvertedMessagePart {
-	panic("unimplemented")
+func (mc *MessageConverter) renderDiscordLinkEmbed(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, embed *discordgo.MessageEmbed) *event.BeeperLinkPreview {
+	var preview event.BeeperLinkPreview
+	preview.MatchedURL = embed.URL
+	preview.Title = embed.Title
+	preview.Description = embed.Description
+	if embed.Image != nil {
+		mc.renderDiscordLinkEmbedImage(ctx, intent, portal, embed.Image.ProxyURL, embed.Image.Width, embed.Image.Height, &preview)
+	} else if embed.Thumbnail != nil {
+		mc.renderDiscordLinkEmbedImage(ctx, intent, portal, embed.Thumbnail.ProxyURL, embed.Thumbnail.Width, embed.Thumbnail.Height, &preview)
+	}
+	return &preview
+}
+
+func (mc *MessageConverter) renderDiscordAttachment(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, att *discordgo.MessageAttachment) *bridgev2.ConvertedMessagePart {
+	content := &event.MessageEventContent{
+		Body: att.Filename,
+		Info: &event.FileInfo{
+			Width:    att.Width,
+			Height:   att.Height,
+			MimeType: att.ContentType,
+
+			// This gets overwritten later after the file is uploaded to the homeserver
+			Size: att.Size,
+		},
+	}
+
+	var extra = make(map[string]any)
+
+	if strings.HasPrefix(att.Filename, "SPOILER_") {
+		extra["page.codeberg.everypizza.msc4193.spoiler"] = true
+	}
+
+	if att.Description != "" {
+		content.Body = att.Description
+		content.FileName = att.Filename
+	}
+
+	switch strings.ToLower(strings.Split(att.ContentType, "/")[0]) {
+	case "audio":
+		content.MsgType = event.MsgAudio
+		if att.Waveform != nil {
+			// Bridge a voice message.
+
+			// TODO convert waveform
+			extra["org.matrix.msc1767.audio"] = map[string]any{
+				"duration": int(att.DurationSeconds * 1000),
+			}
+			extra["org.matrix.msc3245.voice"] = map[string]any{}
+		}
+	case "image":
+		content.MsgType = event.MsgImage
+	case "video":
+		content.MsgType = event.MsgVideo
+	default:
+		content.MsgType = event.MsgFile
+	}
+
+	// TODO(skip): Support direct media.
+	reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+		DownloadingURL: att.URL,
+	})
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy attachment to Matrix")
+		return &bridgev2.ConvertedMessagePart{
+			Type:    event.EventMessage,
+			Content: mediaFailedMessage(err),
+		}
+	}
+
+	content.Info.Size = reupload.DownloadedSize
+	if content.Info.Width == 0 && content.Info.Height == 0 {
+		content.Info.Width = att.Width
+		content.Info.Height = att.Height
+	}
+	content.File = &event.EncryptedFileInfo{
+		EncryptedFile: reupload.EncryptedFile.EncryptedFile,
+		URL:           reupload.MXC,
+	}
+
+	return &bridgev2.ConvertedMessagePart{
+		Type:    event.EventMessage,
+		Content: content,
+		Extra:   extra,
+	}
 }

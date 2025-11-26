@@ -16,10 +16,25 @@
 
 package msgconv
 
-import (
-	"go.mau.fi/mautrix-discord/pkg/connector"
-)
+// TODO(skip): Port the rest of this.
 
-type MessageConverter struct {
-	connector *connector.DiscordConnector
+type discordTimestampStyle rune
+
+func (dts discordTimestampStyle) Format() string {
+	switch dts {
+	case 't':
+		return "15:04 MST"
+	case 'T':
+		return "15:04:05 MST"
+	case 'd':
+		return "2006-01-02 MST"
+	case 'D':
+		return "2 January 2006 MST"
+	case 'F':
+		return "Monday, 2 January 2006 15:04 MST"
+	case 'f':
+		fallthrough
+	default:
+		return "2 January 2006 15:04 MST"
+	}
 }

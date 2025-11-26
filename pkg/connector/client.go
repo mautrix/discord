@@ -151,11 +151,11 @@ func (d *DiscordClient) LogoutRemote(ctx context.Context) {
 
 func (cl *DiscordClient) BeginSyncingIfUserLoginPresent(ctx context.Context) {
 	if cl.UserLogin == nil {
-		cl.connector.bridge.Log.Warn().Msg("Not syncing just yet as we don't have a UserLogin")
+		cl.connector.Bridge.Log.Warn().Msg("Not syncing just yet as we don't have a UserLogin")
 		return
 	}
 	if cl.hasBegunSyncing {
-		cl.connector.bridge.Log.Warn().Msg("Not beginning sync more than once")
+		cl.connector.Bridge.Log.Warn().Msg("Not beginning sync more than once")
 		return
 	}
 	cl.hasBegunSyncing = true
@@ -251,7 +251,7 @@ func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, se
 		members.TotalMemberCount = len(ch.Recipients)
 	}
 
-	d.connector.bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
+	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
 		channel:   ch,
 		portalKey: MakePortalKey(ch, d.UserLogin.ID, true),
 		info: &bridgev2.ChatInfo{

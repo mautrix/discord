@@ -23,13 +23,13 @@ import (
 )
 
 type DiscordConnector struct {
-	bridge *bridgev2.Bridge
+	Bridge *bridgev2.Bridge
 }
 
 var _ bridgev2.NetworkConnector = (*DiscordConnector)(nil)
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
-	d.bridge = bridge
+	d.Bridge = bridge
 }
 
 func (d *DiscordConnector) Start(ctx context.Context) error {

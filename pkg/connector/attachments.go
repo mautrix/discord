@@ -69,7 +69,6 @@ func downloadDiscordAttachment(cli *http.Client, url string, maxSize int64) ([]b
 }
 
 func (d *DiscordConnector) ReuploadMedia(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, upload attachment.AttachmentReupload) (*attachment.ReuploadedAttachment, error) {
-	log := zerolog.Ctx(ctx)
 	// TODO(skip): Do we need to check if we've already downloaded this media before?
 	// TODO(skip): Read a maximum size from the config.
 	data, err := downloadDiscordAttachment(http.DefaultClient, upload.DownloadingURL, 1_024*1_024*50)
@@ -84,20 +83,13 @@ func (d *DiscordConnector) ReuploadMedia(ctx context.Context, intent bridgev2.Ma
 		}
 		fileName := path.Base(url.Path)
 		upload.FileName = fileName
-		log.Trace().Str("detected_file_name", fileName).Msg("Inferred the file name of the media we're reuploading")
 	}
 
 	if upload.MimeType == "" {
 		mime := http.DetectContentType(data)
 		upload.MimeType = mime
-		log.Trace().Str("detected_mime_type", mime).Msg("Inferred the mime type of the media we're reuploading")
 	}
 
-	log.Trace().Stringer("portal_mxid", portal.MXID).
-		Int("attachment_size", len(data)).
-		Str("file_name", upload.FileName).
-		Str("mime_type", upload.MimeType).
-		Msg("Uploading downloaded media")
 	mxc, file, err := intent.UploadMedia(ctx, portal.MXID, data, upload.FileName, upload.MimeType)
 	if err != nil {
 		return nil, err

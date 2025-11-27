@@ -171,6 +171,13 @@ bridge:
     # like the official client does? The other option is sending the media in the message send request as a form part
     # (which is always used by bots and webhooks).
     use_discord_cdn_upload: true
+    # List of Discord webhook IDs that will not be bridged to Matrix.
+    # Examples:
+    #   ignored_webhooks: []                                            # (default) don't ignore any webhook messages
+    #   ignored_webhooks: ["123456789012345678"]                        # ignore only webhook with ID "123456789012345678"
+    #   ignored_webhooks: ["123456789012345678", "987654321098765432"]  # ignore webhooks with these IDs
+    #   ignored_webhooks: ["*"]                                         # ignore all webhook messages
+    ignored_webhooks: []
     # Proxy for Discord connections
     proxy:
     # Should mxc uris copied from Discord be cached?

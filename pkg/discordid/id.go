@@ -14,22 +14,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package msgconv
+package discordid
 
 import (
-	"context"
-
-	"go.mau.fi/mautrix-discord/pkg/attachment"
-	"maunium.net/go/mautrix/bridgev2"
+	"github.com/bwmarrin/discordgo"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
-type MessageConverter struct {
-	Bridge *bridgev2.Bridge
+func MakePortalKey(ch *discordgo.Channel, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
+	key.ID = networkid.PortalID(ch.ID)
+	if wantReceiver {
+		key.Receiver = userLoginID
+	}
+	return
+}
 
-	// ReuploadMedia is called when the message converter wants to upload some
-	// media it is attempting to bridge.
-	//
-	// This can be directly forwarded to the ReuploadMedia method on DiscordConnector.
-	// The indirection is only necessary to prevent an import cycle.
-	ReuploadMedia func(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, reupload attachment.AttachmentReupload) (*attachment.ReuploadedAttachment, error)
+func MakePortalKeyWithID(channelID string) (key networkid.PortalKey) {
+	key.ID = networkid.PortalID(channelID)
+	return
 }

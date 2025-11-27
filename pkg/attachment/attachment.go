@@ -14,31 +14,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package connector
+package attachment
 
 import (
-	"github.com/bwmarrin/discordgo"
-	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
-func MakePortalKey(ch *discordgo.Channel, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
-	key.ID = networkid.PortalID(ch.ID)
-	if wantReceiver {
-		key.Receiver = userLoginID
-	}
-	return
+// TODO(skip): These types are only in a leaf package to avoid import cycles.
+// Perhaps figure out a better way to structure this so that this package is unnecessary.
+
+type AttachmentReupload struct {
+	DownloadingURL string
+	FileName       string
+	MimeType       string
 }
 
-func MakePortalKeyWithID(channelID string) (key networkid.PortalKey) {
-	key.ID = networkid.PortalID(channelID)
-	return
-}
-
-func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
-	return bridgev2.EventSender{
-		IsFromMe:    user.ID == d.Session.State.User.ID,
-		SenderLogin: networkid.UserLoginID(user.ID),
-		Sender:      networkid.UserID(user.ID),
-	}
+type ReuploadedAttachment struct {
+	AttachmentReupload
+	DownloadedSize int
+	MXC            id.ContentURIString
+	EncryptedFile  *event.EncryptedFileInfo
 }

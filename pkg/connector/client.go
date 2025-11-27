@@ -27,6 +27,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -221,6 +222,14 @@ func makeChannelAvatar(ch *discordgo.Channel) *bridgev2.Avatar {
 	}
 }
 
+func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
+	return bridgev2.EventSender{
+		IsFromMe:    user.ID == d.Session.State.User.ID,
+		SenderLogin: networkid.UserLoginID(user.ID),
+		Sender:      networkid.UserID(user.ID),
+	}
+}
+
 func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
 	isGroup := len(ch.RecipientIDs) > 1
 
@@ -253,7 +262,7 @@ func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, se
 
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
 		channel:   ch,
-		portalKey: MakePortalKey(ch, d.UserLogin.ID, true),
+		portalKey: discordid.MakePortalKey(ch, d.UserLogin.ID, true),
 		info: &bridgev2.ChatInfo{
 			Name:        &ch.Name,
 			Members:     &members,

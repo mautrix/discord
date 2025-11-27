@@ -26,7 +26,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"go.mau.fi/mautrix-discord/pkg/connector"
+	"go.mau.fi/mautrix-discord/pkg/attachment"
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -111,6 +112,11 @@ func (mc *MessageConverter) ToMatrix(
 	// 	puppet.addMemberMeta(part, msg)
 	// }
 
+	// Assign incrementing part IDs.
+	for i, part := range parts {
+		part.ID = networkid.PartID(strconv.Itoa(i))
+	}
+
 	return &bridgev2.ConvertedMessage{Parts: parts}
 }
 
@@ -143,7 +149,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	var htmlParts []string
 
 	if msg.Interaction != nil {
-		ghost, err := mc.connector.Bridge.GetGhostByID(ctx, networkid.UserID(msg.Interaction.User.ID))
+		ghost, err := mc.Bridge.GetGhostByID(ctx, networkid.UserID(msg.Interaction.User.ID))
 		// TODO(skip): Try doing ghost.UpdateInfoIfNecessary.
 		if err == nil {
 			htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, ghost.Intent.GetMXID(), ghost.Name, msg.Interaction.Name))
@@ -154,22 +160,22 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 
 	if msg.Content != "" && !isPlainGifMessage(msg) {
 		// Bridge basic text messages.
-		htmlParts = append(htmlParts, mc.renderDiscordMarkdownOnlyHTML(msg.Content, true))
+		htmlParts = append(htmlParts, mc.renderDiscordMarkdownOnlyHTML(portal, msg.Content, true))
 	} else if msg.MessageReference != nil &&
 		msg.MessageReference.Type == discordgo.MessageReferenceTypeForward &&
 		len(msg.MessageSnapshots) > 0 &&
 		msg.MessageSnapshots[0].Message != nil {
 		// Bridge forwarded messages.
 
-		forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(msg.MessageSnapshots[0].Message.Content, true)
+		forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, msg.MessageSnapshots[0].Message.Content, true)
 		msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
 		origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
-		if forwardedFromPortal, err := mc.connector.Bridge.DB.Portal.GetByKey(ctx, connector.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
-			if origMessage, err := mc.connector.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, networkid.MessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
+		if forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, discordid.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
+			if origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, networkid.MessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
 				// We've bridged the message that was forwarded, so we can link to it directly.
 				origLink = fmt.Sprintf(
 					`<a href="%s">#%s • %s</a>`,
-					forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.connector.Bridge.Matrix.ServerName()),
+					forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.Bridge.Matrix.ServerName()),
 					forwardedFromPortal.Name,
 					msgTSText,
 				)
@@ -179,7 +185,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 				// We don't have the message but we have the portal, so link to that.
 				origLink = fmt.Sprintf(
 					`<a href="%s">#%s</a> • %s`,
-					forwardedFromPortal.MXID.URI(mc.connector.Bridge.Matrix.ServerName()),
+					forwardedFromPortal.MXID.URI(mc.Bridge.Matrix.ServerName()),
 					forwardedFromPortal.Name,
 					msgTSText,
 				)
@@ -264,10 +270,10 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, intent 
 		}
 	}
 
-	upload := connector.AttachmentReupload{
+	upload := attachment.AttachmentReupload{
 		DownloadingURL: proxyURL,
 	}
-	reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, upload)
+	reupload, err := mc.ReuploadMedia(ctx, intent, portal, upload)
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy video embed to Matrix")
 		return &bridgev2.ConvertedMessagePart{
@@ -282,10 +288,7 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, intent 
 			MimeType: reupload.MimeType,
 			Size:     reupload.DownloadedSize,
 		},
-		File: &event.EncryptedFileInfo{
-			EncryptedFile: reupload.EncryptedFile.EncryptedFile,
-			URL:           reupload.MXC,
-		},
+		File: reupload.EncryptedFile,
 	}
 
 	if embed.Video != nil {
@@ -321,14 +324,6 @@ func (mc *MessageConverter) renderDiscordSticker(context context.Context, intent
 	panic("unimplemented")
 }
 
-func (mc *MessageConverter) renderDiscordMarkdownOnlyHTML(text string, allowInlineLinks bool) string {
-	panic("unimplemented")
-}
-
-func (mc *MessageConverter) renderDiscordMarkdownOnlyHTMLNoUnwrap(text string, allowInlineLinks bool) string {
-	panic("unimplemented")
-}
-
 const (
 	embedHTMLWrapper         = `<blockquote class="discord-embed">%s</blockquote>`
 	embedHTMLWrapperColor    = `<blockquote class="discord-embed" background-color="#%06X">%s</blockquote>`
@@ -361,7 +356,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, intent b
 		}
 		authorHTML = fmt.Sprintf(embedHTMLAuthorPlain, authorNameHTML)
 		if embed.Author.ProxyIconURL != "" {
-			reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+			reupload, err := mc.ReuploadMedia(ctx, intent, portal, attachment.AttachmentReupload{
 				DownloadingURL: embed.Author.ProxyIconURL,
 			})
 
@@ -376,7 +371,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, intent b
 
 	if embed.Title != "" {
 		var titleHTML string
-		baseTitleHTML := mc.renderDiscordMarkdownOnlyHTML(embed.Title, false)
+		baseTitleHTML := mc.renderDiscordMarkdownOnlyHTML(portal, embed.Title, false)
 		if embed.URL != "" {
 			titleHTML = fmt.Sprintf(embedHTMLTitleWithLink, html.EscapeString(embed.URL), baseTitleHTML)
 		} else {
@@ -386,7 +381,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, intent b
 	}
 
 	if embed.Description != "" {
-		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, mc.renderDiscordMarkdownOnlyHTML(embed.Description, true)))
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, mc.renderDiscordMarkdownOnlyHTML(portal, embed.Description, true)))
 	}
 
 	for i := 0; i < len(embed.Fields); i++ {
@@ -405,21 +400,21 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, intent b
 			headerParts := make([]string, len(splitItems))
 			contentParts := make([]string, len(splitItems))
 			for j, splitItem := range splitItems {
-				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, mc.renderDiscordMarkdownOnlyHTML(splitItem.Name, false))
-				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, mc.renderDiscordMarkdownOnlyHTML(splitItem.Value, true))
+				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, mc.renderDiscordMarkdownOnlyHTML(portal, splitItem.Name, false))
+				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, mc.renderDiscordMarkdownOnlyHTML(portal, splitItem.Value, true))
 			}
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFields, strings.Join(headerParts, ""), strings.Join(contentParts, "")))
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLLinearField,
 				strconv.FormatBool(item.Inline),
-				mc.renderDiscordMarkdownOnlyHTML(item.Name, false),
-				mc.renderDiscordMarkdownOnlyHTML(item.Value, true),
+				mc.renderDiscordMarkdownOnlyHTML(portal, item.Name, false),
+				mc.renderDiscordMarkdownOnlyHTML(portal, item.Value, true),
 			))
 		}
 	}
 
 	if embed.Image != nil {
-		reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+		reupload, err := mc.ReuploadMedia(ctx, intent, portal, attachment.AttachmentReupload{
 			DownloadingURL: embed.Image.ProxyURL,
 		})
 		if err != nil {
@@ -449,7 +444,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, intent b
 		}
 		footerHTML = fmt.Sprintf(embedHTMLFooterPlain, html.EscapeString(embed.Footer.Text), datePart)
 		if embed.Footer.ProxyIconURL != "" {
-			reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+			reupload, err := mc.ReuploadMedia(ctx, intent, portal, attachment.AttachmentReupload{
 				DownloadingURL: embed.Footer.ProxyIconURL,
 			})
 
@@ -478,7 +473,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, intent b
 }
 
 func (mc *MessageConverter) renderDiscordLinkEmbedImage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, url string, width, height int, preview *event.BeeperLinkPreview) {
-	reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+	reupload, err := mc.ReuploadMedia(ctx, intent, portal, attachment.AttachmentReupload{
 		DownloadingURL: url,
 	})
 	if err != nil {
@@ -556,7 +551,7 @@ func (mc *MessageConverter) renderDiscordAttachment(ctx context.Context, intent 
 	}
 
 	// TODO(skip): Support direct media.
-	reupload, err := mc.connector.ReuploadMedia(ctx, intent, portal, connector.AttachmentReupload{
+	reupload, err := mc.ReuploadMedia(ctx, intent, portal, attachment.AttachmentReupload{
 		DownloadingURL: att.URL,
 	})
 	if err != nil {
@@ -572,10 +567,8 @@ func (mc *MessageConverter) renderDiscordAttachment(ctx context.Context, intent 
 		content.Info.Width = att.Width
 		content.Info.Height = att.Height
 	}
-	content.File = &event.EncryptedFileInfo{
-		EncryptedFile: reupload.EncryptedFile.EncryptedFile,
-		URL:           reupload.MXC,
-	}
+	content.URL = reupload.MXC
+	content.File = reupload.EncryptedFile
 
 	return &bridgev2.ConvertedMessagePart{
 		Type:    event.EventMessage,

@@ -23,9 +23,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
-	"maunium.net/go/mautrix/event"
 )
 
 var (
@@ -65,15 +65,33 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	}
 
 	converted := make([]*bridgev2.BackfillMessage, 0, len(msgs))
+	mc := msgconv.MessageConverter{
+		Bridge:        dc.connector.Bridge,
+		ReuploadMedia: dc.connector.ReuploadMedia,
+	}
 	for _, msg := range msgs {
 		streamOrder, _ := strconv.ParseInt(msg.ID, 10, 64)
 		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 
 		// FIXME(skip): Backfill reactions.
+		sender := dc.makeEventSender(msg.Author)
+
+		// Use the ghost's intent, falling back to the bridge's.
+		ghost, err := dc.connector.Bridge.GetGhostByID(ctx, sender.Sender)
+		if err != nil {
+			log.Err(err).Msg("Failed to look up ghost while converting backfilled message")
+		}
+		var intent bridgev2.MatrixAPI
+		if ghost == nil {
+			intent = fetchParams.Portal.Bridge.Bot
+		} else {
+			intent = ghost.Intent
+		}
+
 		converted = append(converted, &bridgev2.BackfillMessage{
-			ConvertedMessage: dc.convertMessage(msg),
 			ID:               networkid.MessageID(msg.ID),
-			Sender:           dc.makeEventSender(msg.Author),
+			ConvertedMessage: mc.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, msg),
+			Sender:           sender,
 			Timestamp:        ts,
 			StreamOrder:      streamOrder,
 		})
@@ -90,44 +108,4 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		// of `count`, but that's probably okay.
 		HasMore: len(msgs) == count,
 	}, nil
-}
-
-func (dc *DiscordClient) convertMessage(msg *discordgo.Message) *bridgev2.ConvertedMessage {
-	// FIXME(skip): This isn't bridging a lot of things (replies, forwards, voice messages, attachments, webhooks, embeds, etc.). Copy from main branch.
-
-	var parts []*bridgev2.ConvertedMessagePart
-	switch msg.Type {
-	case discordgo.MessageTypeCall:
-		parts = append(parts, &bridgev2.ConvertedMessagePart{
-			Type: event.EventMessage,
-			Content: &event.MessageEventContent{
-				MsgType: event.MsgEmote,
-				Body:    "started a call",
-			},
-		})
-	case discordgo.MessageTypeGuildMemberJoin:
-		parts = append(parts, &bridgev2.ConvertedMessagePart{
-			Type: event.EventMessage,
-			Content: &event.MessageEventContent{
-				MsgType: event.MsgEmote,
-				Body:    "joined the server",
-			},
-		})
-	}
-
-	if msg.Content != "" {
-		// FIXME(skip): This needs to render into HTML.
-		parts = append(parts, &bridgev2.ConvertedMessagePart{
-			Type: event.EventMessage,
-			Content: &event.MessageEventContent{
-				MsgType: event.MsgText,
-				Body:    msg.Content,
-			},
-		})
-	}
-
-	return &bridgev2.ConvertedMessage{
-		// TODO(skip): Replies.
-		Parts: parts,
-	}
 }

@@ -28,9 +28,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/mautrix-discord/pkg/attachment"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/event"
-	"maunium.net/go/mautrix/id"
 )
 
 func downloadDiscordAttachment(cli *http.Client, url string, maxSize int64) ([]byte, error) {
@@ -69,20 +68,7 @@ func downloadDiscordAttachment(cli *http.Client, url string, maxSize int64) ([]b
 	}
 }
 
-type AttachmentReupload struct {
-	DownloadingURL string
-	FileName       string
-	MimeType       string
-}
-
-type ReuploadedAttachment struct {
-	AttachmentReupload
-	DownloadedSize int
-	MXC            id.ContentURIString
-	EncryptedFile  *event.EncryptedFileInfo
-}
-
-func (d *DiscordConnector) ReuploadMedia(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, upload AttachmentReupload) (*ReuploadedAttachment, error) {
+func (d *DiscordConnector) ReuploadMedia(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, upload attachment.AttachmentReupload) (*attachment.ReuploadedAttachment, error) {
 	log := zerolog.Ctx(ctx)
 	// TODO(skip): Do we need to check if we've already downloaded this media before?
 	// TODO(skip): Read a maximum size from the config.
@@ -117,7 +103,7 @@ func (d *DiscordConnector) ReuploadMedia(ctx context.Context, intent bridgev2.Ma
 		return nil, err
 	}
 
-	return &ReuploadedAttachment{
+	return &attachment.ReuploadedAttachment{
 		AttachmentReupload: upload,
 		DownloadedSize:     len(data),
 		MXC:                mxc,

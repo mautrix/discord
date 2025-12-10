@@ -27,7 +27,6 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-discord/pkg/attachment"
 	"maunium.net/go/mautrix/bridgev2"
 )

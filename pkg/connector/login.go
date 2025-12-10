@@ -94,9 +94,6 @@ func (dl *DiscordLogin) SubmitUserInput(ctx context.Context, input map[string]st
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
 	}
 
-	// FIXME(skip): Implement.
-	session.EventHandler = func(evt any) {}
-
 	// Set up logging.
 	session.LogLevel = discordgo.LogInformational
 	session.Logger = func(msgL, caller int, format string, a ...any) {

@@ -28,6 +28,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -40,6 +41,7 @@ type DiscordClient struct {
 	UserLogin       *bridgev2.UserLogin
 	Session         *discordgo.Session
 	hasBegunSyncing bool
+	MsgConv         msgconv.MessageConverter
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -59,14 +61,16 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		return err
 	}
 
-	// FIXME(skip): Implement.
-	session.EventHandler = func(evt any) {}
-
-	login.Client = &DiscordClient{
+	cl := DiscordClient{
 		connector: d,
 		UserLogin: login,
 		Session:   session,
+		MsgConv: msgconv.MessageConverter{
+			Bridge:        d.Bridge,
+			ReuploadMedia: d.ReuploadMedia,
+		},
 	}
+	login.Client = &cl
 
 	return nil
 }
@@ -97,9 +101,17 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 	})
 }
 
+func (cl *DiscordClient) handleDiscordEventSync(event any) {
+	go cl.handleDiscordEvent(event)
+}
+
 func (cl *DiscordClient) connect(ctx context.Context) error {
 	log := zerolog.Ctx(ctx)
 	log.Info().Msg("Opening session")
+
+	cl.Session.EventHandler = func(event any) {
+		go cl.handleDiscordEvent(event)
+	}
 
 	err := cl.Session.Open()
 	for attempts := 0; errors.Is(err, discordgo.ErrImmediateDisconnect) && attempts < 2; attempts += 1 {

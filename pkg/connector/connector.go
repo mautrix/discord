@@ -19,17 +19,23 @@ package connector
 import (
 	"context"
 
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"maunium.net/go/mautrix/bridgev2"
 )
 
 type DiscordConnector struct {
-	Bridge *bridgev2.Bridge
+	Bridge  *bridgev2.Bridge
+	MsgConv *msgconv.MessageConverter
 }
 
 var _ bridgev2.NetworkConnector = (*DiscordConnector)(nil)
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
 	d.Bridge = bridge
+	d.MsgConv = &msgconv.MessageConverter{
+		Bridge:        bridge,
+		ReuploadMedia: d.ReuploadMedia,
+	}
 }
 
 func (d *DiscordConnector) Start(ctx context.Context) error {

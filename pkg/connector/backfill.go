@@ -23,7 +23,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
@@ -65,10 +64,6 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	}
 
 	converted := make([]*bridgev2.BackfillMessage, 0, len(msgs))
-	mc := msgconv.MessageConverter{
-		Bridge:        dc.connector.Bridge,
-		ReuploadMedia: dc.connector.ReuploadMedia,
-	}
 	for _, msg := range msgs {
 		streamOrder, _ := strconv.ParseInt(msg.ID, 10, 64)
 		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
@@ -90,7 +85,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 
 		converted = append(converted, &bridgev2.BackfillMessage{
 			ID:               networkid.MessageID(msg.ID),
-			ConvertedMessage: mc.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, msg),
+			ConvertedMessage: dc.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, msg),
 			Sender:           sender,
 			Timestamp:        ts,
 			StreamOrder:      streamOrder,

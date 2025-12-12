@@ -27,8 +27,9 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
-	"go.mau.fi/mautrix-discord/pkg/attachment"
 	"maunium.net/go/mautrix/bridgev2"
+
+	"go.mau.fi/mautrix-discord/pkg/attachment"
 )
 
 func downloadDiscordAttachment(cli *http.Client, url string, maxSize int64) ([]byte, error) {

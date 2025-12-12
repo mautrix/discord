@@ -26,12 +26,13 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"go.mau.fi/mautrix-discord/pkg/attachment"
-	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
+
+	"go.mau.fi/mautrix-discord/pkg/attachment"
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 func (mc *MessageConverter) ToMatrix(

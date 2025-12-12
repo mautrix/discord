@@ -19,8 +19,9 @@ package connector
 import (
 	"context"
 
-	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"maunium.net/go/mautrix/bridgev2"
+
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 )
 
 type DiscordConnector struct {

@@ -31,10 +31,11 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
-	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/id"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 type astDiscordTag struct {

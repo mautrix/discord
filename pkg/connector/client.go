@@ -27,12 +27,13 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"go.mau.fi/mautrix-discord/pkg/discordid"
-	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 )
 
 type DiscordClient struct {
@@ -109,9 +110,7 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	log := zerolog.Ctx(ctx)
 	log.Info().Msg("Opening session")
 
-	cl.Session.EventHandler = func(event any) {
-		go cl.handleDiscordEvent(event)
-	}
+	cl.Session.EventHandler = cl.handleDiscordEventSync
 
 	err := cl.Session.Open()
 	for attempts := 0; errors.Is(err, discordgo.ErrImmediateDisconnect) && attempts < 2; attempts += 1 {

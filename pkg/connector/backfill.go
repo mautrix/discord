@@ -68,7 +68,22 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		streamOrder, _ := strconv.ParseInt(msg.ID, 10, 64)
 		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
 
-		// FIXME(skip): Backfill reactions.
+		// NOTE: For now, we aren't backfilling reactions. This is because:
+		//
+		// - Discord does not provide enough historical reaction data in the
+		//	 response from the message history endpoint to construct valid
+		//   BackfillReactions.
+		// - Fetching the reaction data would be prohibitively expensive for
+		//   messages with many reactions. Messages in large guilds can have
+		//   tens of thousands of reactions.
+		// - Indicating aggregated child events[1] from BackfillMessage doesn't
+		//   seem possible due to how portal backfilling batching currently
+		//   works.
+		//
+		// [1]: https://spec.matrix.org/v1.16/client-server-api/#reference-relations
+		//
+		// It might be worth fetching the reaction data anyways if we observe
+		// a small overall number of reactions.
 		sender := dc.makeEventSender(msg.Author)
 
 		// Use the ghost's intent, falling back to the bridge's.

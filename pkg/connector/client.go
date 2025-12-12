@@ -234,12 +234,16 @@ func makeChannelAvatar(ch *discordgo.Channel) *bridgev2.Avatar {
 	}
 }
 
-func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
+func (d *DiscordClient) makeEventSenderWithID(userID string) bridgev2.EventSender {
 	return bridgev2.EventSender{
-		IsFromMe:    user.ID == d.Session.State.User.ID,
-		SenderLogin: networkid.UserLoginID(user.ID),
-		Sender:      networkid.UserID(user.ID),
+		IsFromMe:    userID == d.Session.State.User.ID,
+		SenderLogin: networkid.UserLoginID(userID),
+		Sender:      networkid.UserID(userID),
 	}
+}
+
+func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
+	return d.makeEventSenderWithID(user.ID)
 }
 
 func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, selfIsInChannel bool) {

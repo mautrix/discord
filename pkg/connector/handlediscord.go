@@ -18,6 +18,7 @@ package connector
 
 import (
 	"context"
+	"fmt"
 	"runtime/debug"
 
 	"github.com/bwmarrin/discordgo"
@@ -86,6 +87,79 @@ func (d *DiscordClient) wrapDiscordMessage(evt *discordgo.MessageCreate) Discord
 	}
 }
 
+type DiscordReaction struct {
+	*DiscordEventMeta
+	Reaction *discordgo.MessageReaction
+	Client   *DiscordClient
+}
+
+func (r *DiscordReaction) GetSender() bridgev2.EventSender {
+	return r.Client.makeEventSenderWithID(r.Reaction.UserID)
+}
+
+func (r *DiscordReaction) GetTargetMessage() networkid.MessageID {
+	return networkid.MessageID(r.Reaction.MessageID)
+}
+
+func (r *DiscordReaction) GetRemovedEmojiID() networkid.EmojiID {
+	return networkid.EmojiID(r.Reaction.Emoji.Name)
+}
+
+var (
+	_ bridgev2.RemoteReaction                 = (*DiscordReaction)(nil)
+	_ bridgev2.RemoteReactionRemove           = (*DiscordReaction)(nil)
+	_ bridgev2.RemoteReactionWithExtraContent = (*DiscordReaction)(nil)
+)
+
+func (r *DiscordReaction) GetReactionEmoji() (string, networkid.EmojiID) {
+	// name is either a grapheme cluster consisting of a Unicode emoji, or the
+	// name of a custom emoji.
+	name := r.Reaction.Emoji.Name
+	return name, networkid.EmojiID(name)
+}
+
+func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
+	extra := make(map[string]any)
+
+	reaction := r.Reaction
+	emoji := reaction.Emoji
+
+	if emoji.ID != "" {
+		// The emoji is a custom emoji.
+
+		extra["fi.mau.discord.reaction"] = map[string]any{
+			"id":   emoji.ID,
+			"name": emoji.Name,
+			// FIXME Handle custom emoji.
+			// "mxc":  reaction,
+		}
+
+		wrappedShortcode := fmt.Sprintf(":%s:", reaction.Emoji.Name)
+		extra["com.beeper.reaction.shortcode"] = wrappedShortcode
+	}
+
+	return extra
+}
+
+func (d *DiscordClient) wrapDiscordReaction(reaction *discordgo.MessageReaction, beingAdded bool) DiscordReaction {
+	evtType := bridgev2.RemoteEventReaction
+	if !beingAdded {
+		evtType = bridgev2.RemoteEventReactionRemove
+	}
+
+	return DiscordReaction{
+		DiscordEventMeta: &DiscordEventMeta{
+			Type: evtType,
+			PortalKey: networkid.PortalKey{
+				ID:       networkid.PortalID(reaction.ChannelID),
+				Receiver: d.UserLogin.ID,
+			},
+		},
+		Reaction: reaction,
+		Client:   d,
+	}
+}
+
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	if d.UserLogin == nil {
 		// Our event handlers are able to assume that a UserLogin is available.
@@ -94,6 +168,13 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		// after RESUME or READY.
 		log := zerolog.Ctx(context.TODO())
 		log.Trace().Msg("Dropping Discord event received before UserLogin creation")
+		return
+	}
+
+	if d.Session == nil || d.Session.State == nil || d.Session.State.User == nil {
+		// Our event handlers are able to assume that we've fully connected to the
+		// gateway.
+		d.UserLogin.Log.Debug().Msg("Dropping Discord event received before READY or RESUMED")
 		return
 	}
 
@@ -115,6 +196,14 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	case *discordgo.MessageCreate:
 		wrappedEvt := d.wrapDiscordMessage(evt)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+	case *discordgo.MessageReactionAdd:
+		wrappedEvt := d.wrapDiscordReaction(evt.MessageReaction, true)
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+	case *discordgo.MessageReactionRemove:
+		wrappedEvt := d.wrapDiscordReaction(evt.MessageReaction, false)
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+	// TODO case *discordgo.MessageReactionRemoveAll:
+	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
 	case *discordgo.PresenceUpdate:
 		return
 	case *discordgo.Event:

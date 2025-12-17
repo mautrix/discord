@@ -19,6 +19,7 @@ package msgconv
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -96,4 +97,77 @@ func (mc *MessageConverter) renderDiscordMarkdownOnlyHTMLNoUnwrap(portal *bridge
 	return buf.String()
 }
 
-// TODO(skip): Stopping here for now. Continue at formatterContextPortalKey.
+const formatterContextPortalKey = "fi.mau.discord.portal"
+const formatterContextAllowedMentionsKey = "fi.mau.discord.allowed_mentions"
+const formatterContextInputAllowedMentionsKey = "fi.mau.discord.input_allowed_mentions"
+const formatterContextInputAllowedLinkPreviewsKey = "fi.mau.discord.input_allowed_link_previews"
+
+var discordMarkdownEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`_`, `\_`,
+	`*`, `\*`,
+	`~`, `\~`,
+	"`", "\\`",
+	`|`, `\|`,
+	`<`, `\<`,
+	`#`, `\#`,
+)
+
+func escapeDiscordMarkdown(s string) string {
+	submatches := discordLinkRegex.FindAllStringIndex(s, -1)
+	if submatches == nil {
+		return discordMarkdownEscaper.Replace(s)
+	}
+	var builder strings.Builder
+	offset := 0
+	for _, match := range submatches {
+		start := match[0]
+		end := match[1]
+		builder.WriteString(discordMarkdownEscaper.Replace(s[offset:start]))
+		builder.WriteString(s[start:end])
+		offset = end
+	}
+	builder.WriteString(discordMarkdownEscaper.Replace(s[offset:]))
+	return builder.String()
+}
+
+var matrixHTMLParser = &format.HTMLParser{
+	TabsToSpaces:   4,
+	Newline:        "\n",
+	HorizontalLine: "\n---\n",
+	ItalicConverter: func(s string, ctx format.Context) string {
+		return fmt.Sprintf("*%s*", s)
+	},
+	UnderlineConverter: func(s string, ctx format.Context) string {
+		return fmt.Sprintf("__%s__", s)
+	},
+	TextConverter: func(s string, ctx format.Context) string {
+		if ctx.TagStack.Has("pre") || ctx.TagStack.Has("code") {
+			// If we're in a code block, don't escape markdown
+			return s
+		}
+		return escapeDiscordMarkdown(s)
+	},
+	SpoilerConverter: func(text, reason string, ctx format.Context) string {
+		if reason != "" {
+			return fmt.Sprintf("(%s) ||%s||", reason, text)
+		}
+		return fmt.Sprintf("||%s||", text)
+	},
+	LinkConverter: func(text, href string, ctx format.Context) string {
+		linkPreviews := ctx.ReturnData[formatterContextInputAllowedLinkPreviewsKey].([]string)
+		allowPreview := linkPreviews == nil || slices.Contains(linkPreviews, href)
+		if text == href {
+			if !allowPreview {
+				return fmt.Sprintf("<%s>", text)
+			}
+			return text
+		} else if !discordLinkRegexFull.MatchString(href) {
+			return fmt.Sprintf("%s (%s)", escapeDiscordMarkdown(text), escapeDiscordMarkdown(href))
+		} else if !allowPreview {
+			return fmt.Sprintf("[%s](<%s>)", escapeDiscordMarkdown(text), href)
+		} else {
+			return fmt.Sprintf("[%s](%s)", escapeDiscordMarkdown(text), href)
+		}
+	},
+}

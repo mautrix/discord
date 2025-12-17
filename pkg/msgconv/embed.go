@@ -37,8 +37,7 @@ const discordLinkPattern = `https?://[^<\p{Zs}\x{feff}]*[^"'),.:;\]\p{Zs}\x{feff
 // don't contain < or whitespace anywhere, and don't end with "'),.:;]
 //
 // Zero-width whitespace is mostly in the Format category and is allowed, except \uFEFF isn't for some reason
-// FIXME(skip): This will be unused until we port `escapeDiscordMarkdown`.
-// var discordLinkRegex = regexp.MustCompile(discordLinkPattern)
+var discordLinkRegex = regexp.MustCompile(discordLinkPattern)
 var discordLinkRegexFull = regexp.MustCompile("^" + discordLinkPattern + "$")
 
 func isActuallyLinkPreview(embed *discordgo.MessageEmbed) bool {

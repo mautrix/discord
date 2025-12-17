@@ -56,6 +56,32 @@ func capID() string {
 
 var discordCaps = &event.RoomFeatures{
 	ID: capID(),
+	Formatting: event.FormattingFeatureMap{
+		event.FmtBold:               event.CapLevelFullySupported,
+		event.FmtItalic:             event.CapLevelFullySupported,
+		event.FmtStrikethrough:      event.CapLevelFullySupported,
+		event.FmtInlineCode:         event.CapLevelFullySupported,
+		event.FmtCodeBlock:          event.CapLevelFullySupported,
+		event.FmtSyntaxHighlighting: event.CapLevelFullySupported,
+		event.FmtBlockquote:         event.CapLevelFullySupported,
+		event.FmtInlineLink:         event.CapLevelFullySupported,
+		event.FmtUserLink:           event.CapLevelUnsupported, // TODO: Support.
+		event.FmtRoomLink:           event.CapLevelUnsupported, // TODO: Support.
+		event.FmtEventLink:          event.CapLevelUnsupported, // TODO: Support.
+		event.FmtAtRoomMention:      event.CapLevelUnsupported, // TODO: Support.
+		event.FmtUnorderedList:      event.CapLevelFullySupported,
+		event.FmtOrderedList:        event.CapLevelFullySupported,
+		event.FmtListStart:          event.CapLevelFullySupported,
+		event.FmtListJumpValue:      event.CapLevelUnsupported,
+		event.FmtCustomEmoji:        event.CapLevelUnsupported, // TODO: Support.
+	},
+	LocationMessage: event.CapLevelUnsupported,
+	// TODO: This limit is increased depending on Discord subscription (Nitro).
+	MaxTextLength: 2000,
+	// TODO: Support reactions.
+	// TODO: Support threads.
+	// TODO: Support editing.
+	// TODO: Support message deletion.
 }
 
 func (dc *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {

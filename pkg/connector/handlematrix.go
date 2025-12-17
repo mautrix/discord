@@ -19,8 +19,10 @@ package connector
 import (
 	"context"
 
+	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
 var (
@@ -31,9 +33,39 @@ var (
 	_ bridgev2.TypingHandlingNetworkAPI      = (*DiscordClient)(nil)
 )
 
-func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (message *bridgev2.MatrixMessageResponse, err error) {
-	//TODO implement me
-	panic("implement me")
+func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
+	if d.Session == nil {
+		return nil, bridgev2.ErrNotLoggedIn
+	}
+
+	portal := msg.Portal
+	channelID := string(portal.ID)
+
+	// TODO: Support replies.
+
+	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	var options []discordgo.RequestOption
+	// TODO: When supporting threads (and not a bot user), send a thread referer.
+	// TODO: Pass the guild ID when send messages in guild channels.
+	options = append(options, discordgo.WithChannelReferer("", channelID))
+
+	sentMsg, err := d.Session.ChannelMessageSendComplex(string(msg.Portal.ID), &sendReq, options...)
+	if err != nil {
+		return nil, err
+	}
+	sentMsgTimestamp, _ := discordgo.SnowflakeTimestamp(sentMsg.ID)
+
+	return &bridgev2.MatrixMessageResponse{
+		DB: &database.Message{
+			ID:        networkid.MessageID(sentMsg.ID),
+			SenderID:  networkid.UserID(sentMsg.Author.ID),
+			Timestamp: sentMsgTimestamp,
+		},
+	}, nil
 }
 
 func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.MatrixEdit) error {

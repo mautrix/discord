@@ -194,6 +194,14 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 	switch evt := rawEvt.(type) {
 	case *discordgo.MessageCreate:
+		if evt.Author == nil {
+			log.Trace().Int("message_type", int(evt.Message.Type)).
+				Str("guild_id", evt.GuildID).
+				Str("message_id", evt.ID).
+				Str("channel_id", evt.ChannelID).
+				Msg("Dropping message that lacks an author")
+			return
+		}
 		wrappedEvt := d.wrapDiscordMessage(evt)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.MessageReactionAdd:

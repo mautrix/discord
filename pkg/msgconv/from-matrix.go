@@ -68,6 +68,13 @@ func (mc *MessageConverter) ToDiscord(
 	var req discordgo.MessageSend
 	req.Nonce = generateMessageNonce()
 
+	if msg.ReplyTo != nil {
+		req.Reference = &discordgo.MessageReference{
+			ChannelID: string(msg.ReplyTo.Room.ID),
+			MessageID: string(msg.ReplyTo.ID),
+		}
+	}
+
 	switch msg.Content.MsgType {
 	case event.MsgText, event.MsgEmote, event.MsgNotice:
 		req.Content, req.AllowedMentions = mc.convertMatrixMessageContent(ctx, msg.Portal, msg.Content, parseAllowedLinkPreviews(msg.Event.Content.Raw))

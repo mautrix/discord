@@ -55,7 +55,8 @@ func capID() string {
 }
 
 var discordCaps = &event.RoomFeatures{
-	ID: capID(),
+	ID:    capID(),
+	Reply: event.CapLevelFullySupported,
 	Formatting: event.FormattingFeatureMap{
 		event.FmtBold:               event.CapLevelFullySupported,
 		event.FmtItalic:             event.CapLevelFullySupported,

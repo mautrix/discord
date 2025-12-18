@@ -104,9 +104,10 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 	return err
 }
 
-func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, msg *bridgev2.MatrixMessageRemove) error {
-	//TODO implement me
-	panic("implement me")
+func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
+	channelID := string(removal.Portal.ID)
+	messageID := string(removal.TargetMessage.ID)
+	return d.Session.ChannelMessageDelete(channelID, messageID)
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {

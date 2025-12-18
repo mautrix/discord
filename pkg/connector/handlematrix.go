@@ -73,19 +73,35 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	panic("implement me")
 }
 
-func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
-	//TODO implement me
-	panic("implement me")
+func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
+	key := reaction.Content.RelatesTo.Key
+	// TODO: Handle custom emoji.
+
+	return bridgev2.MatrixReactionPreResponse{
+		SenderID: networkid.UserID(d.UserLogin.ID),
+		EmojiID:  networkid.EmojiID(key),
+	}, nil
 }
 
-func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.MatrixReaction) (reaction *database.Reaction, err error) {
-	//TODO implement me
-	panic("implement me")
+func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (*database.Reaction, error) {
+	key := reaction.Content.RelatesTo.Key
+	portal := reaction.Portal
+	// TODO: Support guilds.
+	guildID := ""
+
+	err := d.Session.MessageReactionAddUser(guildID, string(portal.ID), string(reaction.TargetMessage.ID), key)
+	return nil, err
 }
 
-func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridgev2.MatrixReactionRemove) error {
-	//TODO implement me
-	panic("implement me")
+func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal *bridgev2.MatrixReactionRemove) error {
+	removing := removal.TargetReaction
+	emojiID := removing.EmojiID
+	channelID := string(removing.Room.ID)
+	// TODO: Support guilds.
+	guildID := ""
+
+	err := d.Session.MessageReactionRemoveUser(guildID, channelID, string(removing.MessageID), string(emojiID), string(d.UserLogin.ID))
+	return err
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, msg *bridgev2.MatrixMessageRemove) error {

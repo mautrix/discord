@@ -41,8 +41,6 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	portal := msg.Portal
 	channelID := string(portal.ID)
 
-	// TODO: Support replies.
-
 	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, msg)
 	if err != nil {
 		return nil, err

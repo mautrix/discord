@@ -101,8 +101,6 @@ func (dl *DiscordTokenLogin) SubmitUserInput(ctx context.Context, input map[stri
 			HeartbeatSession: session.HeartbeatSession,
 		},
 	}, &bridgev2.NewLoginParams{
-		// We already have a Session; let's call this instead of the connector's
-		// main LoadUserLogin method, and thread the Session through.
 		LoadUserLogin: func(ctx context.Context, login *bridgev2.UserLogin) error {
 			login.Client = &client
 			client.UserLogin = login

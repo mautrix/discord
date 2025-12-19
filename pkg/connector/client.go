@@ -149,7 +149,6 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 func (d *DiscordClient) Disconnect() {
 	d.UserLogin.Log.Info().Msg("Disconnecting session")
 	d.Session.Close()
-	d.Session = nil
 }
 
 func (d *DiscordClient) IsLoggedIn() bool {

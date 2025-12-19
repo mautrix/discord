@@ -102,7 +102,7 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 		user, err := dl.remoteAuthClient.Result()
 		if err != nil {
 			log.Err(err).Msg("Discord remoteauth failed")
-			return nil, fmt.Errorf("Discord remoteauth failed: %w", err)
+			return nil, fmt.Errorf("discord remoteauth failed: %w", err)
 		}
 		log.Debug().Msg("Discord remoteauth succeeded")
 

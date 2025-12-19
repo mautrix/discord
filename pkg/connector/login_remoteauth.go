@@ -22,10 +22,11 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 )
 
 const LoginFlowIDRemoteAuth = "fi.mau.discord.login.remote_auth"

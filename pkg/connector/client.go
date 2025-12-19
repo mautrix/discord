@@ -46,16 +46,9 @@ type DiscordClient struct {
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
-	log := login.Log
 	meta := login.Metadata.(*UserLoginMetadata)
 
 	session, err := discordgo.New(meta.Token)
-	if meta.HeartbeatSession.IsExpired() {
-		log.Info().Msg("Heartbeat session expired, creating a new one")
-		meta.HeartbeatSession = discordgo.NewHeartbeatSession()
-	}
-	meta.HeartbeatSession.BumpLastUsed()
-	session.HeartbeatSession = meta.HeartbeatSession
 	login.Save(ctx)
 
 	if err != nil {
@@ -71,12 +64,34 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 			ReuploadMedia: d.ReuploadMedia,
 		},
 	}
+	cl.SetUp(ctx, meta)
+
 	login.Client = &cl
 
 	return nil
 }
 
 var _ bridgev2.NetworkAPI = (*DiscordClient)(nil)
+
+// SetUp performs basic bookkeeping and initialization that should be done
+// immediately after a DiscordClient has been created.
+//
+// nil may be passed for meta, especially during provisioning where we need to
+// connect to the Discord gateway, but don't have a UserLogin yet.
+func (d *DiscordClient) SetUp(ctx context.Context, meta *UserLoginMetadata) {
+	log := zerolog.Ctx(ctx)
+
+	// We'll have UserLogin metadata if this UserLogin is being loaded from the
+	// database, i.e. it hasn't just been provisioned.
+	if meta != nil {
+		if meta.HeartbeatSession.IsExpired() {
+			log.Info().Msg("Heartbeat session expired, creating a new one")
+			meta.HeartbeatSession = discordgo.NewHeartbeatSession()
+		}
+		meta.HeartbeatSession.BumpLastUsed()
+		d.Session.HeartbeatSession = meta.HeartbeatSession
+	}
+}
 
 func (d *DiscordClient) Connect(ctx context.Context) {
 	log := zerolog.Ctx(ctx)

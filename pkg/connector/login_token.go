@@ -84,6 +84,7 @@ func (dl *DiscordTokenLogin) SubmitUserInput(ctx context.Context, input map[stri
 		connector: dl.connector,
 		Session:   session,
 	}
+	client.SetUp(ctx, nil)
 	err = client.connect(ctx)
 	if err != nil {
 		dl.softlyCloseSession()

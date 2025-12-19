@@ -120,7 +120,7 @@ func (dl *DiscordTokenLogin) SubmitUserInput(ctx context.Context, input map[stri
 
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeComplete,
-		StepID:       "fi.mau.discord.complete",
+		StepID:       LoginStepIDComplete,
 		Instructions: fmt.Sprintf("Logged in as %s", user),
 		CompleteParams: &bridgev2.LoginCompleteParams{
 			UserLoginID: ul.ID,

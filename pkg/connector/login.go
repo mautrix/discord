@@ -23,6 +23,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 )
 
+const LoginStepIDComplete = "fi.mau.discord.login.complete"
+
 func (d *DiscordConnector) GetLoginFlows() []bridgev2.LoginFlow {
 	return []bridgev2.LoginFlow{
 		{

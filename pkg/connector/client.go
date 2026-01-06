@@ -33,7 +33,6 @@ import (
 	"maunium.net/go/mautrix/bridgev2/status"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
-	"go.mau.fi/mautrix-discord/pkg/msgconv"
 )
 
 type DiscordClient struct {
@@ -42,7 +41,6 @@ type DiscordClient struct {
 	UserLogin       *bridgev2.UserLogin
 	Session         *discordgo.Session
 	hasBegunSyncing bool
-	MsgConv         msgconv.MessageConverter
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -59,10 +57,6 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		connector: d,
 		UserLogin: login,
 		Session:   session,
-		MsgConv: msgconv.MessageConverter{
-			Bridge:        d.Bridge,
-			ReuploadMedia: d.ReuploadMedia,
-		},
 	}
 	cl.SetUp(ctx, meta)
 

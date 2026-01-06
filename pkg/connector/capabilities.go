@@ -54,6 +54,13 @@ func capID() string {
 	return base
 }
 
+// TODO: This limit is increased depending on user subscription status (Discord Nitro).
+const MaxTextLength = 2000
+
+// TODO: This limit is increased depending on user subscription status (Discord Nitro).
+// TODO: Verify this figure (10 MiB).
+const MaxFileSize = 10485760
+
 var discordCaps = &event.RoomFeatures{
 	ID:       capID(),
 	Reply:    event.CapLevelFullySupported,
@@ -78,9 +85,57 @@ var discordCaps = &event.RoomFeatures{
 		event.FmtListJumpValue:      event.CapLevelUnsupported,
 		event.FmtCustomEmoji:        event.CapLevelUnsupported, // TODO: Support.
 	},
+	File: event.FileFeatureMap{
+		event.MsgImage: {
+			MimeTypes: map[string]event.CapabilitySupportLevel{
+				"image/jpeg": event.CapLevelFullySupported,
+				"image/png":  event.CapLevelFullySupported,
+				"image/gif":  event.CapLevelFullySupported,
+				"image/webp": event.CapLevelFullySupported,
+			},
+			Caption:          event.CapLevelFullySupported,
+			MaxCaptionLength: MaxTextLength,
+			MaxSize:          MaxFileSize,
+		},
+		event.MsgVideo: {
+			MimeTypes: map[string]event.CapabilitySupportLevel{
+				"video/mp4":  event.CapLevelFullySupported,
+				"video/webm": event.CapLevelFullySupported,
+			},
+			Caption:          event.CapLevelFullySupported,
+			MaxCaptionLength: MaxTextLength,
+			MaxSize:          MaxFileSize,
+		},
+		event.MsgAudio: {
+			MimeTypes: map[string]event.CapabilitySupportLevel{
+				"audio/mpeg": event.CapLevelFullySupported,
+				"audio/webm": event.CapLevelFullySupported,
+				"audio/wav":  event.CapLevelFullySupported,
+			},
+			Caption:          event.CapLevelFullySupported,
+			MaxCaptionLength: MaxTextLength,
+			MaxSize:          MaxFileSize,
+		},
+		event.MsgFile: {
+			MimeTypes: map[string]event.CapabilitySupportLevel{
+				"*/*": event.CapLevelFullySupported,
+			},
+			Caption:          event.CapLevelFullySupported,
+			MaxCaptionLength: MaxTextLength,
+			MaxSize:          MaxFileSize,
+		},
+		event.CapMsgGIF: {
+			MimeTypes: map[string]event.CapabilitySupportLevel{
+				"image/gif": event.CapLevelFullySupported,
+			},
+			Caption:          event.CapLevelFullySupported,
+			MaxCaptionLength: MaxTextLength,
+			MaxSize:          MaxFileSize,
+		},
+		// TODO: Support voice messages.
+	},
 	LocationMessage: event.CapLevelUnsupported,
-	// TODO: This limit is increased depending on Discord subscription (Nitro).
-	MaxTextLength: 2000,
+	MaxTextLength:   MaxTextLength,
 	// TODO: Support reactions.
 	// TODO: Support threads.
 	// TODO: Support editing.

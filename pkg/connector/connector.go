@@ -33,10 +33,7 @@ var _ bridgev2.NetworkConnector = (*DiscordConnector)(nil)
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
 	d.Bridge = bridge
-	d.MsgConv = &msgconv.MessageConverter{
-		Bridge:        bridge,
-		ReuploadMedia: d.ReuploadMedia,
-	}
+	d.MsgConv = msgconv.NewMessageConverter(bridge, d.ReuploadMedia)
 }
 
 func (d *DiscordConnector) Start(ctx context.Context) error {

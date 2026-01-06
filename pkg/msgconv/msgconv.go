@@ -18,19 +18,41 @@ package msgconv
 
 import (
 	"context"
+	"math/rand"
+	"strconv"
+	"sync/atomic"
 
 	"maunium.net/go/mautrix/bridgev2"
 
 	"go.mau.fi/mautrix-discord/pkg/attachment"
 )
 
+type MediaReuploader func(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, reupload attachment.AttachmentReupload) (*attachment.ReuploadedAttachment, error)
+
 type MessageConverter struct {
 	Bridge *bridgev2.Bridge
+
+	nextDiscordUploadID atomic.Int32
 
 	// ReuploadMedia is called when the message converter wants to upload some
 	// media it is attempting to bridge.
 	//
 	// This can be directly forwarded to the ReuploadMedia method on DiscordConnector.
 	// The indirection is only necessary to prevent an import cycle.
-	ReuploadMedia func(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, reupload attachment.AttachmentReupload) (*attachment.ReuploadedAttachment, error)
+	ReuploadMedia MediaReuploader
+}
+
+func NewMessageConverter(bridge *bridgev2.Bridge, reuploader MediaReuploader) *MessageConverter {
+	mc := &MessageConverter{
+		Bridge:        bridge,
+		ReuploadMedia: reuploader,
+	}
+
+	mc.nextDiscordUploadID.Store(rand.Int31n(100))
+	return mc
+}
+
+func (mc *MessageConverter) NextDiscordUploadID() string {
+	val := mc.nextDiscordUploadID.Add(2)
+	return strconv.Itoa(int(val))
 }

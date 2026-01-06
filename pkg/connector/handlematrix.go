@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -41,7 +42,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	portal := msg.Portal
 	channelID := string(portal.ID)
 
-	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, msg)
+	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	// TODO: Pass the guild ID when send messages in guild channels.
 	options = append(options, discordgo.WithChannelReferer("", channelID))
 
-	sentMsg, err := d.Session.ChannelMessageSendComplex(string(msg.Portal.ID), &sendReq, options...)
+	sentMsg, err := d.Session.ChannelMessageSendComplex(string(msg.Portal.ID), sendReq, options...)
 	if err != nil {
 		return nil, err
 	}

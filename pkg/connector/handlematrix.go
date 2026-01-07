@@ -109,8 +109,44 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {
-	//TODO implement me
-	panic("implement me")
+	// TODO: Support threads.
+	log := msg.Portal.Log.With().
+		Str("event_id", string(msg.EventID)).
+		Str("action", "matrix read receipt").Logger()
+
+	sendReadReceipt := func(messageID string) error {
+		// TODO: Support guilds.
+		channelID := string(msg.Portal.ID)
+		resp, err := d.Session.ChannelMessageAckNoToken(channelID, messageID, discordgo.WithChannelReferer("", channelID))
+		if err != nil {
+			log.Err(err).Msg("Failed to send read receipt to Discord")
+			return err
+		} else if resp.Token != nil {
+			log.Debug().
+				Str("unexpected_resp_token", *resp.Token).
+				Msg("Marked message as read on Discord (and got unexpected non-nil token)")
+		} else {
+			log.Debug().Msg("Marked message as read on Discord")
+		}
+		return nil
+	}
+
+	if msg.ExactMessage != nil {
+		messageID := string(msg.ExactMessage.ID)
+		return sendReadReceipt(messageID)
+	}
+
+	lastMessage, err := d.UserLogin.Bridge.DB.Message.GetLastPartAtOrBeforeTime(ctx, msg.Portal.PortalKey, msg.ReadUpTo)
+	if err != nil {
+		log.Err(err).Msg("Failed to send read receipt, couldn't find last part before ReadUpTo")
+		return err
+	} else if lastMessage != nil {
+		messageID := string(lastMessage.ID)
+		log.Debug().Str("message_id", messageID).Msg("Bridging read receipt via last message part")
+		return sendReadReceipt(string(messageID))
+	}
+
+	return nil
 }
 
 func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.MatrixTyping) error {

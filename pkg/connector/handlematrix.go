@@ -114,36 +114,51 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 		Str("event_id", string(msg.EventID)).
 		Str("action", "matrix read receipt").Logger()
 
-	sendReadReceipt := func(messageID string) error {
-		// TODO: Support guilds.
-		channelID := string(msg.Portal.ID)
-		resp, err := d.Session.ChannelMessageAckNoToken(channelID, messageID, discordgo.WithChannelReferer("", channelID))
-		if err != nil {
-			log.Err(err).Msg("Failed to send read receipt to Discord")
-			return err
-		} else if resp.Token != nil {
-			log.Debug().
-				Str("unexpected_resp_token", *resp.Token).
-				Msg("Marked message as read on Discord (and got unexpected non-nil token)")
-		} else {
-			log.Debug().Msg("Marked message as read on Discord")
-		}
-		return nil
-	}
+	var targetMessageID string
 
+	// Figure out the ID of the Discord message that we'll mark as read. If the
+	// receipt didn't exactly correspond with a message, try finding one close
+	// by to use as the target.
 	if msg.ExactMessage != nil {
-		messageID := string(msg.ExactMessage.ID)
-		return sendReadReceipt(messageID)
+		targetMessageID = string(msg.ExactMessage.ID)
+		log = log.With().
+			Str("message_id", targetMessageID).
+			Logger()
+	} else {
+		closestMessage, err := d.UserLogin.Bridge.DB.Message.GetLastPartAtOrBeforeTime(ctx, msg.Portal.PortalKey, msg.ReadUpTo)
+
+		if err != nil {
+			log.Err(err).Msg("Failed to find closest message part")
+			return err
+		} else if closestMessage != nil {
+			// The read receipt didn't specify an exact message but we were able to
+			// find one close by.
+
+			targetMessageID = string(closestMessage.ID)
+			log = log.With().
+				Str("closest_message_id", targetMessageID).
+				Str("closest_event_id", closestMessage.MXID.String()).
+				Logger()
+			log.Debug().
+				Msg("Read receipt target event not found, using closest message")
+		} else {
+			log.Debug().Msg("Dropping read receipt: no messages found")
+			return nil
+		}
 	}
 
-	lastMessage, err := d.UserLogin.Bridge.DB.Message.GetLastPartAtOrBeforeTime(ctx, msg.Portal.PortalKey, msg.ReadUpTo)
+	// TODO: Support guilds.
+	channelID := string(msg.Portal.ID)
+	resp, err := d.Session.ChannelMessageAckNoToken(channelID, targetMessageID, discordgo.WithChannelReferer("", channelID))
 	if err != nil {
-		log.Err(err).Msg("Failed to send read receipt, couldn't find last part before ReadUpTo")
+		log.Err(err).Msg("Failed to send read receipt to Discord")
 		return err
-	} else if lastMessage != nil {
-		messageID := string(lastMessage.ID)
-		log.Debug().Str("message_id", messageID).Msg("Bridging read receipt via last message part")
-		return sendReadReceipt(string(messageID))
+	} else if resp.Token != nil {
+		log.Debug().
+			Str("unexpected_resp_token", *resp.Token).
+			Msg("Marked message as read on Discord (and got unexpected non-nil token)")
+	} else {
+		log.Debug().Msg("Marked message as read on Discord")
 	}
 
 	return nil

@@ -46,7 +46,7 @@ type DiscordClient struct {
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
 	meta := login.Metadata.(*UserLoginMetadata)
 
-	session, err := discordgo.New(meta.Token)
+	session, err := NewDiscordSession(ctx, meta.Token)
 	login.Save(ctx)
 
 	if err != nil {

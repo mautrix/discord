@@ -116,7 +116,7 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, user remoteauth.User) (*bridgev2.LoginStep, error) {
 	log := zerolog.Ctx(ctx)
 
-	session, err := discordgo.New(user.Token)
+	session, err := NewDiscordSession(ctx, user.Token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session from successful remoteauth: %w", err)
 	}

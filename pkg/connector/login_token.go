@@ -19,7 +19,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -68,16 +67,9 @@ func (dl *DiscordTokenLogin) SubmitUserInput(ctx context.Context, input map[stri
 	log.Info().Msg("Creating session from provided token")
 	dl.Token = token
 
-	session, err := discordgo.New(token)
+	session, err := NewDiscordSession(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
-	}
-
-	// Set up logging.
-	session.LogLevel = discordgo.LogInformational
-	session.Logger = func(msgL, caller int, format string, a ...any) {
-		// FIXME(skip): Hook up zerolog properly.
-		log.Debug().Str("component", "discordgo").Msgf(strings.TrimSpace(format), a...) // zerolog-allow-msgf
 	}
 
 	client := DiscordClient{

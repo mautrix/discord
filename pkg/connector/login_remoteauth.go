@@ -20,11 +20,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/database"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 )
@@ -32,10 +29,7 @@ import (
 const LoginFlowIDRemoteAuth = "fi.mau.discord.login.remote_auth"
 
 type DiscordRemoteAuthLogin struct {
-	connector *DiscordConnector
-	User      *bridgev2.User
-
-	Session *discordgo.Session
+	*DiscordGenericLogin
 
 	remoteAuthClient *remoteauth.Client
 	qrChan           chan string
@@ -114,66 +108,15 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 }
 
 func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, user remoteauth.User) (*bridgev2.LoginStep, error) {
-	log := zerolog.Ctx(ctx)
-
-	session, err := NewDiscordSession(ctx, user.Token)
+	ul, err := dl.FinalizeCreatingLogin(ctx, user.Token)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't create discord session from successful remoteauth: %w", err)
+		return nil, fmt.Errorf("couldn't log in via remoteauth: %w", err)
 	}
-
-	client := &DiscordClient{
-		connector: dl.connector,
-		Session:   session,
-	}
-	client.SetUp(ctx, nil)
-	err = client.connect(ctx)
-
-	softlyClose := func() {
-		log.Debug().Msg("Softly closing session due to error after successful remoteauth")
-		err := dl.Session.Close()
-		if err != nil {
-			log.Err(err).Msg("Couldn't softly close session due to error after successful remoteauth")
-		}
-	}
-	if err != nil {
-		softlyClose()
-		return nil, fmt.Errorf("couldn't connect to Discord: %w", err)
-	}
-	// At this point we've opened a WebSocket connection to the gateway, received
-	// a READY packet, and know who we are.
-	discordUser := session.State.User
-	dl.Session = session
-
-	ul, err := dl.User.NewLogin(ctx, &database.UserLogin{
-		ID: networkid.UserLoginID(user.UserID),
-		Metadata: &UserLoginMetadata{
-			Token:            user.Token,
-			HeartbeatSession: discordgo.NewHeartbeatSession(),
-		},
-	}, &bridgev2.NewLoginParams{
-		DeleteOnConflict: true,
-		LoadUserLogin: func(ctx context.Context, ul *bridgev2.UserLogin) error {
-			ul.Client = client
-			client.UserLogin = ul
-
-			// Only now that we have a UserLogin can we begin syncing.
-			client.BeginSyncingIfUserLoginPresent(ctx)
-			return nil
-		},
-	})
-	if err != nil {
-		softlyClose()
-		return nil, fmt.Errorf("couldn't create login after successful remoteauth: %w", err)
-	}
-	zerolog.Ctx(ctx).Info().
-		Str("user_id", discordUser.ID).
-		Str("user_username", discordUser.Username).
-		Msg("Connected to Discord during login")
 
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeComplete,
 		StepID:       LoginStepIDComplete,
-		Instructions: fmt.Sprintf("Logged in as %s", user.Username),
+		Instructions: dl.CompleteInstructions(),
 		CompleteParams: &bridgev2.LoginCompleteParams{
 			UserLoginID: ul.ID,
 			UserLogin:   ul,
@@ -183,8 +126,9 @@ func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, u
 
 func (dl *DiscordRemoteAuthLogin) Cancel() {
 	dl.User.Log.Debug().Msg("Discord remoteauth cancelled")
+	dl.DiscordGenericLogin.Cancel()
 
-	// remoteauth.Client doesn't seem to expose a cancellation method right now.
+	// remoteauth.Client doesn't seem to expose a cancellation method.
 	close(dl.doneChan)
 	close(dl.qrChan)
 }

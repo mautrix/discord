@@ -20,34 +20,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/database"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
 const LoginFlowIDBrowser = "fi.mau.discord.login.browser"
 
 type DiscordBrowserLogin struct {
-	connector *DiscordConnector
-	User      *bridgev2.User
-
-	Session *discordgo.Session
+	*DiscordGenericLogin
 }
 
 var _ bridgev2.LoginProcessCookies = (*DiscordBrowserLogin)(nil)
-
-func (dl *DiscordBrowserLogin) softlyCloseSession() {
-	dl.User.Log.Debug().Msg("Closing session")
-	err := dl.Session.Close()
-	if err != nil {
-		dl.User.Log.Err(err).Msg("Couldn't close Discord session in response to login cancellation")
-	}
-}
-
-func (dl *DiscordBrowserLogin) Cancel() {
-}
 
 const ExtractDiscordTokenJS = `
 new Promise((resolve) => {
@@ -97,57 +80,15 @@ func (dl *DiscordBrowserLogin) SubmitCookies(ctx context.Context, cookies map[st
 	}
 	log.Debug().Msg("Logging in with submitted cookie")
 
-	// FIXME FIXME: The rest of this method is basically copy and pasted from
-	// DiscordTokenLogin, so find a way to tidy this up.
-
-	session, err := NewDiscordSession(ctx, token)
+	ul, err := dl.FinalizeCreatingLogin(ctx, token)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't create discord session: %w", err)
+		return nil, fmt.Errorf("couldn't log in via browser: %w", err)
 	}
-
-	client := DiscordClient{
-		connector: dl.connector,
-		Session:   session,
-	}
-	client.SetUp(ctx, nil)
-	err = client.connect(ctx)
-	if err != nil {
-		dl.softlyCloseSession()
-		return nil, err
-	}
-	// At this point we've opened a WebSocket connection to the gateway, received
-	// a READY packet, and know who we are.
-	user := session.State.User
-
-	dl.Session = session
-	ul, err := dl.User.NewLogin(ctx, &database.UserLogin{
-		ID: networkid.UserLoginID(user.ID),
-		Metadata: &UserLoginMetadata{
-			Token:            token,
-			HeartbeatSession: session.HeartbeatSession,
-		},
-	}, &bridgev2.NewLoginParams{
-		LoadUserLogin: func(ctx context.Context, login *bridgev2.UserLogin) error {
-			login.Client = &client
-			client.UserLogin = login
-
-			// Only now that we have a UserLogin can we begin syncing.
-			client.BeginSyncingIfUserLoginPresent(ctx)
-			return nil
-		},
-		DeleteOnConflict:  true,
-		DontReuseExisting: false,
-	})
-	if err != nil {
-		dl.softlyCloseSession()
-		return nil, fmt.Errorf("couldn't create login: %w", err)
-	}
-	zerolog.Ctx(ctx).Info().Str("user_id", user.ID).Str("user_username", user.Username).Msg("Connected to Discord during login")
 
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeComplete,
 		StepID:       LoginStepIDComplete,
-		Instructions: fmt.Sprintf("Logged in as %s", user),
+		Instructions: dl.CompleteInstructions(),
 		CompleteParams: &bridgev2.LoginCompleteParams{
 			UserLoginID: ul.ID,
 			UserLogin:   ul,

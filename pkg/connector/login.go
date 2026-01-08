@@ -28,14 +28,14 @@ const LoginStepIDComplete = "fi.mau.discord.login.complete"
 func (d *DiscordConnector) GetLoginFlows() []bridgev2.LoginFlow {
 	return []bridgev2.LoginFlow{
 		{
-			ID:          LoginFlowIDBrowser,
-			Name:        "Browser",
-			Description: "Log in to your Discord account in a web browser.",
-		},
-		{
 			ID:          LoginFlowIDRemoteAuth,
 			Name:        "QR Code",
 			Description: "Scan a QR code with the Discord mobile app to log in.",
+		},
+		{
+			ID:          LoginFlowIDBrowser,
+			Name:        "Browser",
+			Description: "Log in to your Discord account in a web browser.",
 		},
 		{
 			ID:          LoginFlowIDToken,
@@ -46,13 +46,18 @@ func (d *DiscordConnector) GetLoginFlows() []bridgev2.LoginFlow {
 }
 
 func (d *DiscordConnector) CreateLogin(ctx context.Context, user *bridgev2.User, flowID string) (bridgev2.LoginProcess, error) {
+	login := DiscordGenericLogin{
+		connector: d,
+		User:      user,
+	}
+
 	switch flowID {
 	case LoginFlowIDToken:
-		return &DiscordTokenLogin{connector: d, User: user}, nil
+		return &DiscordTokenLogin{DiscordGenericLogin: &login}, nil
 	case LoginFlowIDRemoteAuth:
-		return &DiscordRemoteAuthLogin{connector: d, User: user}, nil
+		return &DiscordRemoteAuthLogin{DiscordGenericLogin: &login}, nil
 	case LoginFlowIDBrowser:
-		return &DiscordBrowserLogin{connector: d, User: user}, nil
+		return &DiscordBrowserLogin{DiscordGenericLogin: &login}, nil
 	default:
 		return nil, fmt.Errorf("unknown discord login flow id")
 	}

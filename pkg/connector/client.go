@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -36,11 +37,15 @@ import (
 )
 
 type DiscordClient struct {
-	connector       *DiscordConnector
-	usersFromReady  map[string]*discordgo.User
-	UserLogin       *bridgev2.UserLogin
-	Session         *discordgo.Session
+	connector      *DiscordConnector
+	usersFromReady map[string]*discordgo.User
+	UserLogin      *bridgev2.UserLogin
+	Session        *discordgo.Session
+
 	hasBegunSyncing bool
+
+	markedOpened     map[string]time.Time
+	markedOpenedLock sync.Mutex
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -73,6 +78,7 @@ var _ bridgev2.NetworkAPI = (*DiscordClient)(nil)
 // nil may be passed for meta, especially during provisioning where we need to
 // connect to the Discord gateway, but don't have a UserLogin yet.
 func (d *DiscordClient) SetUp(ctx context.Context, meta *UserLoginMetadata) {
+	// TODO: Turn this into a factory function like `NewDiscordClient`.
 	log := zerolog.Ctx(ctx)
 
 	// We'll have UserLogin metadata if this UserLogin is being loaded from the
@@ -85,6 +91,8 @@ func (d *DiscordClient) SetUp(ctx context.Context, meta *UserLoginMetadata) {
 		meta.HeartbeatSession.BumpLastUsed()
 		d.Session.HeartbeatSession = meta.HeartbeatSession
 	}
+
+	d.markedOpened = make(map[string]time.Time)
 }
 
 func (d *DiscordClient) Connect(ctx context.Context) {

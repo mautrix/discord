@@ -18,8 +18,10 @@ package connector
 
 import (
 	"context"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -147,7 +149,7 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 		}
 	}
 
-	// TODO: Support guilds.
+	// TODO: Support guilds and threads.
 	channelID := string(msg.Portal.ID)
 	resp, err := d.Session.ChannelMessageAckNoToken(channelID, targetMessageID, discordgo.WithChannelReferer("", channelID))
 	if err != nil {
@@ -164,7 +166,50 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 	return nil
 }
 
+func (d *DiscordClient) viewingChannel(ctx context.Context, portal *bridgev2.Portal) error {
+	// TODO: When guilds are supported, explicitly bail out if this method is called with a guild channel.
+	d.markedOpenedLock.Lock()
+	defer d.markedOpenedLock.Unlock()
+
+	channelID := string(portal.ID)
+	log := zerolog.Ctx(ctx).With().
+		Str("channel_id", channelID).Logger()
+
+	lastMarkedOpenedTs := d.markedOpened[channelID]
+	if lastMarkedOpenedTs.IsZero() {
+		d.markedOpened[channelID] = time.Now()
+
+		err := d.Session.MarkViewing(channelID)
+
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to mark user as viewing channel")
+			return err
+		}
+
+		log.Trace().Msg("Marked channel as being viewed")
+	} else {
+		log.Trace().Str("channel_id", channelID).
+			Msg("Already marked channel as viewed, not doing so")
+	}
+
+	return nil
+}
+
 func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.MatrixTyping) error {
-	//TODO implement me
-	panic("implement me")
+	log := zerolog.Ctx(ctx)
+
+	// Don't mind if this fails.
+	_ = d.viewingChannel(ctx, msg.Portal)
+
+	channelID := string(msg.Portal.ID)
+	// TODO: Support guilds and threads properly when sending the referer.
+	err := d.Session.ChannelTyping(channelID, discordgo.WithChannelReferer("", channelID))
+
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to mark user as typing")
+		return err
+	}
+
+	log.Debug().Msg("Marked user as typing")
+	return nil
 }

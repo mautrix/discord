@@ -31,6 +31,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 const discordEpochMillis = 1420070400000
@@ -109,6 +111,7 @@ func (mc *MessageConverter) ToDiscord(
 	}
 
 	portal := msg.Portal
+	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	channelID := string(portal.ID)
 	content := msg.Content
 
@@ -152,8 +155,8 @@ func (mc *MessageConverter) ToDiscord(
 				Name: att.Filename,
 				ID:   mc.NextDiscordUploadID(),
 			}},
-			// TODO: Populate with guild ID. Support threads.
-		}, discordgo.WithChannelReferer("", channelID))
+			// TODO: Support threads.
+		}, discordgo.WithChannelReferer(guildID, channelID))
 
 		if err != nil {
 			log.Err(err).Msg("Failed to create attachment in preparation for attachment reupload")

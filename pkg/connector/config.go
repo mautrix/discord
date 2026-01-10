@@ -17,9 +17,24 @@
 package connector
 
 import (
-	"go.mau.fi/util/configupgrade"
+	_ "embed"
+
+	up "go.mau.fi/util/configupgrade"
 )
 
-func (d *DiscordConnector) GetConfig() (example string, data any, upgrader configupgrade.Upgrader) {
-	return "", nil, configupgrade.NoopUpgrader
+//go:embed example-config.yaml
+var ExampleConfig string
+
+type Config struct {
+	Guilds struct {
+		BridgingGuildIDs []string `yaml:"bridging_guild_ids"`
+	} `yaml:"guilds"`
+}
+
+func upgradeConfig(helper up.Helper) {
+	helper.Copy(up.List, "guilds", "bridging_guild_ids")
+}
+
+func (d *DiscordConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {
+	return ExampleConfig, &d.Config, up.SimpleUpgrader(upgradeConfig)
 }

@@ -25,6 +25,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 var (
@@ -41,6 +43,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	}
 
 	portal := msg.Portal
+	guildID := portal.Metadata.(*discordid.PortalMetadata).GuildID
 	channelID := string(portal.ID)
 
 	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg)
@@ -50,8 +53,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	var options []discordgo.RequestOption
 	// TODO: When supporting threads (and not a bot user), send a thread referer.
-	// TODO: Pass the guild ID when send messages in guild channels.
-	options = append(options, discordgo.WithChannelReferer("", channelID))
+	options = append(options, discordgo.WithChannelReferer(guildID, channelID))
 
 	sentMsg, err := d.Session.ChannelMessageSendComplex(string(msg.Portal.ID), sendReq, options...)
 	if err != nil {
@@ -84,12 +86,11 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 }
 
 func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (*database.Reaction, error) {
-	key := reaction.Content.RelatesTo.Key
+	relatesToKey := reaction.Content.RelatesTo.Key
 	portal := reaction.Portal
-	// TODO: Support guilds.
-	guildID := ""
+	meta := portal.Metadata.(*discordid.PortalMetadata)
 
-	err := d.Session.MessageReactionAddUser(guildID, string(portal.ID), string(reaction.TargetMessage.ID), key)
+	err := d.Session.MessageReactionAddUser(meta.GuildID, string(portal.ID), string(reaction.TargetMessage.ID), relatesToKey)
 	return nil, err
 }
 
@@ -97,8 +98,7 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 	removing := removal.TargetReaction
 	emojiID := removing.EmojiID
 	channelID := string(removing.Room.ID)
-	// TODO: Support guilds.
-	guildID := ""
+	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 
 	err := d.Session.MessageReactionRemoveUser(guildID, channelID, string(removing.MessageID), string(emojiID), string(d.UserLogin.ID))
 	return err
@@ -149,9 +149,10 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 		}
 	}
 
-	// TODO: Support guilds and threads.
+	// TODO: Support threads.
+	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	channelID := string(msg.Portal.ID)
-	resp, err := d.Session.ChannelMessageAckNoToken(channelID, targetMessageID, discordgo.WithChannelReferer("", channelID))
+	resp, err := d.Session.ChannelMessageAckNoToken(channelID, targetMessageID, discordgo.WithChannelReferer(guildID, channelID))
 	if err != nil {
 		log.Err(err).Msg("Failed to send read receipt to Discord")
 		return err
@@ -167,7 +168,11 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 }
 
 func (d *DiscordClient) viewingChannel(ctx context.Context, portal *bridgev2.Portal) error {
-	// TODO: When guilds are supported, explicitly bail out if this method is called with a guild channel.
+	if portal.Metadata.(*discordid.PortalMetadata).GuildID != "" {
+		// Only private channels need this logic.
+		return nil
+	}
+
 	d.markedOpenedLock.Lock()
 	defer d.markedOpenedLock.Unlock()
 
@@ -201,9 +206,10 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 	// Don't mind if this fails.
 	_ = d.viewingChannel(ctx, msg.Portal)
 
+	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	channelID := string(msg.Portal.ID)
-	// TODO: Support guilds and threads properly when sending the referer.
-	err := d.Session.ChannelTyping(channelID, discordgo.WithChannelReferer("", channelID))
+	// TODO: Support threads properly when sending the referer.
+	err := d.Session.ChannelTyping(channelID, discordgo.WithChannelReferer(guildID, channelID))
 
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to mark user as typing")

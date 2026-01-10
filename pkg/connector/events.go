@@ -21,15 +21,18 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 type DiscordChatResync struct {
+	Client    *DiscordClient
 	channel   *discordgo.Channel
 	portalKey networkid.PortalKey
-	info      *bridgev2.ChatInfo
 }
 
 var (
@@ -55,11 +58,112 @@ func (d *DiscordChatResync) GetType() bridgev2.RemoteEventType {
 	return bridgev2.RemoteEventChatResync
 }
 
-func (d *DiscordChatResync) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
-	if d.info == nil {
-		return nil, nil
+func (d *DiscordChatResync) avatar(ctx context.Context) *bridgev2.Avatar {
+	ch := d.channel
+
+	// TODO make this configurable (ala workspace_avatar_in_rooms)
+	if !d.isPrivate() {
+		guild, err := d.Client.Session.State.Guild(ch.GuildID)
+
+		if err != nil || guild == nil {
+			zerolog.Ctx(ctx).Err(err).Msg("Couldn't look up guild in cache in order to create room avatar")
+			return nil
+		}
+
+		return d.Client.makeAvatarForGuild(guild)
 	}
-	return d.info, nil
+
+	return &bridgev2.Avatar{
+		ID: networkid.AvatarID(ch.Icon),
+		Get: func(ctx context.Context) ([]byte, error) {
+			url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
+			return simpleDownload(ctx, url, "group dm icon")
+		},
+		Remove: ch.Icon == "",
+	}
+}
+
+func (d *DiscordChatResync) privateChannelMemberList() bridgev2.ChatMemberList {
+	ch := d.channel
+
+	var members bridgev2.ChatMemberList
+	members.IsFull = true
+	members.MemberMap = make(bridgev2.ChatMemberMap, len(ch.Recipients))
+	if len(ch.Recipients) > 0 {
+		selfEventSender := d.Client.selfEventSender()
+
+		// Private channels' array of participants doesn't include ourselves,
+		// so inject ourselves as a member.
+		members.MemberMap[selfEventSender.Sender] = bridgev2.ChatMember{EventSender: selfEventSender}
+
+		for _, recipient := range ch.Recipients {
+			sender := d.Client.makeEventSender(recipient)
+			members.MemberMap[sender.Sender] = bridgev2.ChatMember{EventSender: sender}
+		}
+
+		members.TotalMemberCount = len(ch.Recipients)
+	}
+
+	return members
+}
+
+func (d *DiscordChatResync) memberList() bridgev2.ChatMemberList {
+	if d.isPrivate() {
+		return d.privateChannelMemberList()
+	}
+
+	// TODO we're _always_ sending partial member lists for guilds; we can probably
+	// do better
+	selfEventSender := d.Client.selfEventSender()
+
+	return bridgev2.ChatMemberList{
+		IsFull: false,
+		MemberMap: map[networkid.UserID]bridgev2.ChatMember{
+			selfEventSender.Sender: {EventSender: selfEventSender},
+		},
+	}
+}
+
+func (d *DiscordChatResync) isPrivate() bool {
+	ch := d.channel
+	return ch.Type == discordgo.ChannelTypeDM || ch.Type == discordgo.ChannelTypeGroupDM
+}
+
+func (d *DiscordChatResync) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
+	ch := d.channel
+
+	var roomType database.RoomType
+
+	switch ch.Type {
+	case discordgo.ChannelTypeDM:
+		roomType = database.RoomTypeDM
+	case discordgo.ChannelTypeGroupDM:
+		roomType = database.RoomTypeGroupDM
+	}
+
+	info := &bridgev2.ChatInfo{
+		Name:        &ch.Name,
+		Members:     ptr.Ptr(d.memberList()),
+		Avatar:      d.avatar(ctx),
+		Type:        &roomType,
+		CanBackfill: true,
+		ExtraUpdates: func(ctx context.Context, portal *bridgev2.Portal) (changed bool) {
+			meta := portal.Metadata.(*discordid.PortalMetadata)
+			if meta.GuildID != ch.GuildID {
+				meta.GuildID = ch.GuildID
+				changed = true
+			}
+
+			return
+		},
+	}
+
+	if !d.isPrivate() {
+		// Channel belongs to a guild; associate it with the respective space.
+		info.ParentID = ptr.Ptr(d.Client.guildPortalKeyFromID(ch.GuildID).ID)
+	}
+
+	return info, nil
 }
 
 func (d *DiscordChatResync) ShouldCreatePortal() bool {

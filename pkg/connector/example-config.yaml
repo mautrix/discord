@@ -1,0 +1,6 @@
+# Configuration options related to Discord guilds (also known as "servers").
+guilds:
+    # UNSTABLE: The IDs of the guilds to bridge. This is a stopgap measure
+    # during bridge development. If no guild IDs are specified, then no guilds
+    # are bridged at all.
+    bridging_guild_ids: []

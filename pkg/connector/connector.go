@@ -26,6 +26,7 @@ import (
 
 type DiscordConnector struct {
 	Bridge  *bridgev2.Bridge
+	Config  *Config
 	MsgConv *msgconv.MessageConverter
 }
 

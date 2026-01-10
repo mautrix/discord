@@ -33,6 +33,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 
+	"go.mau.fi/util/ptr"
+
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
@@ -202,6 +204,7 @@ func (cl *DiscordClient) BeginSyncingIfUserLoginPresent(ctx context.Context) {
 	}
 
 	go cl.syncPrivateChannels(ctx)
+	go cl.syncGuilds(ctx)
 }
 
 func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
@@ -212,11 +215,197 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 		bts, _ := discordgo.SnowflakeTimestamp(b.LastMessageID)
 		return bts.Compare(ats)
 	})
+
 	// TODO(skip): This is startup_private_channel_create_limit. Support this in the config.
 	for _, dm := range dms[:10] {
 		zerolog.Ctx(ctx).Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
-		d.syncChannel(ctx, dm, true)
+		d.syncChannel(ctx, dm)
 	}
+}
+
+func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Channel) bool {
+	log := zerolog.Ctx(ctx).With().
+		Str("channel_id", ch.ID).
+		Int("channel_type", int(ch.Type)).
+		Str("action", "determine guild channel visbility").Logger()
+
+	sess := d.Session
+	myDiscordUserID := d.Session.State.User.ID
+
+	// To calculate guild channel visibility we need to know our effective permission
+	// bitmask, which can only be truly determined when we know which roles we have
+	// in the guild.
+	//
+	// To this end, make sure we have detailed information about ourselves in the
+	// cache ("state").
+
+	_, err := sess.State.Member(ch.GuildID, myDiscordUserID)
+	if errors.Is(err, discordgo.ErrStateNotFound) {
+		log.Debug().Msg("Fetching own membership in guild to check roles")
+
+		member, err := sess.GuildMember(ch.GuildID, myDiscordUserID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get own membership in guild from server")
+		} else {
+			err = sess.State.MemberAdd(member)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to add own membership in guild to cache")
+			}
+		}
+	} else if err != nil {
+		log.Warn().Err(err).Msg("Failed to get own membership in guild from cache")
+	}
+
+	err = sess.State.ChannelAdd(ch)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to add channel to cache")
+	}
+
+	perms, err := sess.State.UserChannelPermissions(myDiscordUserID, ch.ID)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get permissions in channel to determine if it's bridgeable")
+		return true
+	}
+
+	canView := perms&discordgo.PermissionViewChannel > 0
+	log.Debug().
+		Int64("permissions", perms).
+		Bool("channel_visible", canView).
+		Msg("Computed visibility of guild channel")
+	return canView
+}
+
+// The string prepended to [networkid.PortalKey]s identifying spaces that
+// bridge Discord guilds.
+//
+// Every Discord guild created before August 2017 contained an channel
+// having _the same ID as the guild itself_. This channel also functioned as
+// the "default channel" in that incoming members would view this channel by
+// default. It was also impossible to delete.
+//
+// After this date, these "default channels" became deletable, and fresh guilds
+// were no longer created with a channel that exactly corresponded to the guild
+// ID.
+//
+// To accommodate Discord guilds created before this API change that have also
+// never deleted the default channel, we need a way to distinguish between the
+// guild and the default channel, as we wouldn't be able to bridge the guild
+// as a space otherwise.
+//
+// "*" was chosen as the asterisk character is used to filter by guilds in
+// the quick switcher (in Discord's first-party clients).
+//
+// For more information, see: https://discord.com/developers/docs/change-log#breaking-change-default-channels:~:text=New%20guilds%20will%20no%20longer.
+const guildPortalKeySigil = "*"
+
+func (d *DiscordClient) guildPortalKeyFromID(guildID string) networkid.PortalKey {
+	// TODO: Support configuring `split_portals`.
+	return networkid.PortalKey{
+		ID:       networkid.PortalID(guildPortalKeySigil + guildID),
+		Receiver: d.UserLogin.ID,
+	}
+}
+
+func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Avatar {
+	return &bridgev2.Avatar{
+		ID: networkid.AvatarID(guild.Icon),
+		Get: func(ctx context.Context) ([]byte, error) {
+			url := discordgo.EndpointGuildIcon(guild.ID, guild.Icon)
+			return simpleDownload(ctx, url, "group dm icon")
+		},
+		Remove: guild.Icon == "",
+	}
+}
+
+func (d *DiscordClient) syncGuildSpace(ctx context.Context, guild *discordgo.Guild) error {
+	prt, err := d.connector.Bridge.GetPortalByKey(ctx, d.guildPortalKeyFromID(guild.ID))
+	if err != nil {
+		return fmt.Errorf("couldn't get/create portal corresponding to guild: %w", err)
+	}
+
+	selfEvtSender := d.selfEventSender()
+	info := &bridgev2.ChatInfo{
+		Name:  &guild.Name,
+		Topic: nil,
+		Members: &bridgev2.ChatMemberList{
+			MemberMap: map[networkid.UserID]bridgev2.ChatMember{selfEvtSender.Sender: {EventSender: selfEvtSender}},
+
+			// As recommended by the spec, prohibit normal events by setting
+			// `events_default` to a suitably high number.
+			PowerLevels: &bridgev2.PowerLevelOverrides{EventsDefault: ptr.Ptr(100)},
+		},
+		Avatar: d.makeAvatarForGuild(guild),
+		Type:   ptr.Ptr(database.RoomTypeSpace),
+	}
+
+	if prt.MXID == "" {
+		err := prt.CreateMatrixRoom(ctx, d.UserLogin, info)
+
+		if err != nil {
+			return fmt.Errorf("couldn't create room in order to materialize guild portal: %w", err)
+		}
+	} else {
+		prt.UpdateInfo(ctx, info, d.UserLogin, nil, time.Time{})
+	}
+
+	return nil
+}
+
+func (d *DiscordClient) syncGuilds(ctx context.Context) {
+	guildIDs := d.connector.Config.Guilds.BridgingGuildIDs
+
+	for _, guildID := range guildIDs {
+		log := zerolog.Ctx(ctx).With().
+			Str("guild_id", guildID).
+			Str("action", "sync guild").
+			Logger()
+
+		guild, err := d.Session.State.Guild(guildID)
+		if errors.Is(err, discordgo.ErrStateNotFound) || guild == nil {
+			log.Err(err).Msg("Couldn't find guild, user isn't a member?")
+			continue
+		}
+
+		err = d.syncGuildSpace(ctx, guild)
+		if err != nil {
+			log.Err(err).Msg("Couldn't sync guild space portal")
+			continue
+		}
+
+		for _, guildCh := range guild.Channels {
+			if guildCh.Type != discordgo.ChannelTypeGuildText {
+				// TODO implement categories (spaces) and news channels
+				log.Trace().
+					Str("channel_id", guildCh.ID).
+					Int("channel_type", int(guildCh.Type)).
+					Msg("Not bridging guild channel due to type")
+				continue
+			}
+
+			if !d.canSeeGuildChannel(ctx, guildCh) {
+				log.Trace().
+					Str("channel_id", guildCh.ID).
+					Int("channel_type", int(guildCh.Type)).
+					Msg("Not bridging guild channel that the user doesn't have permission to view")
+
+				continue
+			}
+
+			d.syncChannel(ctx, guildCh)
+		}
+
+		log.Debug().Msg("Subscribing to guild after bridging")
+		err = d.Session.SubscribeGuild(discordgo.GuildSubscribeData{
+			GuildID:    guild.ID,
+			Typing:     true,
+			Activities: true,
+			Threads:    true,
+		})
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to subscribe to guild")
+		}
+	}
+
 }
 
 func simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {
@@ -238,17 +427,6 @@ func simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {
 	return data, nil
 }
 
-func makeChannelAvatar(ch *discordgo.Channel) *bridgev2.Avatar {
-	return &bridgev2.Avatar{
-		ID: networkid.AvatarID(ch.Icon),
-		Get: func(ctx context.Context) ([]byte, error) {
-			url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
-			return simpleDownload(ctx, url, "group dm icon")
-		},
-		Remove: ch.Icon == "",
-	}
-}
-
 func (d *DiscordClient) makeEventSenderWithID(userID string) bridgev2.EventSender {
 	return bridgev2.EventSender{
 		IsFromMe:    userID == d.Session.State.User.ID,
@@ -257,49 +435,18 @@ func (d *DiscordClient) makeEventSenderWithID(userID string) bridgev2.EventSende
 	}
 }
 
+func (d *DiscordClient) selfEventSender() bridgev2.EventSender {
+	return d.makeEventSenderWithID(d.Session.State.User.ID)
+}
+
 func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
 	return d.makeEventSenderWithID(user.ID)
 }
 
-func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel, selfIsInChannel bool) {
-	isGroup := len(ch.RecipientIDs) > 1
-
-	var roomType database.RoomType
-	if isGroup {
-		roomType = database.RoomTypeGroupDM
-	} else {
-		roomType = database.RoomTypeDM
-	}
-
-	selfEventSender := d.makeEventSender(d.Session.State.User)
-
-	var members bridgev2.ChatMemberList
-	members.IsFull = true
-	members.MemberMap = make(bridgev2.ChatMemberMap, len(ch.Recipients))
-	if len(ch.Recipients) > 0 {
-		// Private channels' array of participants doesn't include ourselves,
-		// so this boolean can be used to inject ourselves as a member.
-		if selfIsInChannel {
-			members.MemberMap[selfEventSender.Sender] = bridgev2.ChatMember{EventSender: selfEventSender}
-		}
-
-		for _, recipient := range ch.Recipients {
-			sender := d.makeEventSender(recipient)
-			members.MemberMap[sender.Sender] = bridgev2.ChatMember{EventSender: sender}
-		}
-
-		members.TotalMemberCount = len(ch.Recipients)
-	}
-
+func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel) {
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
+		Client:    d,
 		channel:   ch,
 		portalKey: discordid.MakePortalKey(ch, d.UserLogin.ID, true),
-		info: &bridgev2.ChatInfo{
-			Name:        &ch.Name,
-			Members:     &members,
-			Avatar:      makeChannelAvatar(ch),
-			Type:        &roomType,
-			CanBackfill: true,
-		},
 	})
 }

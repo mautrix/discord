@@ -18,6 +18,15 @@ package discordid
 
 import "github.com/bwmarrin/discordgo"
 
+type PortalMetadata struct {
+	// The ID of the Discord guild that the channel corresponding to this portal
+	// belongs to.
+	//
+	// For private channels (DMs and group DMs), this will be the zero value
+	// (an empty string).
+	GuildID string `json:"guild_id"`
+}
+
 type UserLoginMetadata struct {
 	Token            string                     `json:"token"`
 	HeartbeatSession discordgo.HeartbeatSession `json:"heartbeat_session"`

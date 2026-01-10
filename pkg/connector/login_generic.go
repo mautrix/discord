@@ -25,6 +25,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 // DiscordGenericLogin is embedded within each struct that implements
@@ -70,7 +72,7 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 	dl.Session = session
 	ul, err := dl.User.NewLogin(ctx, &database.UserLogin{
 		ID: networkid.UserLoginID(user.ID),
-		Metadata: &UserLoginMetadata{
+		Metadata: &discordid.UserLoginMetadata{
 			Token:            token,
 			HeartbeatSession: session.HeartbeatSession,
 		},

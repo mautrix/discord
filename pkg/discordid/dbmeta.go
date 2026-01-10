@@ -14,18 +14,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package connector
+package discordid
 
-import (
-	"maunium.net/go/mautrix/bridgev2/database"
+import "github.com/bwmarrin/discordgo"
 
-	"go.mau.fi/mautrix-discord/pkg/discordid"
-)
-
-func (d *DiscordConnector) GetDBMetaTypes() database.MetaTypes {
-	return database.MetaTypes{
-		UserLogin: func() any {
-			return &discordid.UserLoginMetadata{}
-		},
-	}
+type UserLoginMetadata struct {
+	Token            string                     `json:"token"`
+	HeartbeatSession discordgo.HeartbeatSession `json:"heartbeat_session"`
 }

@@ -49,7 +49,7 @@ type DiscordClient struct {
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
-	meta := login.Metadata.(*UserLoginMetadata)
+	meta := login.Metadata.(*discordid.UserLoginMetadata)
 
 	session, err := NewDiscordSession(ctx, meta.Token)
 	login.Save(ctx)
@@ -77,7 +77,7 @@ var _ bridgev2.NetworkAPI = (*DiscordClient)(nil)
 //
 // nil may be passed for meta, especially during provisioning where we need to
 // connect to the Discord gateway, but don't have a UserLogin yet.
-func (d *DiscordClient) SetUp(ctx context.Context, meta *UserLoginMetadata) {
+func (d *DiscordClient) SetUp(ctx context.Context, meta *discordid.UserLoginMetadata) {
 	// TODO: Turn this into a factory function like `NewDiscordClient`.
 	log := zerolog.Ctx(ctx)
 

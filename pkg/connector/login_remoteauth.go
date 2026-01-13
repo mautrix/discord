@@ -31,6 +31,7 @@ const LoginFlowIDRemoteAuth = "fi.mau.discord.login.remote_auth"
 type DiscordRemoteAuthLogin struct {
 	*DiscordGenericLogin
 
+	hasClosed        bool
 	remoteAuthClient *remoteauth.Client
 	qrChan           chan string
 	doneChan         chan struct{}
@@ -125,6 +126,12 @@ func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, u
 }
 
 func (dl *DiscordRemoteAuthLogin) Cancel() {
+	// Tolerate multiple attempts to cancel.
+	if dl.hasClosed {
+		return
+	}
+	dl.hasClosed = true
+
 	dl.User.Log.Debug().Msg("Discord remoteauth cancelled")
 	dl.DiscordGenericLogin.Cancel()
 

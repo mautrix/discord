@@ -488,9 +488,11 @@ func (mc *MessageConverter) renderDiscordLinkEmbedImage(ctx context.Context, int
 	}
 	preview.ImageSize = event.IntOrString(reupload.DownloadedSize)
 	preview.ImageType = reupload.MimeType
-	preview.ImageEncryption = &event.EncryptedFileInfo{
-		EncryptedFile: reupload.EncryptedFile.EncryptedFile,
-		URL:           reupload.MXC,
+	if reupload.EncryptedFile != nil {
+		preview.ImageEncryption = &event.EncryptedFileInfo{
+			EncryptedFile: reupload.EncryptedFile.EncryptedFile,
+			URL:           reupload.MXC,
+		}
 	}
 }
 

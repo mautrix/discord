@@ -34,5 +34,6 @@ type ReuploadedAttachment struct {
 	AttachmentReupload
 	DownloadedSize int
 	MXC            id.ContentURIString
-	EncryptedFile  *event.EncryptedFileInfo
+	// This can be nil if the room isn't encrypted.
+	EncryptedFile *event.EncryptedFileInfo
 }

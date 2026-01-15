@@ -311,7 +311,7 @@ func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Ava
 		ID: networkid.AvatarID(guild.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
 			url := discordgo.EndpointGuildIcon(guild.ID, guild.Icon)
-			return simpleDownload(ctx, url, "group dm icon")
+			return simpleDownload(ctx, url, "guild icon")
 		},
 		Remove: guild.Icon == "",
 	}

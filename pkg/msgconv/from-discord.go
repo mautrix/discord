@@ -289,7 +289,11 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, intent 
 			MimeType: reupload.MimeType,
 			Size:     reupload.DownloadedSize,
 		},
-		File: reupload.EncryptedFile,
+	}
+	if reupload.EncryptedFile != nil {
+		content.File = reupload.EncryptedFile
+	} else {
+		content.URL = reupload.MXC
 	}
 
 	if embed.Video != nil {
@@ -570,8 +574,11 @@ func (mc *MessageConverter) renderDiscordAttachment(ctx context.Context, intent 
 		content.Info.Width = att.Width
 		content.Info.Height = att.Height
 	}
-	content.URL = reupload.MXC
-	content.File = reupload.EncryptedFile
+	if reupload.EncryptedFile != nil {
+		content.File = reupload.EncryptedFile
+	} else {
+		content.URL = reupload.MXC
+	}
 
 	return &bridgev2.ConvertedMessagePart{
 		Type:    event.EventMessage,

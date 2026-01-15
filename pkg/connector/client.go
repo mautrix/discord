@@ -115,10 +115,6 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 	if err := d.connect(ctx); err != nil {
 		log.Err(err).Msg("Couldn't connect to Discord")
 	}
-	// TODO(skip): Use event handler and send this in response to READY/RESUMED instead?
-	d.UserLogin.BridgeState.Send(status.BridgeState{
-		StateEvent: status.StateConnected,
-	})
 }
 
 func (cl *DiscordClient) handleDiscordEventSync(event any) {

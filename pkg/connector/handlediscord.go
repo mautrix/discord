@@ -25,6 +25,7 @@ import (
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/status"
 )
 
 type DiscordEventMeta struct {
@@ -193,6 +194,16 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		Logger()
 
 	switch evt := rawEvt.(type) {
+	case *discordgo.Ready:
+		log.Info().Msg("Received READY dispatch from discordgo")
+		d.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateConnected,
+		})
+	case *discordgo.Resumed:
+		log.Info().Msg("Received RESUMED dispatch from discordgo")
+		d.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateConnected,
+		})
 	case *discordgo.MessageCreate:
 		if evt.Author == nil {
 			log.Trace().Int("message_type", int(evt.Message.Type)).

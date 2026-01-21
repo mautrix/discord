@@ -130,7 +130,7 @@ bridge:
     message_error_notices: true
     # Should the bridge use space-restricted join rules instead of invite-only for guild rooms?
     # This can avoid unnecessary invite events in guild rooms when members are synced in.
-    restricted_rooms: true
+    restricted_rooms: false
     # Should the bridge automatically join the user to threads on Discord when the thread is opened on Matrix?
     # This only works with clients that support thread read receipts (MSC3771 added in Matrix v1.4).
     autojoin_thread_on_open: true

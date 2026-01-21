@@ -1,4 +1,12 @@
 # mautrix-discord
+
+> [!CAUTION]
+> This branch houses a work-in-progress rewrite of the bridge to interface with
+> [Megabridge/"bridgev2"][bridgev2]. This branch is **NOT** ready for general
+> consumption, especially for self-hosting.
+
+[bridgev2]: https://github.com/mautrix/go/tree/38278ef37d199d3a9deba04b825a094eea6c1d10/bridgev2/unorganized-docs
+
 A Matrix-Discord puppeting bridge based on [discordgo](https://github.com/bwmarrin/discordgo).
 
 ## Documentation

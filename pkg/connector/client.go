@@ -360,52 +360,62 @@ func (d *DiscordClient) syncGuilds(ctx context.Context) {
 			Str("action", "sync guild").
 			Logger()
 
-		guild, err := d.Session.State.Guild(guildID)
-		if errors.Is(err, discordgo.ErrStateNotFound) || guild == nil {
-			log.Err(err).Msg("Couldn't find guild, user isn't a member?")
-			continue
-		}
-
-		err = d.syncGuildSpace(ctx, guild)
+		err := d.bridgeGuild(log.WithContext(ctx), guildID)
 		if err != nil {
-			log.Err(err).Msg("Couldn't sync guild space portal")
-			continue
-		}
-
-		for _, guildCh := range guild.Channels {
-			if guildCh.Type != discordgo.ChannelTypeGuildText {
-				// TODO implement categories (spaces) and news channels
-				log.Trace().
-					Str("channel_id", guildCh.ID).
-					Int("channel_type", int(guildCh.Type)).
-					Msg("Not bridging guild channel due to type")
-				continue
-			}
-
-			if !d.canSeeGuildChannel(ctx, guildCh) {
-				log.Trace().
-					Str("channel_id", guildCh.ID).
-					Int("channel_type", int(guildCh.Type)).
-					Msg("Not bridging guild channel that the user doesn't have permission to view")
-
-				continue
-			}
-
-			d.syncChannel(ctx, guildCh)
-		}
-
-		log.Debug().Msg("Subscribing to guild after bridging")
-		err = d.Session.SubscribeGuild(discordgo.GuildSubscribeData{
-			GuildID:    guild.ID,
-			Typing:     true,
-			Activities: true,
-			Threads:    true,
-		})
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to subscribe to guild")
+			log.Err(err).Msg("Couldn't bridge guild during sync")
 		}
 	}
+}
 
+func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
+	log := zerolog.Ctx(ctx)
+
+	guild, err := d.Session.State.Guild(guildID)
+	if errors.Is(err, discordgo.ErrStateNotFound) || guild == nil {
+		log.Err(err).Msg("Couldn't find guild, user isn't a member?")
+		return errors.New("couldn't find guild in state")
+	}
+
+	err = d.syncGuildSpace(ctx, guild)
+	if err != nil {
+		log.Err(err).Msg("Couldn't sync guild space portal")
+		return fmt.Errorf("couldn't sync guild space portal: %w", err)
+	}
+
+	for _, guildCh := range guild.Channels {
+		if guildCh.Type != discordgo.ChannelTypeGuildText {
+			// TODO implement categories (spaces) and news channels
+			log.Trace().
+				Str("channel_id", guildCh.ID).
+				Int("channel_type", int(guildCh.Type)).
+				Msg("Not bridging guild channel due to type")
+			continue
+		}
+
+		if !d.canSeeGuildChannel(ctx, guildCh) {
+			log.Trace().
+				Str("channel_id", guildCh.ID).
+				Int("channel_type", int(guildCh.Type)).
+				Msg("Not bridging guild channel that the user doesn't have permission to view")
+
+			continue
+		}
+
+		d.syncChannel(ctx, guildCh)
+	}
+
+	log.Debug().Msg("Subscribing to guild after bridging")
+	err = d.Session.SubscribeGuild(discordgo.GuildSubscribeData{
+		GuildID:    guild.ID,
+		Typing:     true,
+		Activities: true,
+		Threads:    true,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to subscribe to guild; proceeding")
+	}
+
+	return nil
 }
 
 func simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {

@@ -213,7 +213,11 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 	})
 
 	// TODO(skip): This is startup_private_channel_create_limit. Support this in the config.
-	for _, dm := range dms[:10] {
+	maxDms := 10
+	if maxDms > len(dms) {
+		maxDms = len(dms)
+	}
+	for _, dm := range dms[:maxDms] {
 		zerolog.Ctx(ctx).Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
 		d.syncChannel(ctx, dm)
 	}

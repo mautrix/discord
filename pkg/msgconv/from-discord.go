@@ -51,6 +51,10 @@ func (mc *MessageConverter) ToMatrix(
 		parts = append(parts, textPart)
 	}
 
+	ctx = zerolog.Ctx(ctx).With().
+		Str("action", "convert discord message to matrix").
+		Str("message_id", msg.ID).
+		Logger().WithContext(ctx)
 	log := zerolog.Ctx(ctx)
 	handledIDs := make(map[string]struct{})
 
@@ -167,38 +171,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 		len(msg.MessageSnapshots) > 0 &&
 		msg.MessageSnapshots[0].Message != nil {
 		// Bridge forwarded messages.
-
-		forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, msg.MessageSnapshots[0].Message.Content, true)
-		msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
-		origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
-		if forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, discordid.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
-			if origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, networkid.MessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
-				// We've bridged the message that was forwarded, so we can link to it directly.
-				origLink = fmt.Sprintf(
-					`<a href="%s">#%s • %s</a>`,
-					forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.Bridge.Matrix.ServerName()),
-					forwardedFromPortal.Name,
-					msgTSText,
-				)
-			} else if err != nil {
-				log.Err(err).Msg("Couldn't find corresponding message when bridging forwarded message")
-			} else if forwardedFromPortal.MXID != "" {
-				// We don't have the message but we have the portal, so link to that.
-				origLink = fmt.Sprintf(
-					`<a href="%s">#%s</a> • %s`,
-					forwardedFromPortal.MXID.URI(mc.Bridge.Matrix.ServerName()),
-					forwardedFromPortal.Name,
-					msgTSText,
-				)
-			} else if forwardedFromPortal.Name != "" {
-				// We only have the name of the portal.
-				origLink = fmt.Sprintf("%s • %s", forwardedFromPortal.Name, msgTSText)
-			}
-		} else {
-			log.Err(err).Msg("Couldn't find corresponding portal when bridging forwarded message")
-		}
-
-		htmlParts = append(htmlParts, fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink))
+		htmlParts = append(htmlParts, mc.forwardedMessageHtmlPart(ctx, portal, source, msg))
 	}
 
 	previews := make([]*event.BeeperLinkPreview, 0)
@@ -245,6 +218,42 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	}
 
 	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
+}
+
+func (mc *MessageConverter) forwardedMessageHtmlPart(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, msg *discordgo.Message) string {
+	log := zerolog.Ctx(ctx)
+
+	forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, msg.MessageSnapshots[0].Message.Content, true)
+	msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
+	origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
+	if forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, discordid.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
+		if origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, networkid.MessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
+			// We've bridged the message that was forwarded, so we can link to it directly.
+			origLink = fmt.Sprintf(
+				`<a href="%s">#%s • %s</a>`,
+				forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.Bridge.Matrix.ServerName()),
+				forwardedFromPortal.Name,
+				msgTSText,
+			)
+		} else if err != nil {
+			log.Err(err).Msg("Couldn't find corresponding message when bridging forwarded message")
+		} else if forwardedFromPortal.MXID != "" {
+			// We don't have the message but we have the portal, so link to that.
+			origLink = fmt.Sprintf(
+				`<a href="%s">#%s</a> • %s`,
+				forwardedFromPortal.MXID.URI(mc.Bridge.Matrix.ServerName()),
+				forwardedFromPortal.Name,
+				msgTSText,
+			)
+		} else if forwardedFromPortal.Name != "" {
+			// We only have the name of the portal.
+			origLink = fmt.Sprintf("%s • %s", forwardedFromPortal.Name, msgTSText)
+		}
+	} else {
+		log.Err(err).Msg("Couldn't find corresponding portal when bridging forwarded message")
+	}
+
+	return fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink)
 }
 
 func mediaFailedMessage(err error) *event.MessageEventContent {

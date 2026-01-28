@@ -122,7 +122,18 @@ func (mc *MessageConverter) ToMatrix(
 		part.ID = networkid.PartID(strconv.Itoa(i))
 	}
 
-	return &bridgev2.ConvertedMessage{Parts: parts}
+	converted := &bridgev2.ConvertedMessage{Parts: parts}
+	// TODO This is sorta gross; it might be worth bundling these parameters
+	// into a struct.
+	mc.tryAddingReplyToConvertedMessage(
+		ctx,
+		converted,
+		portal,
+		source,
+		msg,
+	)
+
+	return converted
 }
 
 const forwardTemplateHTML = `<blockquote>
@@ -136,6 +147,58 @@ const msgInteractionTemplateHTML = `<blockquote>
 </blockquote>`
 
 const msgComponentTemplateHTML = `<p>This message contains interactive elements. Use the Discord app to interact with the message.</p>`
+
+func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
+	ctx context.Context,
+	converted *bridgev2.ConvertedMessage,
+	portal *bridgev2.Portal,
+	source *bridgev2.UserLogin,
+	msg *discordgo.Message,
+) {
+	ref := msg.MessageReference
+	if ref == nil {
+		return
+	}
+	// TODO: Support threads.
+
+	log := zerolog.Ctx(ctx).With().
+		Str("referenced_channel_id", ref.ChannelID).
+		Str("referenced_guild_id", ref.GuildID).
+		Str("referenced_message_id", ref.MessageID).Logger()
+
+	// The portal containing the message that was replied to.
+	targetPortal := portal
+	if ref.ChannelID != string(portal.ID) {
+		var err error
+		targetPortal, err = mc.Bridge.GetPortalByKey(ctx, discordid.MakePortalKeyWithID(ref.ChannelID))
+		if err != nil {
+			log.Err(err).Msg("Failed to get cross-room reply portal; proceeding")
+			return
+		}
+
+		if targetPortal == nil {
+			return
+		}
+	}
+
+	messageID := networkid.MessageID(ref.MessageID)
+	repliedToMatrixMsg, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, messageID)
+	if err != nil {
+		log.Err(err).Msg("Failed to query database for first message part; proceeding")
+		return
+	}
+	if repliedToMatrixMsg == nil {
+		log.Debug().Msg("Couldn't find a first message part for reply target; proceeding")
+		return
+	}
+
+	converted.ReplyTo = &networkid.MessageOptionalPartID{
+		MessageID: repliedToMatrixMsg.ID,
+		PartID:    &repliedToMatrixMsg.PartID,
+	}
+	converted.ReplyToRoom = targetPortal.PortalKey
+	converted.ReplyToUser = repliedToMatrixMsg.SenderID
+}
 
 func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, msg *discordgo.Message, source *bridgev2.UserLogin) *bridgev2.ConvertedMessagePart {
 	log := zerolog.Ctx(ctx)

@@ -123,7 +123,7 @@ func (d *MessageConverter) ReuploadMedia(
 		if mimeType == "" {
 			mimeBuf := make([]byte, 512)
 			n, err := file.(*os.File).ReadAt(mimeBuf, 0)
-			if err != nil {
+			if err != nil && !errors.Is(err, io.EOF) {
 				return nil, fmt.Errorf("couldn't read file for mime detection: %w", err)
 			}
 			mimeType = http.DetectContentType(mimeBuf[:n])

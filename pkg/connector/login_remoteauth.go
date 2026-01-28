@@ -26,7 +26,7 @@ import (
 	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 )
 
-const LoginFlowIDRemoteAuth = "fi.mau.discord.login.remote_auth"
+const LoginFlowIDRemoteAuth = "qr"
 
 type DiscordRemoteAuthLogin struct {
 	*DiscordGenericLogin

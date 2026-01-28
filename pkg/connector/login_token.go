@@ -23,7 +23,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 )
 
-const LoginFlowIDToken = "fi.mau.discord.login.token"
+const LoginFlowIDToken = "DEBUG_USERINPUT_token"
 
 type DiscordTokenLogin struct {
 	*DiscordGenericLogin

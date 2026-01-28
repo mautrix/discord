@@ -24,7 +24,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 )
 
-const LoginFlowIDBrowser = "fi.mau.discord.login.browser"
+const LoginFlowIDBrowser = "token"
 
 type DiscordBrowserLogin struct {
 	*DiscordGenericLogin

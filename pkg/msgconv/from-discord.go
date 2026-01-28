@@ -249,7 +249,7 @@ func (mc *MessageConverter) forwardedMessageHtmlPart(ctx context.Context, portal
 			// We only have the name of the portal.
 			origLink = fmt.Sprintf("%s • %s", forwardedFromPortal.Name, msgTSText)
 		}
-	} else {
+	} else if err != nil {
 		log.Err(err).Msg("Couldn't find corresponding portal when bridging forwarded message")
 	}
 

@@ -139,12 +139,13 @@ const msgComponentTemplateHTML = `<p>This message contains interactive elements.
 
 func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, msg *discordgo.Message, source *bridgev2.UserLogin) *bridgev2.ConvertedMessagePart {
 	log := zerolog.Ctx(ctx)
-	if msg.Type == discordgo.MessageTypeCall {
+	switch msg.Type {
+	case discordgo.MessageTypeCall:
 		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgEmote,
 			Body:    "started a call",
 		}}
-	} else if msg.Type == discordgo.MessageTypeGuildMemberJoin {
+	case discordgo.MessageTypeGuildMemberJoin:
 		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgEmote,
 			Body:    "joined the server",

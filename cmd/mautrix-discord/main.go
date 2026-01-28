@@ -33,7 +33,8 @@ var m = mxmain.BridgeMain{
 	Name:        "mautrix-discord",
 	Description: "A Matrix-Discord puppeting bridge",
 	URL:         "https://github.com/mautrix/discord",
-	Version:     "0.8.0",
+	Version:     "26.03",
+	SemCalVer:   true,
 	Connector:   c,
 }
 

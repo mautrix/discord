@@ -100,7 +100,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 
 		converted = append(converted, &bridgev2.BackfillMessage{
 			ID:               networkid.MessageID(msg.ID),
-			ConvertedMessage: dc.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, msg),
+			ConvertedMessage: dc.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, dc.Session, msg),
 			Sender:           sender,
 			Timestamp:        ts,
 			StreamOrder:      streamOrder,

@@ -30,12 +30,19 @@ type DiscordConnector struct {
 	MsgConv *msgconv.MessageConverter
 }
 
-var _ bridgev2.NetworkConnector = (*DiscordConnector)(nil)
+var (
+	_ bridgev2.NetworkConnector      = (*DiscordConnector)(nil)
+	_ bridgev2.MaxFileSizeingNetwork = (*DiscordConnector)(nil)
+)
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
 	d.Bridge = bridge
-	d.MsgConv = msgconv.NewMessageConverter(bridge, d.ReuploadMedia)
+	d.MsgConv = msgconv.NewMessageConverter(bridge)
 	d.setUpProvisioningAPIs()
+}
+
+func (d *DiscordConnector) SetMaxFileSize(maxSize int64) {
+	d.MsgConv.MaxFileSize = maxSize
 }
 
 func (d *DiscordConnector) Start(ctx context.Context) error {

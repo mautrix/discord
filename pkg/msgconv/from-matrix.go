@@ -99,6 +99,8 @@ func (mc *MessageConverter) ToDiscord(
 	session *discordgo.Session,
 	msg *bridgev2.MatrixMessage,
 ) (*discordgo.MessageSend, error) {
+	ctx = context.WithValue(ctx, contextKeyPortal, msg.Portal)
+	ctx = context.WithValue(ctx, contextKeyDiscordClient, session)
 	var req discordgo.MessageSend
 	req.Nonce = generateMessageNonce()
 	log := zerolog.Ctx(ctx)

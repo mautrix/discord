@@ -553,6 +553,38 @@ func (portal *Portal) convertDiscordRichEmbed(ctx context.Context, intent *appse
 	return compiledHTML
 }
 
+func resolveComponents(htmlParts []string, components []discordgo.MessageComponent) []string {
+	for i := 0; i < len(components); i++ {
+		item := components[i]
+
+		switch item.Type() {
+		case discordgo.ContainerComponent:
+			container := item.(*discordgo.Container)
+			fmt.Println("recursion")
+			htmlParts = resolveComponents(htmlParts, container.Components)
+		case discordgo.SectionComponent:
+			container := item.(*discordgo.Section)
+			fmt.Println("recursion")
+			htmlParts = resolveComponents(htmlParts, container.Components)
+		case discordgo.TextDisplayComponent:
+			text := item.(*discordgo.TextDisplay)
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, text.Content))
+		}
+	}
+
+	return htmlParts
+}
+
+func (portal *Portal) convertDiscordComponents(ctx context.Context, intent *appservice.IntentAPI, components []discordgo.MessageComponent, msgID string) string {
+	//log := zerolog.Ctx(ctx)
+	var result []string
+
+	htmlParts := resolveComponents(result, components)
+
+	compiledHTML := strings.Join(htmlParts, "")
+	return compiledHTML
+}
+
 type BeeperLinkPreview struct {
 	mautrix.RespPreviewURL
 	MatchedURL      string                   `json:"matched_url"`
@@ -758,7 +790,8 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	}
 
 	if len(msg.Components) > 0 {
-		htmlParts = append(htmlParts, msgComponentTemplateHTML)
+		htmlParts = append(htmlParts, portal.convertDiscordComponents(log.WithContext(ctx), intent, msg.Components, msg.ID))
+		//htmlParts = append(htmlParts, msgComponentTemplateHTML)
 	}
 
 	if len(htmlParts) == 0 {

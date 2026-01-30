@@ -553,7 +553,7 @@ func (portal *Portal) convertDiscordRichEmbed(ctx context.Context, intent *appse
 	return compiledHTML
 }
 
-func resolveComponents(htmlParts []string, components []discordgo.MessageComponent) []string {
+func (portal *Portal) resolveComponents(htmlParts []string, components []discordgo.MessageComponent) []string {
 	for i := 0; i < len(components); i++ {
 		item := components[i]
 
@@ -561,14 +561,14 @@ func resolveComponents(htmlParts []string, components []discordgo.MessageCompone
 		case discordgo.ContainerComponent:
 			container := item.(*discordgo.Container)
 			fmt.Println("recursion")
-			htmlParts = resolveComponents(htmlParts, container.Components)
+			htmlParts = portal.resolveComponents(htmlParts, container.Components)
 		case discordgo.SectionComponent:
 			container := item.(*discordgo.Section)
 			fmt.Println("recursion")
-			htmlParts = resolveComponents(htmlParts, container.Components)
+			htmlParts = portal.resolveComponents(htmlParts, container.Components)
 		case discordgo.TextDisplayComponent:
 			text := item.(*discordgo.TextDisplay)
-			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, text.Content))
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, portal.renderDiscordMarkdownOnlyHTML(text.Content, true)))
 		}
 	}
 
@@ -579,9 +579,10 @@ func (portal *Portal) convertDiscordComponents(ctx context.Context, intent *apps
 	//log := zerolog.Ctx(ctx)
 	var result []string
 
-	htmlParts := resolveComponents(result, components)
+	htmlParts := portal.resolveComponents(result, components)
 
 	compiledHTML := strings.Join(htmlParts, "")
+	compiledHTML = fmt.Sprintf(embedHTMLWrapper, compiledHTML)
 	return compiledHTML
 }
 

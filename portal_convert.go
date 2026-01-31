@@ -553,22 +553,32 @@ func (portal *Portal) convertDiscordRichEmbed(ctx context.Context, intent *appse
 	return compiledHTML
 }
 
-func (portal *Portal) resolveComponents(htmlParts []string, components []discordgo.MessageComponent) []string {
+func (portal *Portal) resolveComponents(ctx context.Context, intent *appservice.IntentAPI, htmlParts []string, components []discordgo.MessageComponent) []string {
+	log := zerolog.Ctx(ctx)
 	for i := 0; i < len(components); i++ {
 		item := components[i]
 
 		switch item.Type() {
 		case discordgo.ContainerComponent:
 			container := item.(*discordgo.Container)
-			fmt.Println("recursion")
-			htmlParts = portal.resolveComponents(htmlParts, container.Components)
+			htmlParts = portal.resolveComponents(ctx, intent, htmlParts, container.Components)
 		case discordgo.SectionComponent:
-			container := item.(*discordgo.Section)
-			fmt.Println("recursion")
-			htmlParts = portal.resolveComponents(htmlParts, container.Components)
+			section := item.(*discordgo.Section)
+			htmlParts = portal.resolveComponents(ctx, intent, htmlParts, section.Components)
 		case discordgo.TextDisplayComponent:
 			text := item.(*discordgo.TextDisplay)
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, portal.renderDiscordMarkdownOnlyHTML(text.Content, true)))
+		case discordgo.MediaGalleryComponent:
+			gallery := item.(*discordgo.MediaGallery)
+			for i := 0; i < len(gallery.Items); i++ {
+				galleryItem := gallery.Items[i]
+				dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, galleryItem.Media.URL, false, NoMeta)
+				if err != nil {
+					log.Warn().Err(err).Msg("Failed to reupload image in embed")
+				} else {
+					htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, dbFile.MXC))
+				}
+			}
 		}
 	}
 
@@ -576,10 +586,9 @@ func (portal *Portal) resolveComponents(htmlParts []string, components []discord
 }
 
 func (portal *Portal) convertDiscordComponents(ctx context.Context, intent *appservice.IntentAPI, components []discordgo.MessageComponent, msgID string) string {
-	//log := zerolog.Ctx(ctx)
 	var result []string
 
-	htmlParts := portal.resolveComponents(result, components)
+	htmlParts := portal.resolveComponents(ctx, intent, result, components)
 
 	compiledHTML := strings.Join(htmlParts, "")
 	compiledHTML = fmt.Sprintf(embedHTMLWrapper, compiledHTML)

@@ -74,7 +74,7 @@ func (d *DiscordChatResync) avatar(ctx context.Context) *bridgev2.Avatar {
 	}
 
 	return &bridgev2.Avatar{
-		ID: networkid.AvatarID(ch.Icon),
+		ID: discordid.MakeAvatarID(ch.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
 			url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
 			return simpleDownload(ctx, url, "group dm icon")
@@ -175,5 +175,5 @@ func (d *DiscordChatResync) CheckNeedsBackfill(ctx context.Context, latestBridge
 		zerolog.Ctx(ctx).Debug().Str("channel_id", d.channel.ID).Msg("Haven't bridged any messages at all, not forward backfilling")
 		return false, nil
 	}
-	return latestBridged.ID < networkid.MessageID(d.channel.LastMessageID), nil
+	return latestBridged.ID < discordid.MakeMessageID(d.channel.LastMessageID), nil
 }

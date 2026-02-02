@@ -25,19 +25,21 @@ import (
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 func (d *DiscordClient) IsThisUser(ctx context.Context, userID networkid.UserID) bool {
 	// We define `UserID`s and `UserLoginID`s to be interchangeable, i.e. they map
 	// directly to Discord user IDs ("snowflakes"), so we can perform a direct comparison.
-	return userID == networkid.UserID(d.UserLogin.ID)
+	return userID == discordid.UserLoginIDToUserID(d.UserLogin.ID)
 }
 
 func makeUserAvatar(u *discordgo.User) *bridgev2.Avatar {
 	url := u.AvatarURL("256")
 
 	return &bridgev2.Avatar{
-		ID: networkid.AvatarID(url),
+		ID: discordid.MakeAvatarID(url),
 		Get: func(ctx context.Context) ([]byte, error) {
 			return simpleDownload(ctx, url, "user avatar")
 		},
@@ -54,9 +56,9 @@ func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 
 	// FIXME(skip): This won't work for users in guilds.
 
-	user, ok := d.usersFromReady[string(ghost.ID)]
+	user, ok := d.usersFromReady[discordid.ParseUserID(ghost.ID)]
 	if !ok {
-		log.Error().Str("ghost_id", string(ghost.ID)).Msg("Couldn't find corresponding user from READY for ghost")
+		log.Error().Str("ghost_id", discordid.ParseUserID(ghost.ID)).Msg("Couldn't find corresponding user from READY for ghost")
 		return nil, nil
 	}
 

@@ -26,6 +26,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 type DiscordEventMeta struct {
@@ -67,7 +69,7 @@ func (m *DiscordMessage) ConvertMessage(ctx context.Context, portal *bridgev2.Po
 }
 
 func (m *DiscordMessage) GetID() networkid.MessageID {
-	return networkid.MessageID(m.Data.ID)
+	return discordid.MakeMessageID(m.Data.ID)
 }
 
 func (m *DiscordMessage) GetSender() bridgev2.EventSender {
@@ -79,7 +81,7 @@ func (d *DiscordClient) wrapDiscordMessage(evt *discordgo.MessageCreate) Discord
 		DiscordEventMeta: &DiscordEventMeta{
 			Type: bridgev2.RemoteEventMessage,
 			PortalKey: networkid.PortalKey{
-				ID:       networkid.PortalID(evt.ChannelID),
+				ID:       discordid.MakePortalID(evt.ChannelID),
 				Receiver: d.UserLogin.ID,
 			},
 		},
@@ -99,11 +101,11 @@ func (r *DiscordReaction) GetSender() bridgev2.EventSender {
 }
 
 func (r *DiscordReaction) GetTargetMessage() networkid.MessageID {
-	return networkid.MessageID(r.Reaction.MessageID)
+	return discordid.MakeMessageID(r.Reaction.MessageID)
 }
 
 func (r *DiscordReaction) GetRemovedEmojiID() networkid.EmojiID {
-	return networkid.EmojiID(r.Reaction.Emoji.Name)
+	return discordid.MakeEmojiID(r.Reaction.Emoji.Name)
 }
 
 var (
@@ -116,7 +118,7 @@ func (r *DiscordReaction) GetReactionEmoji() (string, networkid.EmojiID) {
 	// name is either a grapheme cluster consisting of a Unicode emoji, or the
 	// name of a custom emoji.
 	name := r.Reaction.Emoji.Name
-	return name, networkid.EmojiID(name)
+	return name, discordid.MakeEmojiID(name)
 }
 
 func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
@@ -152,7 +154,7 @@ func (d *DiscordClient) wrapDiscordReaction(reaction *discordgo.MessageReaction,
 		DiscordEventMeta: &DiscordEventMeta{
 			Type: evtType,
 			PortalKey: networkid.PortalKey{
-				ID:       networkid.PortalID(reaction.ChannelID),
+				ID:       discordid.MakePortalID(reaction.ChannelID),
 				Receiver: d.UserLogin.ID,
 			},
 		},

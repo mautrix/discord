@@ -179,7 +179,7 @@ func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
 
 	// The portal containing the message that was replied to.
 	targetPortal := portal
-	if ref.ChannelID != string(portal.ID) {
+	if ref.ChannelID != discordid.ParsePortalID(portal.ID) {
 		var err error
 		targetPortal, err = mc.Bridge.GetPortalByKey(ctx, discordid.MakePortalKeyWithID(ref.ChannelID))
 		if err != nil {
@@ -192,7 +192,7 @@ func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
 		}
 	}
 
-	messageID := networkid.MessageID(ref.MessageID)
+	messageID := discordid.MakeMessageID(ref.MessageID)
 	repliedToMatrixMsg, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, messageID)
 	if err != nil {
 		log.Err(err).Msg("Failed to query database for first message part; proceeding")
@@ -229,7 +229,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	var htmlParts []string
 
 	if msg.Interaction != nil {
-		ghost, err := mc.Bridge.GetGhostByID(ctx, networkid.UserID(msg.Interaction.User.ID))
+		ghost, err := mc.Bridge.GetGhostByID(ctx, discordid.MakeUserID(msg.Interaction.User.ID))
 		// TODO(skip): Try doing ghost.UpdateInfoIfNecessary.
 		if err == nil {
 			htmlParts = append(htmlParts, fmt.Sprintf(msgInteractionTemplateHTML, ghost.Intent.GetMXID(), ghost.Name, msg.Interaction.Name))
@@ -302,7 +302,7 @@ func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal
 	msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
 	origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
 	if forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, discordid.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
-		if origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, networkid.MessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
+		if origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, discordid.MakeMessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
 			// We've bridged the message that was forwarded, so we can link to it directly.
 			origLink = fmt.Sprintf(
 				`<a href="%s">#%s • %s</a>`,

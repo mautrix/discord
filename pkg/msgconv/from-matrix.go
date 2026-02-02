@@ -107,14 +107,14 @@ func (mc *MessageConverter) ToDiscord(
 
 	if msg.ReplyTo != nil {
 		req.Reference = &discordgo.MessageReference{
-			ChannelID: string(msg.ReplyTo.Room.ID),
-			MessageID: string(msg.ReplyTo.ID),
+			ChannelID: discordid.ParsePortalID(msg.ReplyTo.Room.ID),
+			MessageID: discordid.ParseMessageID(msg.ReplyTo.ID),
 		}
 	}
 
 	portal := msg.Portal
 	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := string(portal.ID)
+	channelID := discordid.ParsePortalID(portal.ID)
 	content := msg.Content
 
 	convertMatrix := func() {

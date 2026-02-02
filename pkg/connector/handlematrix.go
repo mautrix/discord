@@ -24,7 +24,6 @@ import (
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -44,7 +43,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	portal := msg.Portal
 	guildID := portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := string(portal.ID)
+	channelID := discordid.ParsePortalID(portal.ID)
 
 	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg)
 	if err != nil {
@@ -55,7 +54,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	// TODO: When supporting threads (and not a bot user), send a thread referer.
 	options = append(options, discordgo.WithChannelReferer(guildID, channelID))
 
-	sentMsg, err := d.Session.ChannelMessageSendComplex(string(msg.Portal.ID), sendReq, options...)
+	sentMsg, err := d.Session.ChannelMessageSendComplex(discordid.ParsePortalID(msg.Portal.ID), sendReq, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +62,8 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	return &bridgev2.MatrixMessageResponse{
 		DB: &database.Message{
-			ID:        networkid.MessageID(sentMsg.ID),
-			SenderID:  networkid.UserID(sentMsg.Author.ID),
+			ID:        discordid.MakeMessageID(sentMsg.ID),
+			SenderID:  discordid.MakeUserID(sentMsg.Author.ID),
 			Timestamp: sentMsgTimestamp,
 		},
 	}, nil
@@ -80,8 +79,8 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 	// TODO: Handle custom emoji.
 
 	return bridgev2.MatrixReactionPreResponse{
-		SenderID: networkid.UserID(d.UserLogin.ID),
-		EmojiID:  networkid.EmojiID(key),
+		SenderID: discordid.UserLoginIDToUserID(d.UserLogin.ID),
+		EmojiID:  discordid.MakeEmojiID(key),
 	}, nil
 }
 
@@ -90,23 +89,23 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 	portal := reaction.Portal
 	meta := portal.Metadata.(*discordid.PortalMetadata)
 
-	err := d.Session.MessageReactionAddUser(meta.GuildID, string(portal.ID), string(reaction.TargetMessage.ID), relatesToKey)
+	err := d.Session.MessageReactionAddUser(meta.GuildID, discordid.ParsePortalID(portal.ID), discordid.ParseMessageID(reaction.TargetMessage.ID), relatesToKey)
 	return nil, err
 }
 
 func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal *bridgev2.MatrixReactionRemove) error {
 	removing := removal.TargetReaction
 	emojiID := removing.EmojiID
-	channelID := string(removing.Room.ID)
+	channelID := discordid.ParsePortalID(removing.Room.ID)
 	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 
-	err := d.Session.MessageReactionRemoveUser(guildID, channelID, string(removing.MessageID), string(emojiID), string(d.UserLogin.ID))
+	err := d.Session.MessageReactionRemoveUser(guildID, channelID, discordid.ParseMessageID(removing.MessageID), discordid.ParseEmojiID(emojiID), discordid.ParseUserLoginID(d.UserLogin.ID))
 	return err
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
-	channelID := string(removal.Portal.ID)
-	messageID := string(removal.TargetMessage.ID)
+	channelID := discordid.ParsePortalID(removal.Portal.ID)
+	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
 	return d.Session.ChannelMessageDelete(channelID, messageID)
 }
 
@@ -122,7 +121,7 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 	// receipt didn't exactly correspond with a message, try finding one close
 	// by to use as the target.
 	if msg.ExactMessage != nil {
-		targetMessageID = string(msg.ExactMessage.ID)
+		targetMessageID = discordid.ParseMessageID(msg.ExactMessage.ID)
 		log = log.With().
 			Str("message_id", targetMessageID).
 			Logger()
@@ -136,7 +135,7 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 			// The read receipt didn't specify an exact message but we were able to
 			// find one close by.
 
-			targetMessageID = string(closestMessage.ID)
+			targetMessageID = discordid.ParseMessageID(closestMessage.ID)
 			log = log.With().
 				Str("closest_message_id", targetMessageID).
 				Str("closest_event_id", closestMessage.MXID.String()).
@@ -151,7 +150,7 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 
 	// TODO: Support threads.
 	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := string(msg.Portal.ID)
+	channelID := discordid.ParsePortalID(msg.Portal.ID)
 	resp, err := d.Session.ChannelMessageAckNoToken(channelID, targetMessageID, discordgo.WithChannelReferer(guildID, channelID))
 	if err != nil {
 		log.Err(err).Msg("Failed to send read receipt to Discord")
@@ -176,7 +175,7 @@ func (d *DiscordClient) viewingChannel(ctx context.Context, portal *bridgev2.Por
 	d.markedOpenedLock.Lock()
 	defer d.markedOpenedLock.Unlock()
 
-	channelID := string(portal.ID)
+	channelID := discordid.ParsePortalID(portal.ID)
 	log := zerolog.Ctx(ctx).With().
 		Str("channel_id", channelID).Logger()
 
@@ -207,7 +206,7 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 	_ = d.viewingChannel(ctx, msg.Portal)
 
 	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := string(msg.Portal.ID)
+	channelID := discordid.ParsePortalID(msg.Portal.ID)
 	// TODO: Support threads properly when sending the referer.
 	err := d.Session.ChannelTyping(channelID, discordgo.WithChannelReferer(guildID, channelID))
 

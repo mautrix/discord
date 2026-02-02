@@ -26,6 +26,8 @@ import (
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 const (
@@ -115,7 +117,7 @@ func (p *ProvisioningAPI) makeHandler(handler func(http.ResponseWriter, *http.Re
 }
 
 func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, login *bridgev2.UserLogin, client *DiscordClient) {
-	p.log.Info().Str("login_id", string(login.ID)).Msg("guilds list requested via provisioning api")
+	p.log.Info().Str("login_id", discordid.ParseUserLoginID(login.ID)).Msg("guilds list requested via provisioning api")
 
 	var resp respGuildsList
 	resp.Guilds = []guildEntry{}
@@ -142,7 +144,7 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 	}
 
 	p.log.Info().
-		Str("login_id", string(login.ID)).
+		Str("login_id", discordid.ParseUserLoginID(login.ID)).
 		Str("guild_id", guildID).
 		Msg("requested to bridge guild via provisioning api")
 
@@ -160,7 +162,7 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 	}
 
 	p.log.Info().
-		Str("login_id", string(login.ID)).
+		Str("login_id", discordid.ParseUserLoginID(login.ID)).
 		Str("guild_id", guildID).
 		Msg("requested to unbridge guild via provisioning api")
 

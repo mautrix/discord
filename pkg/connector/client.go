@@ -275,40 +275,17 @@ func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Ch
 	return canView
 }
 
-// The string prepended to [networkid.PortalKey]s identifying spaces that
-// bridge Discord guilds.
-//
-// Every Discord guild created before August 2017 contained an channel
-// having _the same ID as the guild itself_. This channel also functioned as
-// the "default channel" in that incoming members would view this channel by
-// default. It was also impossible to delete.
-//
-// After this date, these "default channels" became deletable, and fresh guilds
-// were no longer created with a channel that exactly corresponded to the guild
-// ID.
-//
-// To accommodate Discord guilds created before this API change that have also
-// never deleted the default channel, we need a way to distinguish between the
-// guild and the default channel, as we wouldn't be able to bridge the guild
-// as a space otherwise.
-//
-// "*" was chosen as the asterisk character is used to filter by guilds in
-// the quick switcher (in Discord's first-party clients).
-//
-// For more information, see: https://discord.com/developers/docs/change-log#breaking-change-default-channels:~:text=New%20guilds%20will%20no%20longer.
-const guildPortalKeySigil = "*"
-
 func (d *DiscordClient) guildPortalKeyFromID(guildID string) networkid.PortalKey {
 	// TODO: Support configuring `split_portals`.
 	return networkid.PortalKey{
-		ID:       networkid.PortalID(guildPortalKeySigil + guildID),
+		ID:       discordid.MakeGuildPortalID(guildID),
 		Receiver: d.UserLogin.ID,
 	}
 }
 
 func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Avatar {
 	return &bridgev2.Avatar{
-		ID: networkid.AvatarID(guild.Icon),
+		ID: discordid.MakeAvatarID(guild.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
 			url := discordgo.EndpointGuildIcon(guild.ID, guild.Icon)
 			return simpleDownload(ctx, url, "guild icon")
@@ -440,8 +417,8 @@ func simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {
 func (d *DiscordClient) makeEventSenderWithID(userID string) bridgev2.EventSender {
 	return bridgev2.EventSender{
 		IsFromMe:    userID == d.Session.State.User.ID,
-		SenderLogin: networkid.UserLoginID(userID),
-		Sender:      networkid.UserID(userID),
+		SenderLogin: discordid.MakeUserLoginID(userID),
+		Sender:      discordid.MakeUserID(userID),
 	}
 }
 

@@ -32,7 +32,6 @@ import (
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -271,7 +270,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 	case *astDiscordUserMention:
 		var mxid id.UserID
 		var name string
-		if ghost, _ := node.portal.Bridge.GetGhostByID(ctx, networkid.UserID(strconv.FormatInt(node.id, 10))); ghost != nil {
+		if ghost, _ := node.portal.Bridge.GetGhostByID(ctx, discordid.MakeUserID(strconv.FormatInt(node.id, 10))); ghost != nil {
 			mxid = ghost.Intent.GetMXID()
 			name = ghost.Name
 		}

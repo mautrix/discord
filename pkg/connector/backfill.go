@@ -24,7 +24,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 var (
@@ -36,7 +37,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 
-	channelID := string(fetchParams.Portal.ID)
+	channelID := discordid.ParsePortalID(fetchParams.Portal.ID)
 	log := zerolog.Ctx(ctx).With().
 		Str("channel_id", channelID).
 		Int("desired_count", fetchParams.Count).
@@ -46,7 +47,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	var afterID string
 
 	if fetchParams.AnchorMessage != nil {
-		anchorID := string(fetchParams.AnchorMessage.ID)
+		anchorID := discordid.ParseMessageID(fetchParams.AnchorMessage.ID)
 
 		if fetchParams.Forward {
 			afterID = anchorID
@@ -99,7 +100,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		}
 
 		converted = append(converted, &bridgev2.BackfillMessage{
-			ID:               networkid.MessageID(msg.ID),
+			ID:               discordid.MakeMessageID(msg.ID),
 			ConvertedMessage: dc.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, dc.Session, msg),
 			Sender:           sender,
 			Timestamp:        ts,

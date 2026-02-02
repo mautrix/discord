@@ -25,7 +25,6 @@ import (
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
-	"maunium.net/go/mautrix/bridgev2/status"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -196,16 +195,21 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		Logger()
 
 	switch evt := rawEvt.(type) {
+	case *discordgo.Connect:
+		log.Info().Msg("Discord gateway connected")
+		d.markConnected()
+	case *discordgo.Disconnect:
+		log.Info().Msg("Discord gateway disconnected")
+		d.scheduleTransientDisconnect("")
+	case *discordgo.InvalidAuth:
+		log.Warn().Msg("Discord gateway reported invalid auth")
+		d.markInvalidAuth("You have been logged out of Discord, please reconnect")
 	case *discordgo.Ready:
 		log.Info().Msg("Received READY dispatch from discordgo")
-		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateConnected,
-		})
+		d.markConnected()
 	case *discordgo.Resumed:
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
-		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateConnected,
-		})
+		d.markConnected()
 	case *discordgo.MessageCreate:
 		if evt.Author == nil {
 			log.Trace().Int("message_type", int(evt.Message.Type)).

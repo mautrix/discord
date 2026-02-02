@@ -97,6 +97,11 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 		Str("user_username", user.Username).
 		Msg("Logged in to Discord")
 
+	// We already opened the gateway session before creating the UserLogin,
+	// which means the initial READY/CONNECT event was dropped. Send Connected
+	// here so infra gets login status for new logins.
+	client.markConnected()
+
 	return ul, nil
 }
 

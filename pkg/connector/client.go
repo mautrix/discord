@@ -48,6 +48,10 @@ type DiscordClient struct {
 
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
+
+	bridgeStateLock     sync.Mutex
+	disconnectTimer     *time.Timer
+	invalidAuthDetected bool
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -95,6 +99,7 @@ func (d *DiscordClient) SetUp(ctx context.Context, meta *discordid.UserLoginMeta
 	}
 
 	d.markedOpened = make(map[string]time.Time)
+	d.resetBridgeStateTracking()
 }
 
 func (d *DiscordClient) Connect(ctx context.Context) {
@@ -104,7 +109,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 		log.Error().Msg("No session present")
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
-			Error:      "discord-not-logged-in",
+			Error:      DiscordNotLoggedIn,
 		})
 		return
 	}
@@ -135,12 +140,16 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	}
 	if err != nil {
 		log.Err(err).Msg("Failed to connect to Discord")
+		cl.sendConnectFailure(err)
 		return err
 	}
 
 	// Ensure that we actually have a user.
 	if !cl.IsLoggedIn() {
-		return fmt.Errorf("unknown identity even after connecting to Discord")
+		err := fmt.Errorf("unknown identity even after connecting to Discord")
+		log.Err(err).Msg("No Discord user available after connecting")
+		cl.sendConnectFailure(err)
+		return err
 	}
 	user := cl.Session.State.User
 	log.Info().Str("user_id", user.ID).Str("user_username", user.Username).Msg("Connected to Discord")

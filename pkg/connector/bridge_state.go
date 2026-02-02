@@ -17,26 +17,30 @@
 package connector
 
 import (
+	"errors"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/status"
 )
 
 const (
-	DiscordNotLoggedIn   status.BridgeStateErrorCode = "discord-not-logged-in"
-	DiscordInvalidAuth   status.BridgeStateErrorCode = "discord-invalid-auth"
-	DiscordDisconnected  status.BridgeStateErrorCode = "discord-disconnected"
-	DiscordConnectFailed status.BridgeStateErrorCode = "discord-connect-failed"
+	DiscordNotLoggedIn         status.BridgeStateErrorCode = "dc-not-logged-in"
+	DiscordTransientDisconnect status.BridgeStateErrorCode = "dc-transient-disconnect"
+	DiscordInvalidAuth         status.BridgeStateErrorCode = "dc-websocket-disconnect-4004"
+	DiscordHTTP40002           status.BridgeStateErrorCode = "dc-http-40002"
+	DiscordUnknownWebsocketErr status.BridgeStateErrorCode = "dc-unknown-websocket-error"
 )
 
 const discordDisconnectDebounce = 7 * time.Second
 
 func init() {
 	status.BridgeStateHumanErrors.Update(status.BridgeStateErrorMap{
-		DiscordNotLoggedIn:   "You're not logged into Discord. Relogin to continue using the bridge.",
-		DiscordInvalidAuth:   "You were logged out of Discord. Relogin to continue using the bridge.",
-		DiscordDisconnected:  "Disconnected from Discord. Trying to reconnect.",
-		DiscordConnectFailed: "Connecting to Discord failed.",
+		DiscordNotLoggedIn:         "You're not logged into Discord. Relogin to continue using the bridge.",
+		DiscordTransientDisconnect: "Temporarily disconnected from Discord, trying to reconnect.",
+		DiscordInvalidAuth:         "Discord access token is no longer valid, please log in again.",
+		DiscordHTTP40002:           "Discord requires a verified account, please verify and log in again.",
+		DiscordUnknownWebsocketErr: "Unknown Discord websocket error.",
 	})
 }
 
@@ -79,6 +83,7 @@ func (d *DiscordClient) markInvalidAuth(message string) {
 		StateEvent: status.StateBadCredentials,
 		Error:      DiscordInvalidAuth,
 		Message:    message,
+		UserAction: status.UserActionRelogin,
 	})
 }
 
@@ -105,23 +110,44 @@ func (d *DiscordClient) scheduleTransientDisconnect(message string) {
 		}
 		login.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateTransientDisconnect,
-			Error:      DiscordDisconnected,
+			Error:      DiscordTransientDisconnect,
 			Message:    message,
 		})
 	})
 	d.bridgeStateLock.Unlock()
 }
 
-func (d *DiscordClient) sendConnectFailure(err error) {
+func (d *DiscordClient) sendConnectFailure(err error, final bool) {
 	if d.UserLogin == nil || err == nil {
 		return
 	}
+	stateEvent := status.StateTransientDisconnect
+	if final {
+		stateEvent = status.StateUnknownError
+	}
 	d.UserLogin.BridgeState.Send(status.BridgeState{
-		StateEvent: status.StateUnknownError,
-		Error:      DiscordConnectFailed,
+		StateEvent: stateEvent,
+		Error:      DiscordUnknownWebsocketErr,
 		Message:    err.Error(),
 		Info: map[string]any{
 			"go_error": err.Error(),
 		},
 	})
+}
+
+func (d *DiscordClient) handlePossible40002(err error) bool {
+	var restErr *discordgo.RESTError
+	if !errors.As(err, &restErr) || restErr.Message == nil || restErr.Message.Code != discordgo.ErrCodeActionRequiredVerifiedAccount {
+		return false
+	}
+	if d.UserLogin == nil {
+		return true
+	}
+	d.UserLogin.BridgeState.Send(status.BridgeState{
+		StateEvent: status.StateBadCredentials,
+		Error:      DiscordHTTP40002,
+		Message:    restErr.Message.Message,
+		UserAction: status.UserActionRelogin,
+	})
+	return true
 }

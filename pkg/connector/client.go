@@ -110,6 +110,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
 			Error:      DiscordNotLoggedIn,
+			UserAction: status.UserActionRelogin,
 		})
 		return
 	}
@@ -117,9 +118,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnecting,
 	})
-	if err := d.connect(ctx); err != nil {
-		log.Err(err).Msg("Couldn't connect to Discord")
-	}
+	d.connectWithRetry(ctx, 0)
 }
 
 func (cl *DiscordClient) handleDiscordEventSync(event any) {
@@ -140,7 +139,6 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	}
 	if err != nil {
 		log.Err(err).Msg("Failed to connect to Discord")
-		cl.sendConnectFailure(err)
 		return err
 	}
 
@@ -148,7 +146,6 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	if !cl.IsLoggedIn() {
 		err := fmt.Errorf("unknown identity even after connecting to Discord")
 		log.Err(err).Msg("No Discord user available after connecting")
-		cl.sendConnectFailure(err)
 		return err
 	}
 	user := cl.Session.State.User
@@ -168,6 +165,27 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	cl.BeginSyncingIfUserLoginPresent(ctx)
 
 	return nil
+}
+
+func (d *DiscordClient) connectWithRetry(ctx context.Context, retryCount int) {
+	err := d.connect(ctx)
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	if retryCount < 6 {
+		d.sendConnectFailure(err, false)
+		retryInSeconds := 2 << retryCount
+		zerolog.Ctx(ctx).Debug().Int("retry_in_seconds", retryInSeconds).Msg("Sleeping and retrying connection")
+		select {
+		case <-time.After(time.Duration(retryInSeconds) * time.Second):
+		case <-ctx.Done():
+			zerolog.Ctx(ctx).Info().Msg("Context canceled, exiting connect retry loop")
+			return
+		}
+		d.connectWithRetry(ctx, retryCount+1)
+	} else {
+		d.sendConnectFailure(err, true)
+	}
 }
 
 func (d *DiscordClient) Disconnect() {
@@ -398,6 +416,7 @@ func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
 		Threads:    true,
 	})
 	if err != nil {
+		d.handlePossible40002(err)
 		log.Warn().Err(err).Msg("Failed to subscribe to guild; proceeding")
 	}
 

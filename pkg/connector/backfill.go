@@ -61,6 +61,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	log.Debug().Msg("Fetching channel history for backfill")
 	msgs, err := dc.Session.ChannelMessages(channelID, count, beforeID, afterID, "")
 	if err != nil {
+		dc.handlePossible40002(err)
 		return nil, err
 	}
 

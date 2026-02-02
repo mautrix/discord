@@ -56,6 +56,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	sentMsg, err := d.Session.ChannelMessageSendComplex(discordid.ParsePortalID(msg.Portal.ID), sendReq, options...)
 	if err != nil {
+		d.handlePossible40002(err)
 		return nil, err
 	}
 	sentMsgTimestamp, _ := discordgo.SnowflakeTimestamp(sentMsg.ID)
@@ -90,6 +91,9 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 	meta := portal.Metadata.(*discordid.PortalMetadata)
 
 	err := d.Session.MessageReactionAddUser(meta.GuildID, discordid.ParsePortalID(portal.ID), discordid.ParseMessageID(reaction.TargetMessage.ID), relatesToKey)
+	if err != nil {
+		d.handlePossible40002(err)
+	}
 	return nil, err
 }
 
@@ -100,13 +104,20 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 
 	err := d.Session.MessageReactionRemoveUser(guildID, channelID, discordid.ParseMessageID(removing.MessageID), discordid.ParseEmojiID(emojiID), discordid.ParseUserLoginID(d.UserLogin.ID))
+	if err != nil {
+		d.handlePossible40002(err)
+	}
 	return err
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
 	channelID := discordid.ParsePortalID(removal.Portal.ID)
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
-	return d.Session.ChannelMessageDelete(channelID, messageID)
+	err := d.Session.ChannelMessageDelete(channelID, messageID)
+	if err != nil {
+		d.handlePossible40002(err)
+	}
+	return err
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {
@@ -153,6 +164,7 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 	channelID := discordid.ParsePortalID(msg.Portal.ID)
 	resp, err := d.Session.ChannelMessageAckNoToken(channelID, targetMessageID, discordgo.WithChannelReferer(guildID, channelID))
 	if err != nil {
+		d.handlePossible40002(err)
 		log.Err(err).Msg("Failed to send read receipt to Discord")
 		return err
 	} else if resp.Token != nil {
@@ -186,6 +198,7 @@ func (d *DiscordClient) viewingChannel(ctx context.Context, portal *bridgev2.Por
 		err := d.Session.MarkViewing(channelID)
 
 		if err != nil {
+			d.handlePossible40002(err)
 			log.Error().Err(err).Msg("Failed to mark user as viewing channel")
 			return err
 		}
@@ -211,6 +224,7 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 	err := d.Session.ChannelTyping(channelID, discordgo.WithChannelReferer(guildID, channelID))
 
 	if err != nil {
+		d.handlePossible40002(err)
 		log.Warn().Err(err).Msg("Failed to mark user as typing")
 		return err
 	}

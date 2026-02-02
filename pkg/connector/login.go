@@ -28,14 +28,14 @@ const LoginStepIDComplete = "fi.mau.discord.login.complete"
 func (d *DiscordConnector) GetLoginFlows() []bridgev2.LoginFlow {
 	return []bridgev2.LoginFlow{
 		{
-			ID:          LoginFlowIDRemoteAuth,
-			Name:        "QR Code",
-			Description: "Scan a QR code with the Discord mobile app to log in.",
-		},
-		{
 			ID:          LoginFlowIDBrowser,
 			Name:        "Browser",
 			Description: "Log in to your Discord account in a web browser.",
+		},
+		{
+			ID:          LoginFlowIDRemoteAuth,
+			Name:        "QR Code",
+			Description: "Scan a QR code with the Discord mobile app to log in.",
 		},
 		{
 			ID:          LoginFlowIDToken,

@@ -54,7 +54,6 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 	meta := login.Metadata.(*discordid.UserLoginMetadata)
 
 	session, err := NewDiscordSession(ctx, meta.Token)
-	login.Save(ctx)
 
 	if err != nil {
 		return err
@@ -65,7 +64,6 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		UserLogin: login,
 		Session:   session,
 	}
-	cl.SetUp(ctx, meta)
 
 	login.Client = &cl
 
@@ -74,46 +72,31 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 
 var _ bridgev2.NetworkAPI = (*DiscordClient)(nil)
 
-// SetUp performs basic bookkeeping and initialization that should be done
-// immediately after a DiscordClient has been created.
-//
-// nil may be passed for meta, especially during provisioning where we need to
-// connect to the Discord gateway, but don't have a UserLogin yet.
-func (d *DiscordClient) SetUp(ctx context.Context, meta *discordid.UserLoginMetadata) {
-	// TODO: Turn this into a factory function like `NewDiscordClient`.
-	log := zerolog.Ctx(ctx)
-
-	// We'll have UserLogin metadata if this UserLogin is being loaded from the
-	// database, i.e. it hasn't just been provisioned.
-	if meta != nil {
-		if meta.HeartbeatSession.IsExpired() {
-			log.Info().Msg("Heartbeat session expired, creating a new one")
-			meta.HeartbeatSession = discordgo.NewHeartbeatSession()
-		}
-		meta.HeartbeatSession.BumpLastUsed()
-		d.Session.HeartbeatSession = meta.HeartbeatSession
-	}
-
-	d.markedOpened = make(map[string]time.Time)
-}
-
 func (d *DiscordClient) Connect(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
-	if d.Session == nil {
-		log.Error().Msg("No session present")
-		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateBadCredentials,
-			Error:      "discord-not-logged-in",
-		})
-		return
-	}
+	meta := d.UserLogin.Metadata.(*discordid.UserLoginMetadata)
 
+	if meta.HeartbeatSession.IsExpired() {
+		log.Info().Msg("Heartbeat session expired, creating a new one")
+		meta.HeartbeatSession = discordgo.NewHeartbeatSession()
+	}
+	meta.HeartbeatSession.BumpLastUsed()
+	d.Session.HeartbeatSession = meta.HeartbeatSession
+
+	d.markedOpened = make(map[string]time.Time)
+
+	log.Debug().Msg("Connecting to Discord")
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnecting,
 	})
 	if err := d.connect(ctx); err != nil {
 		log.Err(err).Msg("Couldn't connect to Discord")
+		d.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateUnknownError,
+			Error:      "discord-connect-error",
+			Message:    err.Error(),
+		})
 	}
 }
 
@@ -152,11 +135,7 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 		cl.usersFromReady[user.ID] = user
 	}
 
-	// NOTE: We won't have a UserLogin during provisioning, because the UserLogin
-	// can only be properly constructed once we know what the Discord user ID is
-	// (i.e. we have returned from this function). We'll rely on the login
-	// process calling this method manually instead.
-	cl.BeginSyncingIfUserLoginPresent(ctx)
+	cl.BeginSyncing(ctx)
 
 	return nil
 }
@@ -175,11 +154,7 @@ func (d *DiscordClient) LogoutRemote(ctx context.Context) {
 	d.Disconnect()
 }
 
-func (cl *DiscordClient) BeginSyncingIfUserLoginPresent(ctx context.Context) {
-	if cl.UserLogin == nil {
-		cl.connector.Bridge.Log.Warn().Msg("Not syncing just yet as we don't have a UserLogin")
-		return
-	}
+func (cl *DiscordClient) BeginSyncing(ctx context.Context) {
 	if cl.hasBegunSyncing {
 		cl.connector.Bridge.Log.Warn().Msg("Not beginning sync more than once")
 		return

@@ -164,23 +164,6 @@ func (d *DiscordClient) wrapDiscordReaction(reaction *discordgo.MessageReaction,
 }
 
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
-	if d.UserLogin == nil {
-		// Our event handlers are able to assume that a UserLogin is available.
-		// We respond to special events like READY outside of this function,
-		// by virtue of methods like Session.Open only returning control flow
-		// after RESUME or READY.
-		log := zerolog.Ctx(context.TODO())
-		log.Trace().Msg("Dropping Discord event received before UserLogin creation")
-		return
-	}
-
-	if d.Session == nil || d.Session.State == nil || d.Session.State.User == nil {
-		// Our event handlers are able to assume that we've fully connected to the
-		// gateway.
-		d.UserLogin.Log.Debug().Msg("Dropping Discord event received before READY or RESUMED")
-		return
-	}
-
 	defer func() {
 		err := recover()
 		if err != nil {

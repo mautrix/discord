@@ -47,55 +47,47 @@ type DiscordGenericLogin struct {
 }
 
 func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token string) (*bridgev2.UserLogin, error) {
+	log := zerolog.Ctx(ctx).With().Str("action", "finalize login").Logger()
+
+	log.Info().Msg("Creating session with provided token")
 	session, err := NewDiscordSession(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
 	}
-
-	client := DiscordClient{
-		connector: dl.connector,
-		Session:   session,
-	}
-	client.SetUp(ctx, nil)
-
-	err = client.connect(ctx)
-	if err != nil {
-		dl.Cancel()
-		return nil, err
-	}
-	// At this point we've opened a WebSocket connection to the gateway, received
-	// a READY packet, and know who we are.
-	user := session.State.User
-	dl.DiscordUser = user
-
 	dl.Session = session
+
+	log.Info().Msg("Requesting @me with provided token")
+	self, err := session.User("@me")
+	if err != nil {
+		return nil, fmt.Errorf("couldn't request self user (bad credentials?): %w", err)
+	}
+	dl.DiscordUser = self
+
+	log.Info().Msg("Fetched @me")
 	ul, err := dl.User.NewLogin(ctx, &database.UserLogin{
-		ID: discordid.MakeUserLoginID(user.ID),
+		ID: discordid.MakeUserLoginID(self.ID),
 		Metadata: &discordid.UserLoginMetadata{
 			Token:            token,
 			HeartbeatSession: session.HeartbeatSession,
 		},
 	}, &bridgev2.NewLoginParams{
 		LoadUserLogin: func(ctx context.Context, login *bridgev2.UserLogin) error {
-			login.Client = &client
-			client.UserLogin = login
-
-			// Only now that we have a UserLogin can we begin syncing.
-			client.BeginSyncingIfUserLoginPresent(ctx)
+			// (mautrix will instead call `LoadUserLogin` on the connector if we don't provide this.)
+			login.Client = &DiscordClient{
+				connector: dl.connector,
+				UserLogin: login,
+				Session:   session,
+			}
 			return nil
 		},
-		DeleteOnConflict:  true,
-		DontReuseExisting: false,
+		DeleteOnConflict: true,
 	})
 	if err != nil {
 		dl.Cancel()
-		return nil, fmt.Errorf("couldn't create login: %w", err)
+		return nil, fmt.Errorf("couldn't create login during finalization: %w", err)
 	}
 
-	zerolog.Ctx(ctx).Info().
-		Str("user_id", user.ID).
-		Str("user_username", user.Username).
-		Msg("Logged in to Discord")
+	(ul.Client.(*DiscordClient)).Connect(ctx)
 
 	return ul, nil
 }

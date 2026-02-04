@@ -25,6 +25,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 
+	"go.mau.fi/util/variationselector"
+
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
@@ -75,7 +77,7 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 }
 
 func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
-	key := reaction.Content.RelatesTo.Key
+	key := variationselector.FullyQualify(reaction.Content.RelatesTo.Key)
 	// TODO: Handle custom emoji.
 
 	return bridgev2.MatrixReactionPreResponse{

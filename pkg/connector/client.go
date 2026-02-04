@@ -43,6 +43,7 @@ type DiscordClient struct {
 	usersFromReady map[string]*discordgo.User
 	UserLogin      *bridgev2.UserLogin
 	Session        *discordgo.Session
+	client         *http.Client
 
 	hasBegunSyncing bool
 
@@ -63,6 +64,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		connector: d,
 		UserLogin: login,
 		Session:   session,
+		client:    d.Bridge.GetHTTPClientSettings().Compile(),
 	}
 
 	login.Client = &cl
@@ -263,7 +265,7 @@ func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Ava
 		ID: discordid.MakeAvatarID(guild.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
 			url := discordgo.EndpointGuildIcon(guild.ID, guild.Icon)
-			return simpleDownload(ctx, url, "guild icon")
+			return d.simpleDownload(ctx, url, "guild icon")
 		},
 		Remove: guild.Icon == "",
 	}
@@ -370,13 +372,13 @@ func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
 	return nil
 }
 
-func simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {
+func (d *DiscordClient) simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := d.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download %s: %w", thing, err)
 	}

@@ -35,13 +35,13 @@ func (d *DiscordClient) IsThisUser(ctx context.Context, userID networkid.UserID)
 	return userID == discordid.UserLoginIDToUserID(d.UserLogin.ID)
 }
 
-func makeUserAvatar(u *discordgo.User) *bridgev2.Avatar {
+func (d *DiscordClient) makeUserAvatar(u *discordgo.User) *bridgev2.Avatar {
 	url := u.AvatarURL("256")
 
 	return &bridgev2.Avatar{
 		ID: discordid.MakeAvatarID(url),
 		Get: func(ctx context.Context) ([]byte, error) {
-			return simpleDownload(ctx, url, "user avatar")
+			return d.simpleDownload(ctx, url, "user avatar")
 		},
 	}
 }
@@ -65,7 +65,7 @@ func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 	return &bridgev2.UserInfo{
 		Identifiers: []string{fmt.Sprintf("discord:%s", user.ID)},
 		Name:        ptr.Ptr(user.DisplayName()),
-		Avatar:      makeUserAvatar(user),
+		Avatar:      d.makeUserAvatar(user),
 		IsBot:       &user.Bot,
 	}, nil
 }

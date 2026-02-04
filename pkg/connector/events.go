@@ -77,7 +77,7 @@ func (d *DiscordChatResync) avatar(ctx context.Context) *bridgev2.Avatar {
 		ID: discordid.MakeAvatarID(ch.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
 			url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
-			return simpleDownload(ctx, url, "group dm icon")
+			return d.Client.simpleDownload(ctx, url, "group dm icon")
 		},
 		Remove: ch.Icon == "",
 	}

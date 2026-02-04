@@ -87,11 +87,15 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 }
 
 func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (*database.Reaction, error) {
-	relatesToKey := reaction.Content.RelatesTo.Key
 	portal := reaction.Portal
 	meta := portal.Metadata.(*discordid.PortalMetadata)
 
-	err := d.Session.MessageReactionAddUser(meta.GuildID, discordid.ParsePortalID(portal.ID), discordid.ParseMessageID(reaction.TargetMessage.ID), relatesToKey)
+	err := d.Session.MessageReactionAddUser(
+		meta.GuildID,
+		discordid.ParsePortalID(portal.ID),
+		discordid.ParseMessageID(reaction.TargetMessage.ID),
+		discordid.ParseEmojiID(reaction.PreHandleResp.EmojiID),
+	)
 	return nil, err
 }
 

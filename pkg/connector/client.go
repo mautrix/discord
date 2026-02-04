@@ -29,11 +29,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
-
-	"go.mau.fi/util/ptr"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -271,38 +268,12 @@ func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Ava
 	}
 }
 
-func (d *DiscordClient) syncGuildSpace(ctx context.Context, guild *discordgo.Guild) error {
-	prt, err := d.connector.Bridge.GetPortalByKey(ctx, d.guildPortalKeyFromID(guild.ID))
-	if err != nil {
-		return fmt.Errorf("couldn't get/create portal corresponding to guild: %w", err)
-	}
-
-	selfEvtSender := d.selfEventSender()
-	info := &bridgev2.ChatInfo{
-		Name:  &guild.Name,
-		Topic: nil,
-		Members: &bridgev2.ChatMemberList{
-			MemberMap: map[networkid.UserID]bridgev2.ChatMember{selfEvtSender.Sender: {EventSender: selfEvtSender}},
-
-			// As recommended by the spec, prohibit normal events by setting
-			// `events_default` to a suitably high number.
-			PowerLevels: &bridgev2.PowerLevelOverrides{EventsDefault: ptr.Ptr(100)},
-		},
-		Avatar: d.makeAvatarForGuild(guild),
-		Type:   ptr.Ptr(database.RoomTypeSpace),
-	}
-
-	if prt.MXID == "" {
-		err := prt.CreateMatrixRoom(ctx, d.UserLogin, info)
-
-		if err != nil {
-			return fmt.Errorf("couldn't create room in order to materialize guild portal: %w", err)
-		}
-	} else {
-		prt.UpdateInfo(ctx, info, d.UserLogin, nil, time.Time{})
-	}
-
-	return nil
+func (d *DiscordClient) syncGuildSpace(_ context.Context, guild *discordgo.Guild) {
+	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordGuildResync{
+		Client:    d,
+		guild:     guild,
+		portalKey: d.guildPortalKeyFromID(guild.ID),
+	})
 }
 
 func (d *DiscordClient) syncGuilds(ctx context.Context) {
@@ -330,11 +301,7 @@ func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
 		return errors.New("couldn't find guild in state")
 	}
 
-	err = d.syncGuildSpace(ctx, guild)
-	if err != nil {
-		log.Err(err).Msg("Couldn't sync guild space portal")
-		return fmt.Errorf("couldn't sync guild space portal: %w", err)
-	}
+	d.syncGuildSpace(ctx, guild)
 
 	for _, guildCh := range guild.Channels {
 		if guildCh.Type != discordgo.ChannelTypeGuildText {

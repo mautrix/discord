@@ -49,7 +49,9 @@ type DiscordGenericLogin struct {
 func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token string) (*bridgev2.UserLogin, error) {
 	log := zerolog.Ctx(ctx).With().Str("action", "finalize login").Logger()
 
-	log.Info().Msg("Creating session with provided token")
+	// TODO we don't need an entire discordgo session for this as we're just
+	// interested in /users/@me
+	log.Info().Msg("Creating initial session with provided token")
 	session, err := NewDiscordSession(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
@@ -71,15 +73,6 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 			HeartbeatSession: session.HeartbeatSession,
 		},
 	}, &bridgev2.NewLoginParams{
-		LoadUserLogin: func(ctx context.Context, login *bridgev2.UserLogin) error {
-			// (mautrix will instead call `LoadUserLogin` on the connector if we don't provide this.)
-			login.Client = &DiscordClient{
-				connector: dl.connector,
-				UserLogin: login,
-				Session:   session,
-			}
-			return nil
-		},
 		DeleteOnConflict: true,
 	})
 	if err != nil {

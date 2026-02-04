@@ -17,9 +17,20 @@
 package discordid
 
 import (
+	"strconv"
+	"time"
+
 	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
+
+const DiscordEpochMillis = 1420070400000
+
+// GenerateNonce creates a Discord-style snowflake nonce for message idempotency.
+func GenerateNonce() string {
+	snowflake := (time.Now().UnixMilli() - DiscordEpochMillis) << 22
+	return strconv.FormatInt(snowflake, 10)
+}
 
 func MakeUserID(userID string) networkid.UserID {
 	return networkid.UserID(userID)

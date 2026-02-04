@@ -20,7 +20,11 @@ import (
 	"context"
 
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"go.mau.fi/mautrix-discord/pkg/msgconv"
 )
 
@@ -31,8 +35,9 @@ type DiscordConnector struct {
 }
 
 var (
-	_ bridgev2.NetworkConnector      = (*DiscordConnector)(nil)
-	_ bridgev2.MaxFileSizeingNetwork = (*DiscordConnector)(nil)
+	_ bridgev2.NetworkConnector               = (*DiscordConnector)(nil)
+	_ bridgev2.MaxFileSizeingNetwork          = (*DiscordConnector)(nil)
+	_ bridgev2.TransactionIDGeneratingNetwork = (*DiscordConnector)(nil)
 )
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
@@ -58,4 +63,8 @@ func (d *DiscordConnector) GetName() bridgev2.BridgeName {
 		BeeperBridgeType: "discordgo",
 		DefaultPort:      29334,
 	}
+}
+
+func (d *DiscordConnector) GenerateTransactionID(_ id.UserID, _ id.RoomID, _ event.Type) networkid.RawTransactionID {
+	return networkid.RawTransactionID(discordid.GenerateNonce())
 }

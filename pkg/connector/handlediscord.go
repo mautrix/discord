@@ -59,10 +59,18 @@ type DiscordMessage struct {
 }
 
 var (
-	_ bridgev2.RemoteMessage = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteMessage                  = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteMessageWithTransactionID = (*DiscordMessage)(nil)
 	// _ bridgev2.RemoteEdit    = (*DiscordMessage)(nil)
 	// _ bridgev2.RemoteMessageRemove    = (*DiscordMessage)(nil)
 )
+
+func (m *DiscordMessage) GetTransactionID() networkid.TransactionID {
+	if m.Data.Nonce == "" {
+		return ""
+	}
+	return networkid.TransactionID(m.Data.Nonce)
+}
 
 func (m *DiscordMessage) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI) (*bridgev2.ConvertedMessage, error) {
 	return m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data), nil

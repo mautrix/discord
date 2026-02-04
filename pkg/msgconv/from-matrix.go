@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -34,14 +32,6 @@ import (
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
-
-const discordEpochMillis = 1420070400000
-
-func generateMessageNonce() string {
-	snowflake := (time.Now().UnixMilli() - discordEpochMillis) << 22
-	// Nonce snowflakes don't have internal IDs or increments
-	return strconv.FormatInt(snowflake, 10)
-}
 
 func parseAllowedLinkPreviews(raw map[string]any) []string {
 	if raw == nil {
@@ -102,7 +92,11 @@ func (mc *MessageConverter) ToDiscord(
 	ctx = context.WithValue(ctx, contextKeyPortal, msg.Portal)
 	ctx = context.WithValue(ctx, contextKeyDiscordClient, session)
 	var req discordgo.MessageSend
-	req.Nonce = generateMessageNonce()
+	if msg.InputTransactionID != "" {
+		req.Nonce = string(msg.InputTransactionID)
+	} else {
+		req.Nonce = discordid.GenerateNonce()
+	}
 	log := zerolog.Ctx(ctx)
 
 	if msg.ReplyTo != nil {

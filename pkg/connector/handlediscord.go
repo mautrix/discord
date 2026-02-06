@@ -189,6 +189,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	switch evt := rawEvt.(type) {
 	case *discordgo.Ready:
 		log.Info().Msg("Received READY dispatch from discordgo")
+		d.userCache.HandleReady(evt)
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})
@@ -206,8 +207,11 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 				Msg("Dropping message that lacks an author")
 			return
 		}
+		d.userCache.HandleMessage(evt.Message)
 		wrappedEvt := d.wrapDiscordMessage(evt)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+	case *discordgo.UserUpdate:
+		d.userCache.HandleUserUpdate(evt)
 	case *discordgo.MessageReactionAdd:
 		wrappedEvt := d.wrapDiscordReaction(evt.MessageReaction, true)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)

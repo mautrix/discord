@@ -24,6 +24,23 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
+// DeletedGuildUserID is a magic user ID that is used in place of an actual user
+// ID once they have deleted their account. This only applies in non-private
+// (i.e. guild) contexts, such as guild channel message authors and mentions.
+//
+// Note that this user ID can also appear in message content as part of user
+// mention markup ("<@456226577798135808>").
+const DeletedGuildUserID = "456226577798135808"
+
+// DeletedGuildUser is the user returned from the Discord API as a stand-in for
+// users who have since deleted their account. As the name suggests, this only
+// applies to fetched entities within guilds.
+var DeletedGuildUser = discordgo.User{
+	ID:            DeletedGuildUserID,
+	Username:      "Deleted User",
+	Discriminator: "0000",
+}
+
 const DiscordEpochMillis = 1420070400000
 
 // GenerateNonce creates a Discord-style snowflake nonce for message idempotency.

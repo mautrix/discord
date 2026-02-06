@@ -37,16 +37,17 @@ import (
 )
 
 type DiscordClient struct {
-	connector      *DiscordConnector
-	usersFromReady map[string]*discordgo.User
-	UserLogin      *bridgev2.UserLogin
-	Session        *discordgo.Session
-	client         *http.Client
+	connector *DiscordConnector
+	UserLogin *bridgev2.UserLogin
+	Session   *discordgo.Session
+	client    *http.Client
 
 	hasBegunSyncing bool
 
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
+
+	userCache *UserCache
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -63,6 +64,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		UserLogin: login,
 		Session:   session,
 		client:    d.Bridge.GetHTTPClientSettings().Compile(),
+		userCache: NewUserCache(session),
 	}
 
 	login.Client = &cl
@@ -128,12 +130,9 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	user := cl.Session.State.User
 	log.Info().Str("user_id", user.ID).Str("user_username", user.Username).Msg("Connected to Discord")
 
-	// Stash all of the users we received in READY so we can perform quick lookups
-	// keyed by user ID.
-	cl.usersFromReady = make(map[string]*discordgo.User)
-	for _, user := range cl.Session.State.Ready.Users {
-		cl.usersFromReady[user.ID] = user
-	}
+	// Populate the user cache with the users from the READY payload.
+	log.Debug().Int("n_users", len(cl.Session.State.Ready.Users)).Msg("Inserting users from READY into cache")
+	cl.userCache.HandleReady(&cl.Session.State.Ready)
 
 	cl.BeginSyncing(ctx)
 

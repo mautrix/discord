@@ -63,6 +63,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	if err != nil {
 		return nil, err
 	}
+	dc.userCache.HandleMessages(msgs)
 
 	converted := make([]*bridgev2.BackfillMessage, 0, len(msgs))
 	for _, msg := range msgs {

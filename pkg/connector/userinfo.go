@@ -54,18 +54,19 @@ func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 		return nil, nil
 	}
 
-	// FIXME(skip): This won't work for users in guilds.
-
-	user, ok := d.usersFromReady[discordid.ParseUserID(ghost.ID)]
-	if !ok {
-		log.Error().Str("ghost_id", discordid.ParseUserID(ghost.ID)).Msg("Couldn't find corresponding user from READY for ghost")
+	discordUserID := discordid.ParseUserID(ghost.ID)
+	discordUser := d.userCache.Resolve(ctx, discordUserID)
+	if discordUser == nil {
+		log.Error().Str("discord_user_id", discordUserID).
+			Msg("Failed to resolve user")
 		return nil, nil
 	}
 
 	return &bridgev2.UserInfo{
-		Identifiers: []string{fmt.Sprintf("discord:%s", user.ID)},
-		Name:        ptr.Ptr(user.DisplayName()),
-		Avatar:      d.makeUserAvatar(user),
-		IsBot:       &user.Bot,
+		// FIXME clear this for webhooks (stash in ghost metadata)
+		Identifiers: []string{fmt.Sprintf("discord:%s", discordUser.ID)},
+		Name:        ptr.Ptr(discordUser.DisplayName()),
+		Avatar:      d.makeUserAvatar(discordUser),
+		IsBot:       &discordUser.Bot,
 	}, nil
 }

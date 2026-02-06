@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -81,16 +82,17 @@ func (d *DiscordConnector) setUpProvisioningAPIs() error {
 type guildEntry struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-
 	// TODO v1 uses `id.ContentURI` whereas we stuff the discord cdn url here
 	AvatarURL string `json:"avatar_url"`
 
-	// v1-compatible fields:
+	// new in v2:
+	Bridged   bool `json:"bridged"`
+	Available bool `json:"available"`
+
+	// legacy fields from v1:
 	MXID         string `json:"mxid"`
 	AutoBridge   bool   `json:"auto_bridge_channels"`
 	BridgingMode string `json:"bridging_mode"`
-
-	Available bool `json:"available"`
 }
 type respGuildsList struct {
 	Guilds []guildEntry `json:"guilds"`
@@ -120,6 +122,8 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, log
 	ctx := r.Context()
 	p.log.Info().Str("login_id", discordid.ParseUserLoginID(login.ID)).Msg("guilds list requested via provisioning api")
 
+	bridgedGuildIDs := client.bridgedGuildIDs()
+
 	var resp respGuildsList
 	resp.Guilds = []guildEntry{}
 	for _, guild := range client.Session.State.Guilds {
@@ -131,27 +135,62 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, log
 				Msg("Failed to get guild portal for provisioning list")
 		}
 
+		_, beingBridged := bridgedGuildIDs[guild.ID]
 		mxid := ""
-		if portal != nil {
+		if portal != nil && portal.MXID != "" {
 			mxid = portal.MXID.String()
+		} else if beingBridged {
+			// Beeper Desktop expects the space to exist by the time it receives
+			// our HTTP response. If it doesn't, then the space won't appear
+			// until the app is reloaded, and the toggle in the user interface
+			// won't respond to the user's click.
+			//
+			// Pre-bridgev2, we synchronously bridged guilds. However, this
+			// might take a while for guilds with many channels.
+			//
+			// To solve this, generate a deterministic room ID to use as the
+			// MXID so that it recognizes the guild as bridged, even if the
+			// portals haven't been created just yet. This lets us
+			// asynchronously bridge guilds while keeping the UI responsive.
+			mxid = p.connector.Bridge.Matrix.GenerateDeterministicRoomID(portalKey).String()
 		}
 
 		resp.Guilds = append(resp.Guilds, guildEntry{
-			ID:        guild.ID,
+			// For now, have the ID exactly correspond to the portal ID. This
+			// practically means that the ID will begin with an asterisk (the
+			// guild portal ID sigil).
+			//
+			// Otherwise, Beeper Desktop will show a duplicate space for every
+			// guild, as it recognizes the guild returned from this HTTP
+			// endpoint and the actual space itself as separate "entities".
+			// (Despite this, they point to identical rooms.)
+			ID:        string(discordid.MakeGuildPortalID(guild.ID)),
 			Name:      guild.Name,
 			AvatarURL: discordgo.EndpointGuildIcon(guild.ID, guild.Icon),
+			Bridged:   beingBridged,
+			Available: !guild.Unavailable,
 
+			// v1 (legacy) backwards compat:
 			MXID:         mxid,
+			AutoBridge:   beingBridged,
 			BridgingMode: "everything",
-			Available:    !guild.Unavailable,
 		})
 	}
 
 	exhttp.WriteJSONResponse(w, 200, resp)
 }
 
+// normalizeGuildID removes the guild portal sigil from a guild ID if it's
+// there.
+//
+// This helps facilitate code that would like to accept portal keys
+// corresponding to guilds as well as plain Discord guild IDs.
+func normalizeGuildID(guildID string) string {
+	return strings.TrimPrefix(guildID, discordid.GuildPortalKeySigil)
+}
+
 func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, login *bridgev2.UserLogin, client *DiscordClient) {
-	guildID := r.PathValue("guildID")
+	guildID := normalizeGuildID(r.PathValue("guildID"))
 	if guildID == "" {
 		mautrix.MInvalidParam.WithMessage("no guild id").Write(w)
 		return
@@ -192,7 +231,7 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 }
 
 func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, login *bridgev2.UserLogin, client *DiscordClient) {
-	guildID := r.PathValue("guildID")
+	guildID := normalizeGuildID(r.PathValue("guildID"))
 	if guildID == "" {
 		mautrix.MInvalidParam.WithMessage("no guild id").Write(w)
 		return

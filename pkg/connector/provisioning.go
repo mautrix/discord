@@ -176,7 +176,13 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 		return
 	}
 
-	go client.bridgeGuild(context.TODO(), guildID)
+	bridgeCtx := login.Log.With().
+		Str("component", "provisioning").
+		Str("action", "bridge guild").
+		Str("guild_id", guildID).
+		Logger().
+		WithContext(context.Background())
+	go client.bridgeGuild(bridgeCtx, guildID)
 
 	responseStatus := 201
 	if alreadyBridged {
@@ -207,7 +213,12 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	ctx := context.TODO()
+	ctx := login.Log.With().
+		Str("component", "provisioning").
+		Str("action", "unbridge guild").
+		Str("guild_id", guildID).
+		Logger().
+		WithContext(context.Background())
 
 	portalKey := client.guildPortalKeyFromID(guildID)
 	portal, err := p.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)

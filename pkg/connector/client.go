@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -276,8 +277,30 @@ func (d *DiscordClient) syncGuildSpace(_ context.Context, guild *discordgo.Guild
 	})
 }
 
+// bridgedGuildIDs returns a set of guild IDs that should be bridged. Note that
+// presence in the returned set does not imply that the rooms for the guild have
+// already been created.
+func (d *DiscordClient) bridgedGuildIDs() map[string]struct{} {
+	meta := d.UserLogin.Metadata.(*discordid.UserLoginMetadata)
+	bridgingGuildIDs := map[string]struct{}{}
+
+	// guilds that were bridged via the provisioning api
+	for guildID, bridged := range meta.BridgedGuildIDs {
+		if bridged {
+			bridgingGuildIDs[guildID] = struct{}{}
+		}
+	}
+
+	// guilds that were declared in the configuration file
+	for _, guildID := range d.connector.Config.Guilds.BridgingGuildIDs {
+		bridgingGuildIDs[guildID] = struct{}{}
+	}
+
+	return bridgingGuildIDs
+}
+
 func (d *DiscordClient) syncGuilds(ctx context.Context) {
-	guildIDs := d.connector.Config.Guilds.BridgingGuildIDs
+	guildIDs := slices.Sorted(maps.Keys(d.bridgedGuildIDs()))
 
 	for _, guildID := range guildIDs {
 		log := zerolog.Ctx(ctx).With().
@@ -298,6 +321,7 @@ func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
 	guild, err := d.Session.State.Guild(guildID)
 	if errors.Is(err, discordgo.ErrStateNotFound) || guild == nil {
 		log.Err(err).Msg("Couldn't find guild, user isn't a member?")
+		// TODO likely left/kicked/banned from guild; nuke the portals
 		return errors.New("couldn't find guild in state")
 	}
 

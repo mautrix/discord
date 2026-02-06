@@ -117,19 +117,33 @@ func (p *ProvisioningAPI) makeHandler(handler func(http.ResponseWriter, *http.Re
 }
 
 func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, login *bridgev2.UserLogin, client *DiscordClient) {
+	ctx := r.Context()
 	p.log.Info().Str("login_id", discordid.ParseUserLoginID(login.ID)).Msg("guilds list requested via provisioning api")
 
 	var resp respGuildsList
 	resp.Guilds = []guildEntry{}
 	for _, guild := range client.Session.State.Guilds {
+		portalKey := client.guildPortalKeyFromID(guild.ID)
+		portal, err := p.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
+		if err != nil {
+			p.log.Err(err).
+				Str("guild_id", guild.ID).
+				Msg("Failed to get guild portal for provisioning list")
+		}
+
+		mxid := ""
+		if portal != nil {
+			mxid = portal.MXID.String()
+		}
+
 		resp.Guilds = append(resp.Guilds, guildEntry{
 			ID:        guild.ID,
 			Name:      guild.Name,
 			AvatarURL: discordgo.EndpointGuildIcon(guild.ID, guild.Icon),
 
+			MXID:         mxid,
 			BridgingMode: "everything",
-
-			Available: !guild.Unavailable,
+			Available:    !guild.Unavailable,
 		})
 	}
 
@@ -148,10 +162,27 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 		Str("guild_id", guildID).
 		Msg("requested to bridge guild via provisioning api")
 
-	// TODO detect guild already bridged
+	meta := login.Metadata.(*discordid.UserLoginMetadata)
+
+	if meta.BridgedGuildIDs == nil {
+		meta.BridgedGuildIDs = map[string]bool{}
+	}
+	_, alreadyBridged := meta.BridgedGuildIDs[guildID]
+	meta.BridgedGuildIDs[guildID] = true
+
+	if err := login.Save(r.Context()); err != nil {
+		p.log.Err(err).Msg("Failed to save login after guild bridge request")
+		mautrix.MUnknown.WithMessage("failed to save login: %v", err).Write(w)
+		return
+	}
+
 	go client.bridgeGuild(context.TODO(), guildID)
 
-	exhttp.WriteJSONResponse(w, 201, nil)
+	responseStatus := 201
+	if alreadyBridged {
+		responseStatus = 200
+	}
+	exhttp.WriteJSONResponse(w, responseStatus, nil)
 }
 
 func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, login *bridgev2.UserLogin, client *DiscordClient) {
@@ -165,6 +196,16 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 		Str("login_id", discordid.ParseUserLoginID(login.ID)).
 		Str("guild_id", guildID).
 		Msg("requested to unbridge guild via provisioning api")
+
+	meta := login.Metadata.(*discordid.UserLoginMetadata)
+	if meta.BridgedGuildIDs != nil {
+		delete(meta.BridgedGuildIDs, guildID)
+	}
+	if err := login.Save(r.Context()); err != nil {
+		p.log.Err(err).Msg("Failed to save login after guild unbridge request")
+		mautrix.MUnknown.WithMessage("failed to save login: %v", err).Write(w)
+		return
+	}
 
 	ctx := context.TODO()
 

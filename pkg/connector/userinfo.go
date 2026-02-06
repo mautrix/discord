@@ -64,7 +64,7 @@ func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 
 	return &bridgev2.UserInfo{
 		// FIXME clear this for webhooks (stash in ghost metadata)
-		Identifiers: []string{fmt.Sprintf("discord:%s", discordUser.ID)},
+		Identifiers: []string{fmt.Sprintf("discord:%s", discordUser.String())},
 		Name:        ptr.Ptr(discordUser.DisplayName()),
 		Avatar:      d.makeUserAvatar(discordUser),
 		IsBot:       &discordUser.Bot,

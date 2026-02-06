@@ -33,6 +33,11 @@ func NewDiscordSession(ctx context.Context, token string) (*discordgo.Session, e
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
 	}
 
+	// Don't bother tracking things we don't care/support right now. Presences
+	// are especially expensive to track as they occur extremely frequently.
+	session.State.TrackPresences = false
+	session.State.TrackVoice = false
+
 	// Set up logging.
 	session.LogLevel = discordgo.LogInformational
 	session.Logger = func(msgL, caller int, format string, a ...any) {

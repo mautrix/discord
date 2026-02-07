@@ -19,11 +19,14 @@ package connector
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
@@ -56,21 +59,27 @@ func (uc *UserCache) HandleReady(ready *discordgo.Ready) {
 	}
 }
 
-func (uc *UserCache) HandleMessage(msg *discordgo.Message) {
+// HandleMessage updates the user cache with the users involved in a single
+// message (author, mentioned, mentioned author, etc.)
+//
+// The updated user IDs are returned.
+func (uc *UserCache) HandleMessage(msg *discordgo.Message) []string {
 	if msg == nil {
-		return
+		return []string{}
 	}
 
 	// For now just forward to HandleMessages until a need for a specialized
 	// path makes itself known.
-	uc.HandleMessages([]*discordgo.Message{msg})
+	return uc.HandleMessages([]*discordgo.Message{msg})
 }
 
-// HandleMessages updates the user cache with message authors from a slice of
-// discordgo.Message.
-func (uc *UserCache) HandleMessages(msgs []*discordgo.Message) {
+// HandleMessages updates the user cache with the total set of users involved
+// with multiple messages (authors, mentioned users, mentioned authors, etc.)
+//
+// The updated user IDs are returned.
+func (uc *UserCache) HandleMessages(msgs []*discordgo.Message) []string {
 	if len(msgs) == 0 {
-		return
+		return []string{}
 	}
 
 	collectedUsers := map[string]*discordgo.User{}
@@ -97,6 +106,8 @@ func (uc *UserCache) HandleMessages(msgs []*discordgo.Message) {
 	for _, user := range collectedUsers {
 		uc.cache[user.ID] = user
 	}
+
+	return slices.Collect(maps.Keys(collectedUsers))
 }
 
 func (uc *UserCache) HandleUserUpdate(update *discordgo.UserUpdate) {

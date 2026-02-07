@@ -65,7 +65,32 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	if err != nil {
 		return nil, err
 	}
-	dc.userCache.HandleMessages(msgs)
+
+	// Update our user cache with all of the users present in the response. This
+	// indirectly makes `GetUserInfo` on `DiscordClient` return the information
+	// we've fetched above.
+	cachedDiscordUserIDs := dc.userCache.HandleMessages(msgs)
+
+	{
+		log := zerolog.Ctx(ctx).With().
+			Str("action", "update ghosts via fetched messages").
+			Logger()
+		ctx := log.WithContext(ctx)
+
+		// Update/create all of the ghosts for the users involved. This lets us
+		// set a correct per-message profile on each message, even for users
+		// that we've never seen until now.
+		for _, discordUserID := range cachedDiscordUserIDs {
+
+			ghost, err := dc.connector.Bridge.GetGhostByID(ctx, discordid.MakeUserID(discordUserID))
+			if err != nil {
+				log.Err(err).Str("ghost_id", discordUserID).
+					Msg("Failed to get ghost associated with message")
+				continue
+			}
+			ghost.UpdateInfoIfNecessary(ctx, dc.UserLogin, bridgev2.RemoteEventMessage)
+		}
+	}
 
 	converted := make([]*bridgev2.BackfillMessage, 0, len(msgs))
 	for _, msg := range msgs {

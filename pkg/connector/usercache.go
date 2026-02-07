@@ -46,7 +46,7 @@ func NewUserCache(session *discordgo.Session) *UserCache {
 	}
 }
 
-func (uc *UserCache) HandleReady(ready *discordgo.Ready) {
+func (uc *UserCache) UpdateWithReady(ready *discordgo.Ready) {
 	if ready == nil {
 		return
 	}
@@ -59,25 +59,25 @@ func (uc *UserCache) HandleReady(ready *discordgo.Ready) {
 	}
 }
 
-// HandleMessage updates the user cache with the users involved in a single
+// UpdateWithMessage updates the user cache with the users involved in a single
 // message (author, mentioned, mentioned author, etc.)
 //
 // The updated user IDs are returned.
-func (uc *UserCache) HandleMessage(msg *discordgo.Message) []string {
+func (uc *UserCache) UpdateWithMessage(msg *discordgo.Message) []string {
 	if msg == nil {
 		return []string{}
 	}
 
 	// For now just forward to HandleMessages until a need for a specialized
 	// path makes itself known.
-	return uc.HandleMessages([]*discordgo.Message{msg})
+	return uc.UpdateWithMessages([]*discordgo.Message{msg})
 }
 
-// HandleMessages updates the user cache with the total set of users involved
+// UpdateWithMessages updates the user cache with the total set of users involved
 // with multiple messages (authors, mentioned users, mentioned authors, etc.)
 //
 // The updated user IDs are returned.
-func (uc *UserCache) HandleMessages(msgs []*discordgo.Message) []string {
+func (uc *UserCache) UpdateWithMessages(msgs []*discordgo.Message) []string {
 	if len(msgs) == 0 {
 		return []string{}
 	}
@@ -110,7 +110,7 @@ func (uc *UserCache) HandleMessages(msgs []*discordgo.Message) []string {
 	return slices.Collect(maps.Keys(collectedUsers))
 }
 
-func (uc *UserCache) HandleUserUpdate(update *discordgo.UserUpdate) {
+func (uc *UserCache) UpdateWithUserUpdate(update *discordgo.UserUpdate) {
 	if update == nil || update.User == nil {
 		return
 	}

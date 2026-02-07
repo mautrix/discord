@@ -69,7 +69,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	// Update our user cache with all of the users present in the response. This
 	// indirectly makes `GetUserInfo` on `DiscordClient` return the information
 	// we've fetched above.
-	cachedDiscordUserIDs := dc.userCache.HandleMessages(msgs)
+	cachedDiscordUserIDs := dc.userCache.UpdateWithMessages(msgs)
 
 	{
 		log := zerolog.Ctx(ctx).With().

@@ -132,7 +132,7 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 
 	// Populate the user cache with the users from the READY payload.
 	log.Debug().Int("n_users", len(cl.Session.State.Ready.Users)).Msg("Inserting users from READY into cache")
-	cl.userCache.HandleReady(&cl.Session.State.Ready)
+	cl.userCache.UpdateWithReady(&cl.Session.State.Ready)
 
 	cl.BeginSyncing(ctx)
 

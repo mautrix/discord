@@ -39,9 +39,11 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 
 	channelID := discordid.ParsePortalID(fetchParams.Portal.ID)
 	log := zerolog.Ctx(ctx).With().
+		Str("action", "fetch messages").
 		Str("channel_id", channelID).
 		Int("desired_count", fetchParams.Count).
 		Bool("forward", fetchParams.Forward).Logger()
+	ctx = log.WithContext(ctx)
 
 	var beforeID string
 	var afterID string

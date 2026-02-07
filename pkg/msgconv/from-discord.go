@@ -44,6 +44,9 @@ const (
 	contextKeyDiscordClient
 )
 
+// ToMatrix bridges a Discord message to Matrix.
+//
+// This method expects ghost information to be up-to-date.
 func (mc *MessageConverter) ToMatrix(
 	ctx context.Context,
 	portal *bridgev2.Portal,
@@ -128,9 +131,21 @@ func (mc *MessageConverter) ToMatrix(
 	// 	puppet.addMemberMeta(part, msg)
 	// }
 
+	sender := discordid.MakeUserID(msg.Author.ID)
+	pmp, err := portal.PerMessageProfileForSender(ctx, sender)
+	if err != nil {
+		log.Err(err).Msg("Failed to make per-message profile")
+	}
+
 	// Assign incrementing part IDs.
 	for i, part := range parts {
 		part.ID = networkid.PartID(strconv.Itoa(i))
+
+		// Beeper clients support backfilling backwards (scrolling up to load
+		// more messages). Adding per-message profiles to every part helps them
+		// present the right message authorship information even when a
+		// membership event isn't present.
+		part.Content.BeeperPerMessageProfile = &pmp
 	}
 
 	converted := &bridgev2.ConvertedMessage{Parts: parts}

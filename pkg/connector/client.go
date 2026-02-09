@@ -394,6 +394,10 @@ func (d *DiscordClient) selfEventSender() bridgev2.EventSender {
 }
 
 func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
+	if user == nil {
+		panic("DiscordClient makeEventSender was passed a nil user")
+	}
+
 	return d.makeEventSenderWithID(user.ID)
 }
 

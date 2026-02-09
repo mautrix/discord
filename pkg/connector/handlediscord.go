@@ -62,8 +62,12 @@ var (
 	_ bridgev2.RemoteMessage                  = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteMessageWithTransactionID = (*DiscordMessage)(nil)
 	// _ bridgev2.RemoteEdit    = (*DiscordMessage)(nil)
-	// _ bridgev2.RemoteMessageRemove    = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteMessageRemove = (*DiscordMessage)(nil)
 )
+
+func (m *DiscordMessage) GetTargetMessage() networkid.MessageID {
+	return discordid.MakeMessageID(m.Data.ID)
+}
 
 func (m *DiscordMessage) GetTransactionID() networkid.TransactionID {
 	if m.Data.Nonce == "" {
@@ -81,19 +85,24 @@ func (m *DiscordMessage) GetID() networkid.MessageID {
 }
 
 func (m *DiscordMessage) GetSender() bridgev2.EventSender {
+	if m.Data.Author == nil {
+		// Message deletions don't have a sender associated with them.
+		return bridgev2.EventSender{}
+	}
+
 	return m.Client.makeEventSender(m.Data.Author)
 }
 
-func (d *DiscordClient) wrapDiscordMessage(evt *discordgo.MessageCreate) DiscordMessage {
+func (d *DiscordClient) wrapDiscordMessage(msg *discordgo.Message, typ bridgev2.RemoteEventType) DiscordMessage {
 	return DiscordMessage{
 		DiscordEventMeta: &DiscordEventMeta{
-			Type: bridgev2.RemoteEventMessage,
+			Type: typ,
 			PortalKey: networkid.PortalKey{
-				ID:       discordid.MakePortalID(evt.ChannelID),
+				ID:       discordid.MakePortalID(msg.ChannelID),
 				Receiver: d.UserLogin.ID,
 			},
 		},
-		Data:   evt.Message,
+		Data:   msg,
 		Client: d,
 	}
 }
@@ -208,10 +217,14 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			return
 		}
 		d.userCache.UpdateWithMessage(evt.Message)
-		wrappedEvt := d.wrapDiscordMessage(evt)
+		wrappedEvt := d.wrapDiscordMessage(evt.Message, bridgev2.RemoteEventMessage)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.UserUpdate:
 		d.userCache.UpdateWithUserUpdate(evt)
+	case *discordgo.MessageDelete:
+		wrappedEvt := d.wrapDiscordMessage(evt.Message, bridgev2.RemoteEventMessageRemove)
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+	// TODO *discordgo.MessageDeleteBulk
 	case *discordgo.MessageReactionAdd:
 		wrappedEvt := d.wrapDiscordReaction(evt.MessageReaction, true)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)

@@ -136,10 +136,8 @@ var discordCaps = &event.RoomFeatures{
 	},
 	LocationMessage: event.CapLevelUnsupported,
 	MaxTextLength:   MaxTextLength,
-	// TODO: Support reactions.
 	// TODO: Support threads.
 	// TODO: Support editing.
-	// TODO: Support message deletion.
 }
 
 func (dc *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {

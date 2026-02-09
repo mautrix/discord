@@ -112,7 +112,7 @@ func (mc *MessageConverter) ToDiscord(
 	content := msg.Content
 
 	convertMatrix := func() {
-		req.Content, req.AllowedMentions = mc.convertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
+		req.Content, req.AllowedMentions = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
 		if content.MsgType == event.MsgEmote {
 			req.Content = fmt.Sprintf("_%s_", req.Content)
 		}
@@ -176,7 +176,7 @@ func (mc *MessageConverter) ToDiscord(
 	return &req, nil
 }
 
-func (mc *MessageConverter) convertMatrixMessageContent(ctx context.Context, portal *bridgev2.Portal, content *event.MessageEventContent, allowedLinkPreviews []string) (string, *discordgo.MessageAllowedMentions) {
+func (mc *MessageConverter) ConvertMatrixMessageContent(ctx context.Context, portal *bridgev2.Portal, content *event.MessageEventContent, allowedLinkPreviews []string) (string, *discordgo.MessageAllowedMentions) {
 	allowedMentions := &discordgo.MessageAllowedMentions{
 		Parse:       []discordgo.AllowedMentionType{},
 		Users:       []string{},

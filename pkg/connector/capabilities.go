@@ -65,6 +65,7 @@ var discordCaps = &event.RoomFeatures{
 	ID:       capID(),
 	Reply:    event.CapLevelFullySupported,
 	Reaction: event.CapLevelFullySupported,
+	Edit:     event.CapLevelFullySupported,
 	Delete:   event.CapLevelFullySupported,
 	Formatting: event.FormattingFeatureMap{
 		event.FmtBold:               event.CapLevelFullySupported,
@@ -137,7 +138,6 @@ var discordCaps = &event.RoomFeatures{
 	LocationMessage: event.CapLevelUnsupported,
 	MaxTextLength:   MaxTextLength,
 	// TODO: Support threads.
-	// TODO: Support editing.
 }
 
 func (dc *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {

@@ -18,6 +18,7 @@ package connector
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -72,8 +73,28 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 }
 
 func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.MatrixEdit) error {
-	//TODO implement me
-	panic("implement me")
+	log := zerolog.Ctx(ctx).With().Str("action", "matrix message edit").Logger()
+	ctx = log.WithContext(ctx)
+
+	content, _ := d.connector.MsgConv.ConvertMatrixMessageContent(
+		ctx,
+		msg.Portal,
+		msg.Content,
+		// Disregard link previews for now. Discord generally allows you to
+		// remove individual link previews from a message though.
+		[]string{},
+	)
+
+	_, err := d.Session.ChannelMessageEdit(
+		discordid.ParsePortalID(msg.Portal.ID),
+		discordid.ParseMessageID(msg.EditTarget.ID),
+		content,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to send message edit to discord: %w", err)
+	}
+
+	return nil
 }
 
 func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {

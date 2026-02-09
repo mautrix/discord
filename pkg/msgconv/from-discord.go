@@ -419,7 +419,71 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *
 }
 
 func (mc *MessageConverter) renderDiscordSticker(ctx context.Context, sticker *discordgo.StickerItem) *bridgev2.ConvertedMessagePart {
-	panic("unimplemented")
+	var mime string
+	switch sticker.FormatType {
+	case discordgo.StickerFormatTypePNG:
+		mime = "image/png"
+	case discordgo.StickerFormatTypeAPNG:
+		mime = "image/apng"
+	case discordgo.StickerFormatTypeLottie:
+		mime = "application/json"
+	case discordgo.StickerFormatTypeGIF:
+		mime = "image/gif"
+	default:
+		zerolog.Ctx(ctx).Warn().
+			Int("sticker_format", int(sticker.FormatType)).
+			Str("sticker_id", sticker.ID).
+			Msg("Unknown sticker format")
+	}
+
+	// TODO(skip): Support direct media.
+	reupload, err := mc.ReuploadMedia(ctx, sticker.URL(), mime, "", -1, true)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy sticker to Matrix")
+		return &bridgev2.ConvertedMessagePart{
+			Type:    event.EventMessage,
+			Content: mediaFailedMessage(err),
+		}
+	}
+
+	content := &event.MessageEventContent{
+		Body: sticker.Name, // TODO(skip): Find description from somewhere?
+		Info: &event.FileInfo{
+			MimeType: reupload.MimeType,
+			Size:     reupload.Size,
+		},
+	}
+	content.URL, content.File = reupload.MXC, reupload.File
+	cleanupConvertedStickerInfo(content)
+
+	return &bridgev2.ConvertedMessagePart{
+		Type:    event.EventSticker,
+		Content: content,
+	}
+}
+
+const DiscordStickerSize = 160
+
+func cleanupConvertedStickerInfo(content *event.MessageEventContent) {
+	if content.Info == nil {
+		return
+	}
+
+	if content.Info.Width == 0 && content.Info.Height == 0 {
+		content.Info.Width = DiscordStickerSize
+		content.Info.Height = DiscordStickerSize
+	} else if content.Info.Width > DiscordStickerSize || content.Info.Height > DiscordStickerSize {
+		if content.Info.Width > content.Info.Height {
+			content.Info.Height /= content.Info.Width / DiscordStickerSize
+			content.Info.Width = DiscordStickerSize
+		} else if content.Info.Width < content.Info.Height {
+			content.Info.Width /= content.Info.Height / DiscordStickerSize
+			content.Info.Height = DiscordStickerSize
+		} else {
+			content.Info.Width = DiscordStickerSize
+			content.Info.Height = DiscordStickerSize
+		}
+	}
 }
 
 const (

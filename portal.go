@@ -1559,6 +1559,14 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				// TODO save edit in message table
 				msg, err = sess.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
 			} else {
+				if portal.bridge.Config.Bridge.SuppressWebhookMentions {
+					allowedMentions = &discordgo.MessageAllowedMentions{
+						Parse:       []discordgo.AllowedMentionType{},
+						Users:       []string{},
+						Roles:       []string{},
+						RepliedUser: false,
+					}
+				}
 				msg, err = relayClient.WebhookMessageEdit(portal.RelayWebhookID, portal.RelayWebhookSecret, edits.DiscordID, &discordgo.WebhookEdit{
 					Content:         &discordContent,
 					AllowedMentions: allowedMentions,
@@ -1702,6 +1710,13 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 			}
 		} else {
 			sendReq.AllowedMentions = nil
+		}
+	} else if portal.bridge.Config.Bridge.SuppressWebhookMentions {
+		sendReq.AllowedMentions = &discordgo.MessageAllowedMentions{
+			Parse:       []discordgo.AllowedMentionType{},
+			Users:       []string{},
+			Roles:       []string{},
+			RepliedUser: false,
 		}
 	} else if strings.Contains(sendReq.Content, "@everyone") || strings.Contains(sendReq.Content, "@here") {
 		powerLevels, err := portal.MainIntent().PowerLevels(portal.MXID)

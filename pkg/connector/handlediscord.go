@@ -20,10 +20,13 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"slices"
+	"strconv"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 
@@ -58,11 +61,56 @@ type DiscordMessage struct {
 	Client *DiscordClient
 }
 
+func (m *DiscordMessage) ConvertEdit(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message) (*bridgev2.ConvertedEdit, error) {
+	log := zerolog.Ctx(ctx).With().
+		Str("action", "convert discord edit").Logger()
+	ctx = log.WithContext(ctx)
+
+	// FIXME don't redundantly reupload attachments
+	convertedEdit := m.Client.connector.MsgConv.ToMatrix(
+		ctx,
+		portal,
+		intent,
+		m.Client.UserLogin,
+		m.Client.Session,
+		m.Data,
+	)
+
+	// TODO this is really gross and relies on how we assign incrementing numeric
+	// part ids. to return a semantically correct `ConvertedEdit` we should ditch
+	// this system
+	slices.SortStableFunc(existing, func(a *database.Message, b *database.Message) int {
+		ai, _ := strconv.Atoi(string(a.PartID))
+		bi, _ := strconv.Atoi(string(b.PartID))
+		return ai - bi
+	})
+
+	if len(convertedEdit.Parts) != len(existing) {
+		// FIXME support # of parts changing; triggerable by removing individual
+		// attachments, etc.
+		//
+		// at the very least we can make this better by handling attachments,
+		// which are always(?) at the end
+		log.Warn().Int("n_parts_existing", len(existing)).Int("n_parts_after_edit", len(convertedEdit.Parts)).
+			Msg("Ignoring message edit that changed number of parts")
+		return nil, bridgev2.ErrIgnoringRemoteEvent
+	}
+
+	parts := make([]*bridgev2.ConvertedEditPart, 0, len(existing))
+	for pi, part := range convertedEdit.Parts {
+		parts = append(parts, part.ToEditPart(existing[pi]))
+	}
+
+	return &bridgev2.ConvertedEdit{
+		ModifiedParts: parts,
+	}, nil
+}
+
 var (
 	_ bridgev2.RemoteMessage                  = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteMessageWithTransactionID = (*DiscordMessage)(nil)
-	// _ bridgev2.RemoteEdit    = (*DiscordMessage)(nil)
-	_ bridgev2.RemoteMessageRemove = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEdit                     = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteMessageRemove            = (*DiscordMessage)(nil)
 )
 
 func (m *DiscordMessage) GetTargetMessage() networkid.MessageID {
@@ -218,6 +266,9 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		}
 		d.userCache.UpdateWithMessage(evt.Message)
 		wrappedEvt := d.wrapDiscordMessage(evt.Message, bridgev2.RemoteEventMessage)
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+	case *discordgo.MessageUpdate:
+		wrappedEvt := d.wrapDiscordMessage(evt.Message, bridgev2.RemoteEventEdit)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.UserUpdate:
 		d.userCache.UpdateWithUserUpdate(evt)

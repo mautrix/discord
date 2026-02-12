@@ -16,7 +16,10 @@
 
 package discordid
 
-import "github.com/bwmarrin/discordgo"
+import (
+	"github.com/bwmarrin/discordgo"
+	"maunium.net/go/mautrix/bridgev2/database"
+)
 
 type PortalMetadata struct {
 	// The ID of the Discord guild that the channel corresponding to this portal
@@ -31,4 +34,20 @@ type UserLoginMetadata struct {
 	Token            string                     `json:"token"`
 	HeartbeatSession discordgo.HeartbeatSession `json:"heartbeat_session"`
 	BridgedGuildIDs  map[string]bool            `json:"bridged_guild_ids,omitempty"`
+}
+
+var _ database.MetaMerger = (*UserLoginMetadata)(nil)
+
+func (ulm *UserLoginMetadata) CopyFrom(incoming any) {
+	incomingMeta, ok := incoming.(*UserLoginMetadata)
+	if !ok || incomingMeta == nil {
+		return
+	}
+
+	if incomingMeta.Token != "" {
+		ulm.Token = incomingMeta.Token
+	}
+	ulm.HeartbeatSession = discordgo.NewHeartbeatSession()
+
+	// Retain the BridgedGuildIDs from the existing login.
 }

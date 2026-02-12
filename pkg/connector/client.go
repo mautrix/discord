@@ -31,6 +31,7 @@ import (
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -312,6 +313,22 @@ func (d *DiscordClient) syncGuilds(ctx context.Context) {
 			log.Err(err).Msg("Couldn't bridge guild during sync")
 		}
 	}
+}
+
+// deleteGuildPortalSpace queues a remote event that deletes a guild space
+// (including children).
+func (d *DiscordClient) deleteGuildPortalSpace(ctx context.Context, guildID string) {
+	log := zerolog.Ctx(ctx)
+	log.Info().Msg("Unbridging guild by deleting the entire space")
+
+	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.ChatDelete{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventChatDelete,
+			PortalKey: d.guildPortalKeyFromID(guildID),
+		},
+		OnlyForMe: true,
+		Children:  true,
+	})
 }
 
 func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {

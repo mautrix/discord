@@ -242,6 +242,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	log := d.UserLogin.Log.With().Str("action", "handle discord event").
 		Type("event_type", rawEvt).
 		Logger()
+	ctx := log.WithContext(d.UserLogin.Bridge.BackgroundCtx)
 
 	switch evt := rawEvt.(type) {
 	case *discordgo.Ready:
@@ -286,6 +287,13 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
 	case *discordgo.PresenceUpdate:
 		return
+	case *discordgo.GuildDelete:
+		if evt.Unavailable {
+			log.Warn().Str("guild_id", evt.ID).Msg("Guild became unavailable")
+			// For now, leave the portals alone if the guild only went away due to an outage.
+			return
+		}
+		d.deleteGuildPortalSpace(ctx, evt.ID)
 	case *discordgo.Event:
 		// For presently unknown reasons sometimes discordgo won't unmarshal
 		// events into their proper corresponding structs.

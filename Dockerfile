@@ -1,4 +1,4 @@
-FROM golang:1-alpine3.22 AS builder
+FROM golang:1-alpine3.23 AS builder
 
 RUN apk add --no-cache git ca-certificates build-base su-exec olm-dev
 
@@ -6,7 +6,7 @@ COPY . /build
 WORKDIR /build
 RUN go build -o /usr/bin/mautrix-discord
 
-FROM alpine:3.22
+FROM alpine:3.23
 
 ENV UID=1337 \
     GID=1337
@@ -17,5 +17,6 @@ COPY --from=builder /usr/bin/mautrix-discord /usr/bin/mautrix-discord
 COPY --from=builder /build/example-config.yaml /opt/mautrix-discord/example-config.yaml
 COPY --from=builder /build/docker-run.sh /docker-run.sh
 VOLUME /data
+WORKDIR /data
 
 CMD ["/docker-run.sh"]

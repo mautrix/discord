@@ -1,4 +1,4 @@
-FROM alpine:3.22
+FROM alpine:3.23
 
 ENV UID=1337 \
     GID=1337
@@ -10,5 +10,6 @@ COPY $EXECUTABLE /usr/bin/mautrix-discord
 COPY ./example-config.yaml /opt/mautrix-discord/example-config.yaml
 COPY ./docker-run.sh /docker-run.sh
 VOLUME /data
+WORKDIR /data
 
 CMD ["/docker-run.sh"]

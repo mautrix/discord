@@ -19,6 +19,7 @@ package connector
 import (
 	"context"
 
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -43,7 +44,6 @@ var (
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
 	d.Bridge = bridge
 	d.MsgConv = msgconv.NewMessageConverter(bridge)
-	d.setUpProvisioningAPIs()
 }
 
 func (d *DiscordConnector) SetMaxFileSize(maxSize int64) {
@@ -51,6 +51,15 @@ func (d *DiscordConnector) SetMaxFileSize(maxSize int64) {
 }
 
 func (d *DiscordConnector) Start(ctx context.Context) error {
+	log := zerolog.Ctx(ctx)
+	log.Debug().Msg("Setting up provisioning API")
+
+	err := d.setUpProvisioningAPIs()
+	if err != nil {
+		log.Err(err).Msg("Failed to set up provisioning API, proceeding")
+		// Don't treat this error as fatal.
+	}
+
 	return nil
 }
 

@@ -280,6 +280,10 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		Logger()
 	ctx := log.WithContext(d.UserLogin.Bridge.BackgroundCtx)
 
+	// NOTE: discordgo seemingly dispatches both the proper unmarshalled type
+	// (e.g. `*discordgo.TypingStart`) _as well as_ a "raw" *discordgo.Event
+	// (e.g. `*discordgo.Event` with `Type` of `TYPING_START`) for every gateway
+	// event
 	switch evt := rawEvt.(type) {
 	case *discordgo.Ready:
 		log.Info().Msg("Received READY dispatch from discordgo")
@@ -332,12 +336,5 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			return
 		}
 		d.deleteGuildPortalSpace(ctx, evt.ID)
-	case *discordgo.Event:
-		// For presently unknown reasons sometimes discordgo won't unmarshal
-		// events into their proper corresponding structs.
-		if evt.Type == "PRESENCE_UPDATE" || evt.Type == "PASSIVE_UPDATE_V2" || evt.Type == "CONVERSATION_SUMMARY_UPDATE" {
-			return
-		}
-		log.Debug().Str("event_type", evt.Type).Msg("Ignoring unknown Discord event")
 	}
 }

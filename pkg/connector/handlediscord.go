@@ -22,12 +22,14 @@ import (
 	"runtime/debug"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -228,6 +230,40 @@ func (d *DiscordClient) wrapDiscordReaction(reaction *discordgo.MessageReaction,
 	}
 }
 
+func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discordgo.TypingStart) {
+	if typing.UserID == d.Session.State.User.ID {
+		return
+	}
+
+	log := zerolog.Ctx(ctx)
+
+	portalKey := networkid.PortalKey{
+		ID:       discordid.MakePortalID(typing.ChannelID),
+		Receiver: d.UserLogin.ID,
+	}
+	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
+	if err != nil {
+		log.Err(err).Msg("Failed to query for existing portal")
+		return
+	}
+	if portal == nil || portal.MXID == "" {
+		return
+	}
+
+	// Make sure we have this user's info in case we haven't seen them at all yet.
+	_ = d.userCache.Resolve(ctx, typing.UserID)
+
+	d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Typing{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventTyping,
+			PortalKey: portalKey,
+			Sender:    d.makeEventSenderWithID(typing.UserID),
+		},
+		Timeout: 12 * time.Second,
+		Type:    bridgev2.TypingTypeText,
+	})
+}
+
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	defer func() {
 		err := recover()
@@ -251,6 +287,8 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})
+	case *discordgo.TypingStart:
+		d.handleDiscordTyping(ctx, evt)
 	case *discordgo.Resumed:
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
 		d.UserLogin.BridgeState.Send(status.BridgeState{

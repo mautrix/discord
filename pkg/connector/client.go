@@ -278,8 +278,8 @@ func (d *DiscordClient) syncGuildSpace(_ context.Context, guild *discordgo.Guild
 }
 
 // bridgedGuildIDs returns a set of guild IDs that should be bridged. Note that
-// presence in the returned set does not imply that the rooms for the guild have
-// already been created.
+// presence in the returned set does not imply anything about the corresponding
+// portals and rooms.
 func (d *DiscordClient) bridgedGuildIDs() map[string]struct{} {
 	meta := d.UserLogin.Metadata.(*discordid.UserLoginMetadata)
 	bridgingGuildIDs := map[string]struct{}{}
@@ -332,7 +332,11 @@ func (d *DiscordClient) deleteGuildPortalSpace(ctx context.Context, guildID stri
 }
 
 func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
-	log := zerolog.Ctx(ctx)
+	log := zerolog.Ctx(ctx).With().
+		Str("guild_id", guildID).
+		Str("action", "bridge guild").
+		Logger()
+	ctx = log.WithContext(ctx)
 
 	guild, err := d.Session.State.Guild(guildID)
 	if errors.Is(err, discordgo.ErrStateNotFound) || guild == nil {
@@ -365,18 +369,24 @@ func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
 		d.syncChannel(ctx, guildCh)
 	}
 
-	log.Debug().Msg("Subscribing to guild after bridging")
-	err = d.Session.SubscribeGuild(discordgo.GuildSubscribeData{
-		GuildID:    guild.ID,
+	d.subscribeGuild(ctx, guildID)
+
+	return nil
+}
+
+func (d *DiscordClient) subscribeGuild(ctx context.Context, guildID string) {
+	log := zerolog.Ctx(ctx)
+
+	log.Debug().Msg("Subscribing to guild")
+	err := d.Session.SubscribeGuild(discordgo.GuildSubscribeData{
+		GuildID:    guildID,
 		Typing:     true,
 		Activities: true,
 		Threads:    true,
 	})
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to subscribe to guild; proceeding")
+		log.Warn().Err(err).Msg("Failed to subscribe to guild, proceeding")
 	}
-
-	return nil
 }
 
 func (d *DiscordClient) simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {

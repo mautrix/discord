@@ -215,13 +215,7 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 		return
 	}
 
-	bridgeCtx := login.Log.With().
-		Str("component", "provisioning").
-		Str("action", "bridge guild").
-		Str("guild_id", guildID).
-		Logger().
-		WithContext(context.Background())
-	go client.bridgeGuild(bridgeCtx, guildID)
+	go client.bridgeGuild(p.connector.Bridge.BackgroundCtx, guildID)
 
 	responseStatus := 201
 	if alreadyBridged {

@@ -142,11 +142,16 @@ func (d *DiscordChatResync) GetChatInfo(ctx context.Context, portal *bridgev2.Po
 	}
 
 	info := &bridgev2.ChatInfo{
-		Name:        &ch.Name,
-		Members:     ptr.Ptr(d.memberList()),
-		Avatar:      d.avatar(ctx),
-		Type:        &roomType,
+		Name:   &ch.Name,
+		Topic:  &ch.Topic,
+		Avatar: d.avatar(ctx),
+
+		Members: ptr.Ptr(d.memberList()),
+
+		Type: &roomType,
+
 		CanBackfill: true,
+
 		ExtraUpdates: func(ctx context.Context, portal *bridgev2.Portal) (changed bool) {
 			meta := portal.Metadata.(*discordid.PortalMetadata)
 			if meta.GuildID != ch.GuildID {

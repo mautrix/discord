@@ -194,9 +194,9 @@ func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
 
 	// The portal containing the message that was replied to.
 	targetPortal := portal
-	if ref.ChannelID != discordid.ParsePortalID(portal.ID) {
+	if ref.ChannelID != discordid.ParseChannelPortalID(portal.ID) {
 		var err error
-		targetPortal, err = mc.Bridge.GetPortalByKey(ctx, discordid.MakePortalKeyWithID(ref.ChannelID))
+		targetPortal, err = mc.Bridge.GetPortalByKey(ctx, discordid.MakeChannelPortalKeyWithID(ref.ChannelID))
 		if err != nil {
 			log.Err(err).Msg("Failed to get cross-room reply portal; proceeding")
 			return
@@ -316,7 +316,7 @@ func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal
 	forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, msg.MessageSnapshots[0].Message.Content, true)
 	msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
 	origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
-	if forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, discordid.MakePortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
+	if forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, discordid.MakeChannelPortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
 		if origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, discordid.MakeMessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
 			// We've bridged the message that was forwarded, so we can link to it directly.
 			origLink = fmt.Sprintf(

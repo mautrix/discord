@@ -148,7 +148,7 @@ func (d *DiscordClient) wrapDiscordMessage(msg *discordgo.Message, typ bridgev2.
 		DiscordEventMeta: &DiscordEventMeta{
 			Type: typ,
 			PortalKey: networkid.PortalKey{
-				ID:       discordid.MakePortalID(msg.ChannelID),
+				ID:       discordid.MakeChannelPortalIDWithID(msg.ChannelID),
 				Receiver: d.UserLogin.ID,
 			},
 		},
@@ -221,7 +221,7 @@ func (d *DiscordClient) wrapDiscordReaction(reaction *discordgo.MessageReaction,
 		DiscordEventMeta: &DiscordEventMeta{
 			Type: evtType,
 			PortalKey: networkid.PortalKey{
-				ID:       discordid.MakePortalID(reaction.ChannelID),
+				ID:       discordid.MakeChannelPortalIDWithID(reaction.ChannelID),
 				Receiver: d.UserLogin.ID,
 			},
 		},
@@ -238,7 +238,7 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 	log := zerolog.Ctx(ctx)
 
 	portalKey := networkid.PortalKey{
-		ID:       discordid.MakePortalID(typing.ChannelID),
+		ID:       discordid.MakeChannelPortalIDWithID(typing.ChannelID),
 		Receiver: d.UserLogin.ID,
 	}
 	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)

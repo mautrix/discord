@@ -72,11 +72,24 @@ func UserLoginIDToUserID(id networkid.UserLoginID) networkid.UserID {
 	return networkid.UserID(id)
 }
 
-func MakePortalID(channelID string) networkid.PortalID {
+func MakeChannelPortalKey(ch *discordgo.Channel, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
+	key.ID = MakeChannelPortalIDWithID(ch.ID)
+	if wantReceiver {
+		key.Receiver = userLoginID
+	}
+	return
+}
+
+func MakeChannelPortalKeyWithID(channelID string) (key networkid.PortalKey) {
+	key.ID = MakeChannelPortalIDWithID(channelID)
+	return
+}
+
+func MakeChannelPortalIDWithID(channelID string) networkid.PortalID {
 	return networkid.PortalID(channelID)
 }
 
-func ParsePortalID(portalID networkid.PortalID) string {
+func ParseChannelPortalID(portalID networkid.PortalID) string {
 	return string(portalID)
 }
 
@@ -114,8 +127,8 @@ func MakeAvatarID(avatar string) networkid.AvatarID {
 //
 // To accommodate Discord guilds created before this API change that have also
 // never deleted the default channel, we need a way to distinguish between the
-// guild and the default channel, as we wouldn't be able to bridge the guild
-// as a space otherwise.
+// guild and the default channel. Otherwise, we wouldn't be able to bridge both
+// the channel portal as well as the guild space; their keys would conflict.
 //
 // "*" was chosen as the asterisk character is used to filter by guilds in
 // the quick switcher (in Discord's first-party clients).
@@ -123,7 +136,7 @@ func MakeAvatarID(avatar string) networkid.AvatarID {
 // For more information, see: https://discord.com/developers/docs/change-log#breaking-change-default-channels:~:text=New%20guilds%20will%20no%20longer.
 const GuildPortalKeySigil = "*"
 
-func MakeGuildPortalID(guildID string) networkid.PortalID {
+func MakeGuildPortalIDWithID(guildID string) networkid.PortalID {
 	return networkid.PortalID(GuildPortalKeySigil + guildID)
 }
 
@@ -139,17 +152,4 @@ func ParseGuildPortalID(portalID networkid.PortalID) string {
 	}
 
 	return ""
-}
-
-func MakePortalKey(ch *discordgo.Channel, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
-	key.ID = MakePortalID(ch.ID)
-	if wantReceiver {
-		key.Receiver = userLoginID
-	}
-	return
-}
-
-func MakePortalKeyWithID(channelID string) (key networkid.PortalKey) {
-	key.ID = MakePortalID(channelID)
-	return
 }

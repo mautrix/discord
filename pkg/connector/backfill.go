@@ -37,7 +37,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 
-	channelID := discordid.ParsePortalID(fetchParams.Portal.ID)
+	channelID := discordid.ParseChannelPortalID(fetchParams.Portal.ID)
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "fetch messages").
 		Str("channel_id", channelID).

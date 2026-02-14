@@ -253,7 +253,7 @@ func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Ch
 func (d *DiscordClient) guildPortalKeyFromID(guildID string) networkid.PortalKey {
 	// TODO: Support configuring `split_portals`.
 	return networkid.PortalKey{
-		ID:       discordid.MakeGuildPortalID(guildID),
+		ID:       discordid.MakeGuildPortalIDWithID(guildID),
 		Receiver: d.UserLogin.ID,
 	}
 }
@@ -432,6 +432,6 @@ func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel) {
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
 		Client:    d,
 		channel:   ch,
-		portalKey: discordid.MakePortalKey(ch, d.UserLogin.ID, true),
+		portalKey: discordid.MakeChannelPortalKey(ch, d.UserLogin.ID, true),
 	})
 }

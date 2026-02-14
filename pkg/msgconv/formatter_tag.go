@@ -285,7 +285,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		return
 		// }
 	case *astDiscordChannelMention:
-		if portal, _ := node.portal.Bridge.GetPortalByKey(ctx, discordid.MakePortalKeyWithID(
+		if portal, _ := node.portal.Bridge.GetPortalByKey(ctx, discordid.MakeChannelPortalKeyWithID(
 			strconv.FormatInt(node.id, 10),
 		)); portal != nil {
 			if portal.MXID != "" {

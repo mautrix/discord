@@ -164,7 +164,7 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, log
 			// guild, as it recognizes the guild returned from this HTTP
 			// endpoint and the actual space itself as separate "entities".
 			// (Despite this, they point to identical rooms.)
-			ID:        string(discordid.MakeGuildPortalID(guild.ID)),
+			ID:        string(discordid.MakeGuildPortalIDWithID(guild.ID)),
 			Name:      guild.Name,
 			AvatarURL: discordgo.EndpointGuildIcon(guild.ID, guild.Icon),
 			Bridged:   beingBridged,

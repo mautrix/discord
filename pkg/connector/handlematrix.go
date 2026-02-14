@@ -46,7 +46,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	portal := msg.Portal
 	guildID := portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := discordid.ParsePortalID(portal.ID)
+	channelID := discordid.ParseChannelPortalID(portal.ID)
 
 	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg)
 	if err != nil {
@@ -57,7 +57,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	// TODO: When supporting threads (and not a bot user), send a thread referer.
 	options = append(options, discordgo.WithChannelReferer(guildID, channelID))
 
-	sentMsg, err := d.Session.ChannelMessageSendComplex(discordid.ParsePortalID(msg.Portal.ID), sendReq, options...)
+	sentMsg, err := d.Session.ChannelMessageSendComplex(discordid.ParseChannelPortalID(msg.Portal.ID), sendReq, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	)
 
 	_, err := d.Session.ChannelMessageEdit(
-		discordid.ParsePortalID(msg.Portal.ID),
+		discordid.ParseChannelPortalID(msg.Portal.ID),
 		discordid.ParseMessageID(msg.EditTarget.ID),
 		content,
 	)
@@ -113,7 +113,7 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 
 	err := d.Session.MessageReactionAddUser(
 		meta.GuildID,
-		discordid.ParsePortalID(portal.ID),
+		discordid.ParseChannelPortalID(portal.ID),
 		discordid.ParseMessageID(reaction.TargetMessage.ID),
 		discordid.ParseEmojiID(reaction.PreHandleResp.EmojiID),
 	)
@@ -123,7 +123,7 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal *bridgev2.MatrixReactionRemove) error {
 	removing := removal.TargetReaction
 	emojiID := removing.EmojiID
-	channelID := discordid.ParsePortalID(removing.Room.ID)
+	channelID := discordid.ParseChannelPortalID(removing.Room.ID)
 	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 
 	err := d.Session.MessageReactionRemoveUser(guildID, channelID, discordid.ParseMessageID(removing.MessageID), discordid.ParseEmojiID(emojiID), discordid.ParseUserLoginID(d.UserLogin.ID))
@@ -131,7 +131,7 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
-	channelID := discordid.ParsePortalID(removal.Portal.ID)
+	channelID := discordid.ParseChannelPortalID(removal.Portal.ID)
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
 	return d.Session.ChannelMessageDelete(channelID, messageID)
 }
@@ -177,7 +177,7 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 
 	// TODO: Support threads.
 	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := discordid.ParsePortalID(msg.Portal.ID)
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
 	resp, err := d.Session.ChannelMessageAckNoToken(channelID, targetMessageID, discordgo.WithChannelReferer(guildID, channelID))
 	if err != nil {
 		log.Err(err).Msg("Failed to send read receipt to Discord")
@@ -202,7 +202,7 @@ func (d *DiscordClient) viewingChannel(ctx context.Context, portal *bridgev2.Por
 	d.markedOpenedLock.Lock()
 	defer d.markedOpenedLock.Unlock()
 
-	channelID := discordid.ParsePortalID(portal.ID)
+	channelID := discordid.ParseChannelPortalID(portal.ID)
 	log := zerolog.Ctx(ctx).With().
 		Str("channel_id", channelID).Logger()
 
@@ -233,7 +233,7 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 	_ = d.viewingChannel(ctx, msg.Portal)
 
 	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := discordid.ParsePortalID(msg.Portal.ID)
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
 	// TODO: Support threads properly when sending the referer.
 	err := d.Session.ChannelTyping(channelID, discordgo.WithChannelReferer(guildID, channelID))
 

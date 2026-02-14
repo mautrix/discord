@@ -117,10 +117,10 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 	var parentPortalID *networkid.PortalID
 	if ch.Type == discordgo.ChannelTypeGuildCategory || (ch.ParentID == "" && ch.GuildID != "") {
 		// Categories and uncategorized guild channels always have the guild as their parent.
-		parentPortalID = ptr.Ptr(discordid.MakeGuildPortalID(ch.GuildID))
+		parentPortalID = ptr.Ptr(discordid.MakeGuildPortalIDWithID(ch.GuildID))
 	} else if ch.ParentID != "" {
 		// Categorized guild channels.
-		parentPortalID = ptr.Ptr(discordid.MakePortalID(ch.ParentID))
+		parentPortalID = ptr.Ptr(discordid.MakeChannelPortalIDWithID(ch.ParentID))
 	}
 
 	var memberList bridgev2.ChatMemberList
@@ -176,7 +176,7 @@ func (d *DiscordClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 		return d.getGuildSpaceInfo(ctx, guild)
 	} else {
 		// Portal is to a channel of some kind (private or guild).
-		channelID := discordid.ParsePortalID(portal.ID)
+		channelID := discordid.ParseChannelPortalID(portal.ID)
 
 		ch, err := d.Session.State.Channel(channelID)
 		if err != nil {

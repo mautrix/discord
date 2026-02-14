@@ -308,7 +308,7 @@ func (d *DiscordClient) syncGuilds(ctx context.Context) {
 			Str("action", "sync guild").
 			Logger()
 
-		err := d.bridgeGuild(log.WithContext(ctx), guildID)
+		err := d.syncGuild(log.WithContext(ctx), guildID)
 		if err != nil {
 			log.Err(err).Msg("Couldn't bridge guild during sync")
 		}
@@ -331,7 +331,7 @@ func (d *DiscordClient) deleteGuildPortalSpace(ctx context.Context, guildID stri
 	})
 }
 
-func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
+func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 	log := zerolog.Ctx(ctx).With().
 		Str("guild_id", guildID).
 		Str("action", "bridge guild").
@@ -348,8 +348,8 @@ func (d *DiscordClient) bridgeGuild(ctx context.Context, guildID string) error {
 	d.syncGuildSpace(ctx, guild)
 
 	for _, guildCh := range guild.Channels {
-		if guildCh.Type != discordgo.ChannelTypeGuildText {
-			// TODO implement categories (spaces) and news channels
+		if guildCh.Type != discordgo.ChannelTypeGuildText && guildCh.Type != discordgo.ChannelTypeGuildCategory {
+			// TODO also bridge news channels
 			log.Trace().
 				Str("channel_id", guildCh.ID).
 				Int("channel_type", int(guildCh.Type)).

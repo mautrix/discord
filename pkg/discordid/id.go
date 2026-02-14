@@ -18,6 +18,7 @@ package discordid
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -124,6 +125,20 @@ const GuildPortalKeySigil = "*"
 
 func MakeGuildPortalID(guildID string) networkid.PortalID {
 	return networkid.PortalID(GuildPortalKeySigil + guildID)
+}
+
+// ParseGuildPortalID converts a [network.PortalID] pointing to a guild space
+// back into the guild's ID on Discord.
+//
+// If the portal ID does not point to a guild, then an empty string is returned.
+func ParseGuildPortalID(portalID networkid.PortalID) string {
+	opaque := string(portalID)
+	if strings.HasPrefix(opaque, GuildPortalKeySigil) {
+		guildID := opaque[1:]
+		return guildID
+	}
+
+	return ""
 }
 
 func MakePortalKey(ch *discordgo.Channel, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {

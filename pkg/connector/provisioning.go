@@ -215,7 +215,7 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 		return
 	}
 
-	go client.bridgeGuild(p.connector.Bridge.BackgroundCtx, guildID)
+	go client.syncGuild(p.connector.Bridge.BackgroundCtx, guildID)
 
 	responseStatus := 201
 	if alreadyBridged {

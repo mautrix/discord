@@ -21,9 +21,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
-	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
@@ -59,20 +57,5 @@ func (d *DiscordGuildResync) ShouldCreatePortal() bool {
 }
 
 func (d *DiscordGuildResync) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
-	selfEvtSender := d.Client.selfEventSender()
-
-	return &bridgev2.ChatInfo{
-		Name:  &d.guild.Name,
-		Topic: nil,
-		Members: &bridgev2.ChatMemberList{
-			MemberMap: map[networkid.UserID]bridgev2.ChatMember{
-				selfEvtSender.Sender: {EventSender: selfEvtSender},
-			},
-			// As recommended by the spec, prohibit normal events by setting
-			// events_default to a suitably high number.
-			PowerLevels: &bridgev2.PowerLevelOverrides{EventsDefault: ptr.Ptr(100)},
-		},
-		Avatar: d.Client.makeAvatarForGuild(d.guild),
-		Type:   ptr.Ptr(database.RoomTypeSpace),
-	}, nil
+	return d.Client.GetChatInfo(ctx, portal)
 }

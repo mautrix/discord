@@ -1653,16 +1653,21 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 
 		if portal.bridge.Config.Bridge.UseDiscordCDNUpload && !isWebhookSend && sess.IsUser {
 			att := &discordgo.MessageAttachment{
-				ID:          "0",
-				Filename:    filename,
-				Description: description,
+				ID:                  "0",
+				Filename:            filename,
+				Description:         description,
+				OriginalContentType: content.Info.MimeType,
 			}
 			sendReq.Attachments = []*discordgo.MessageAttachment{att}
+			isClip := false
 			prep, err := sender.Session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
 				Files: []*discordgo.FilePrepare{{
 					Size: len(data),
 					Name: att.Filename,
 					ID:   sender.NextDiscordUploadID(),
+
+					IsClip:              &isClip,
+					OriginalContentType: att.OriginalContentType,
 				}},
 			}, portal.RefererOpt(threadID))
 			if err != nil {

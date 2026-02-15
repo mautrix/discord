@@ -154,6 +154,7 @@ func newDirectMediaAPI(br *DiscordBridge) *DirectMediaAPI {
 	addRoutes("r0")
 	addRoutes("v1")
 	federationRouter.HandleFunc("/v1/media/download/{mediaID}", dma.DownloadMedia).Methods(http.MethodGet)
+	federationRouter.HandleFunc("/v1/media/thumbnail/{mediaID}", dma.DownloadMedia).Methods(http.MethodGet)
 	federationRouter.HandleFunc("/v1/version", dma.ks.GetServerVersion).Methods(http.MethodGet)
 	mediaRouter.NotFoundHandler = http.HandlerFunc(dma.UnknownEndpoint)
 	mediaRouter.MethodNotAllowedHandler = http.HandlerFunc(dma.UnsupportedMethod)
@@ -556,7 +557,7 @@ func (dma *DirectMediaAPI) proxyDownload(ctx context.Context, w http.ResponseWri
 func (dma *DirectMediaAPI) DownloadMedia(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := zerolog.Ctx(ctx)
-	isNewFederation := strings.HasPrefix(r.URL.Path, "/_matrix/federation/v1/media/download/")
+	isNewFederation := strings.HasPrefix(r.URL.Path, "/_matrix/federation/v1/media/")
 	vars := mux.Vars(r)
 	if !isNewFederation && vars["serverName"] != dma.cfg.ServerName {
 		jsonResponse(w, http.StatusNotFound, &mautrix.RespError{

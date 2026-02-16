@@ -40,22 +40,23 @@ type BridgeConfig struct {
 	PublicAddress  string `yaml:"public_address"`
 	AvatarProxyKey string `yaml:"avatar_proxy_key"`
 
-	DeliveryReceipts            bool `yaml:"delivery_receipts"`
-	MessageStatusEvents         bool `yaml:"message_status_events"`
-	MessageErrorNotices         bool `yaml:"message_error_notices"`
-	RestrictedRooms             bool `yaml:"restricted_rooms"`
-	AutojoinThreadOnOpen        bool `yaml:"autojoin_thread_on_open"`
-	EmbedFieldsAsTables         bool `yaml:"embed_fields_as_tables"`
-	MuteChannelsOnCreate        bool `yaml:"mute_channels_on_create"`
-	SyncDirectChatList          bool `yaml:"sync_direct_chat_list"`
-	ResendBridgeInfo            bool `yaml:"resend_bridge_info"`
-	CustomEmojiReactions        bool `yaml:"custom_emoji_reactions"`
-	DeletePortalOnChannelDelete bool `yaml:"delete_portal_on_channel_delete"`
-	DeleteGuildOnLeave          bool `yaml:"delete_guild_on_leave"`
-	FederateRooms               bool `yaml:"federate_rooms"`
-	PrefixWebhookMessages       bool `yaml:"prefix_webhook_messages"`
-	EnableWebhookAvatars        bool `yaml:"enable_webhook_avatars"`
-	UseDiscordCDNUpload         bool `yaml:"use_discord_cdn_upload"`
+	DeliveryReceipts            bool     `yaml:"delivery_receipts"`
+	MessageStatusEvents         bool     `yaml:"message_status_events"`
+	MessageErrorNotices         bool     `yaml:"message_error_notices"`
+	RestrictedRooms             bool     `yaml:"restricted_rooms"`
+	AutojoinThreadOnOpen        bool     `yaml:"autojoin_thread_on_open"`
+	EmbedFieldsAsTables         bool     `yaml:"embed_fields_as_tables"`
+	MuteChannelsOnCreate        bool     `yaml:"mute_channels_on_create"`
+	SyncDirectChatList          bool     `yaml:"sync_direct_chat_list"`
+	ResendBridgeInfo            bool     `yaml:"resend_bridge_info"`
+	CustomEmojiReactions        bool     `yaml:"custom_emoji_reactions"`
+	DeletePortalOnChannelDelete bool     `yaml:"delete_portal_on_channel_delete"`
+	DeleteGuildOnLeave          bool     `yaml:"delete_guild_on_leave"`
+	FederateRooms               bool     `yaml:"federate_rooms"`
+	PrefixWebhookMessages       bool     `yaml:"prefix_webhook_messages"`
+	EnableWebhookAvatars        bool     `yaml:"enable_webhook_avatars"`
+	UseDiscordCDNUpload         bool     `yaml:"use_discord_cdn_upload"`
+	IgnoredWebhooks             []string `yaml:"ignored_webhooks"`
 
 	Proxy string `yaml:"proxy"`
 

@@ -36,7 +36,7 @@ func (dc *DiscordConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabiliti
 }
 
 func (wa *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
-	return 1, 1
+	return 1, 2
 }
 
 /*func supportedIfFFmpeg() event.CapabilitySupportLevel {
@@ -47,7 +47,7 @@ func (wa *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
 }*/
 
 func capID() string {
-	base := "fi.mau.discord.capabilities.2025_11_20"
+	base := "fi.mau.discord.capabilities.2026_02_17"
 	if ffmpeg.Supported() {
 		return base + "+ffmpeg"
 	}
@@ -117,6 +117,17 @@ var discordCaps = &event.RoomFeatures{
 			MaxCaptionLength: MaxTextLength,
 			MaxSize:          MaxFileSize,
 		},
+		event.CapMsgVoice: {
+			MimeTypes: map[string]event.CapabilitySupportLevel{
+				"audio/ogg; codecs=opus":  event.CapLevelFullySupported,
+				"audio/ogg":               event.CapLevelFullySupported,
+				"audio/webm; codecs=opus": event.CapLevelFullySupported,
+				"audio/webm":              event.CapLevelFullySupported,
+			},
+			Caption:          event.CapLevelFullySupported,
+			MaxCaptionLength: MaxTextLength,
+			MaxSize:          MaxFileSize,
+		},
 		event.MsgFile: {
 			MimeTypes: map[string]event.CapabilitySupportLevel{
 				"*/*": event.CapLevelFullySupported,
@@ -133,7 +144,6 @@ var discordCaps = &event.RoomFeatures{
 			MaxCaptionLength: MaxTextLength,
 			MaxSize:          MaxFileSize,
 		},
-		// TODO: Support voice messages.
 	},
 	LocationMessage: event.CapLevelUnsupported,
 	MaxTextLength:   MaxTextLength,

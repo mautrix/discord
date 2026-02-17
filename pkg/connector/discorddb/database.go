@@ -14,34 +14,35 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package connector
+package discorddb
 
 import (
-	_ "embed"
+	"embed"
 
-	up "go.mau.fi/util/configupgrade"
+	"github.com/rs/zerolog"
+	"go.mau.fi/util/dbutil"
 )
 
-//go:embed example-config.yaml
-var ExampleConfig string
-
-type Config struct {
-	Guilds struct {
-		BridgingGuildIDs []string `yaml:"bridging_guild_ids"`
-	} `yaml:"guilds"`
-
-	CustomEmojiReactions *bool `yaml:"custom_emoji_reactions"`
+type DiscordDB struct {
+	*dbutil.Database
+	CustomEmoji *CustomEmojiQuery
 }
 
-func (c Config) CustomEmojiReactionsEnabled() bool {
-	return c.CustomEmojiReactions == nil || *c.CustomEmojiReactions
+var table dbutil.UpgradeTable
+
+//go:embed *.sql
+var upgrades embed.FS
+
+func init() {
+	table.RegisterFS(upgrades)
 }
 
-func upgradeConfig(helper up.Helper) {
-	helper.Copy(up.List, "guilds", "bridging_guild_ids")
-	helper.Copy(up.Bool, "custom_emoji_reactions")
-}
-
-func (d *DiscordConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {
-	return ExampleConfig, &d.Config, up.SimpleUpgrader(upgradeConfig)
+func New(db *dbutil.Database, log zerolog.Logger) *DiscordDB {
+	db = db.Child("discord_version", table, dbutil.ZeroLogger(log))
+	return &DiscordDB{
+		Database: db,
+		CustomEmoji: &CustomEmojiQuery{
+			QueryHelper: dbutil.MakeQueryHelper(db, newCustomEmoji),
+		},
+	}
 }

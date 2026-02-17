@@ -33,6 +33,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/status"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/util/variationselector"
 )
 
 type DiscordEventMeta struct {
@@ -161,6 +162,10 @@ type DiscordReaction struct {
 	*DiscordEventMeta
 	Reaction *discordgo.MessageReaction
 	Client   *DiscordClient
+
+	Emoji   string
+	EmojiID networkid.EmojiID
+	Extra   map[string]any
 }
 
 func (r *DiscordReaction) GetSender() bridgev2.EventSender {
@@ -172,7 +177,7 @@ func (r *DiscordReaction) GetTargetMessage() networkid.MessageID {
 }
 
 func (r *DiscordReaction) GetRemovedEmojiID() networkid.EmojiID {
-	return discordid.MakeEmojiID(r.Reaction.Emoji.Name)
+	return r.EmojiID
 }
 
 var (
@@ -182,42 +187,68 @@ var (
 )
 
 func (r *DiscordReaction) GetReactionEmoji() (string, networkid.EmojiID) {
-	// name is either a grapheme cluster consisting of a Unicode emoji, or the
-	// name of a custom emoji.
-	name := r.Reaction.Emoji.Name
-	return name, discordid.MakeEmojiID(name)
+	return r.Emoji, r.EmojiID
 }
 
 func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
-	extra := make(map[string]any)
-
-	reaction := r.Reaction
-	emoji := reaction.Emoji
-
-	if emoji.ID != "" {
-		// The emoji is a custom emoji.
-
-		extra["fi.mau.discord.reaction"] = map[string]any{
-			"id":   emoji.ID,
-			"name": emoji.Name,
-			// FIXME Handle custom emoji.
-			// "mxc":  reaction,
-		}
-
-		wrappedShortcode := fmt.Sprintf(":%s:", reaction.Emoji.Name)
-		extra["com.beeper.reaction.shortcode"] = wrappedShortcode
-	}
-
-	return extra
+	return r.Extra
 }
 
-func (d *DiscordClient) wrapDiscordReaction(reaction *discordgo.MessageReaction, beingAdded bool) DiscordReaction {
+func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, beingAdded bool) (*DiscordReaction, error) {
 	evtType := bridgev2.RemoteEventReaction
 	if !beingAdded {
 		evtType = bridgev2.RemoteEventReactionRemove
 	}
 
-	return DiscordReaction{
+	var matrixEmoji string
+	var emojiID string
+	var extra map[string]any
+
+	if reaction.Emoji.ID != "" {
+		// A custom emoji.
+		emojiID = fmt.Sprintf("%s:%s", reaction.Emoji.Name, reaction.Emoji.ID)
+		shortcode := fmt.Sprintf(":%s:", reaction.Emoji.Name)
+
+		extra = map[string]any{
+			"fi.mau.discord.reaction": map[string]any{
+				"id":   reaction.Emoji.ID,
+				"name": reaction.Emoji.Name,
+				// "mxc" is added later if it's `beingAdded`.
+			},
+			"com.beeper.reaction.shortcode": shortcode,
+		}
+
+		if beingAdded {
+			reactionMXC, err := d.connector.GetCustomEmojiMXC(
+				ctx,
+				reaction.Emoji.ID,
+				reaction.Emoji.Name,
+				reaction.Emoji.Animated,
+			)
+
+			if err != nil || reactionMXC == "" {
+				zerolog.Ctx(ctx).Err(err).
+					Str("emoji_id", reaction.Emoji.ID).
+					Str("emoji_name", reaction.Emoji.Name).
+					Msg("Failed to get Matrix MXC for custom emoji reaction being added")
+				return nil, err
+			}
+
+			extra["fi.mau.discord.reaction"].(map[string]any)["mxc"] = reactionMXC
+
+			if d.connector.Config.CustomEmojiReactionsEnabled() {
+				matrixEmoji = string(reactionMXC)
+			} else {
+				matrixEmoji = shortcode
+			}
+		}
+	} else {
+		// A Unicode emoji.
+		emojiID = reaction.Emoji.Name
+		matrixEmoji = variationselector.Add(reaction.Emoji.Name)
+	}
+
+	return &DiscordReaction{
 		DiscordEventMeta: &DiscordEventMeta{
 			Type: evtType,
 			PortalKey: networkid.PortalKey{
@@ -227,7 +258,10 @@ func (d *DiscordClient) wrapDiscordReaction(reaction *discordgo.MessageReaction,
 		},
 		Reaction: reaction,
 		Client:   d,
-	}
+		Emoji:    matrixEmoji,
+		EmojiID:  discordid.MakeEmojiID(emojiID),
+		Extra:    extra,
+	}, nil
 }
 
 func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discordgo.TypingStart) {
@@ -320,11 +354,15 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	// TODO *discordgo.MessageDeleteBulk
 	case *discordgo.MessageReactionAdd:
-		wrappedEvt := d.wrapDiscordReaction(evt.MessageReaction, true)
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, true)
+		if wrappedEvt != nil && err == nil {
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+		}
 	case *discordgo.MessageReactionRemove:
-		wrappedEvt := d.wrapDiscordReaction(evt.MessageReaction, false)
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, false)
+		if wrappedEvt != nil && err == nil {
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+		}
 	// TODO case *discordgo.MessageReactionRemoveAll:
 	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
 	case *discordgo.PresenceUpdate:

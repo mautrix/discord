@@ -19,6 +19,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -98,12 +99,26 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 }
 
 func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
-	key := variationselector.FullyQualify(reaction.Content.RelatesTo.Key)
-	// TODO: Handle custom emoji.
+	emojiID := reaction.Content.RelatesTo.Key
+
+	// Figure out if this is a custom emoji or not.
+	if strings.HasPrefix(emojiID, "mxc://") {
+		customEmoji, err := d.connector.GetCustomEmojiByMXC(ctx, emojiID)
+
+		if err != nil {
+			return bridgev2.MatrixReactionPreResponse{}, fmt.Errorf("failed to get custom emoji by mxc: %w", err)
+		} else if customEmoji == nil || customEmoji.ID == "" || customEmoji.Name == "" {
+			return bridgev2.MatrixReactionPreResponse{}, fmt.Errorf("unknown custom emoji mxc: %q", emojiID)
+		}
+
+		emojiID = fmt.Sprintf("%s:%s", customEmoji.Name, customEmoji.ID)
+	} else {
+		emojiID = variationselector.FullyQualify(emojiID)
+	}
 
 	return bridgev2.MatrixReactionPreResponse{
 		SenderID: discordid.UserLoginIDToUserID(d.UserLogin.ID),
-		EmojiID:  discordid.MakeEmojiID(key),
+		EmojiID:  discordid.MakeEmojiID(emojiID),
 	}, nil
 }
 

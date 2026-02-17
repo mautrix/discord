@@ -41,7 +41,7 @@ func (d *DiscordClient) makeUserAvatar(u *discordgo.User) *bridgev2.Avatar {
 	return &bridgev2.Avatar{
 		ID: discordid.MakeAvatarID(url),
 		Get: func(ctx context.Context) ([]byte, error) {
-			return d.simpleDownload(ctx, url, "user avatar")
+			return httpGet(ctx, d.httpClient, url, "user avatar")
 		},
 	}
 }

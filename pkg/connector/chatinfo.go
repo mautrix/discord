@@ -71,7 +71,7 @@ func (d *DiscordClient) makeAvatarForChannel(ctx context.Context, ch *discordgo.
 		ID: discordid.MakeAvatarID(ch.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
 			url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
-			return d.simpleDownload(ctx, url, "channel/gdm icon")
+			return httpGet(ctx, d.httpClient, url, "channel/gdm icon")
 		},
 		Remove: ch.Icon == "",
 	}

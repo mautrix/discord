@@ -138,6 +138,10 @@ func (n *astDiscordCustomEmoji) String() string {
 
 type discordTagParser struct{}
 
+type customEmojiMXCProvider interface {
+	GetCustomEmojiMXC(ctx context.Context, emojiID, name string, animated bool) (id.ContentURIString, error)
+}
+
 // Regex to match everything in https://discord.com/developers/docs/reference#message-formatting
 var discordTagRegex = regexp.MustCompile(`<(a?:\w+:|@[!&]?|#|t:)(\d+)(?::([tTdDfFR])|(\d+):(.+?))?>`)
 var defaultDiscordTagParser = &discordTagParser{}
@@ -296,17 +300,21 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			return
 		}
 	case *astDiscordCustomEmoji:
-		// FIXME(skip): Implement.
-		_, _ = fmt.Fprintf(w, `(emoji)`)
-		// reactionMXC := node.portal.Bridge.getEmojiMXCByDiscordID(strconv.FormatInt(node.id, 10), node.name, node.animated)
-		// if !reactionMXC.IsEmpty() {
-		// 	attrs := "data-mx-emoticon"
-		// 	if node.animated {
-		// 		attrs += " data-mau-animated-emoji"
-		// 	}
-		// 	_, _ = fmt.Fprintf(w, `<img %[3]s src="%[1]s" alt="%[2]s" title="%[2]s" height="32"/>`, reactionMXC.String(), node.name, attrs)
-		// 	return
-		// }
+		if resolver, ok := node.portal.Bridge.Network.(customEmojiMXCProvider); ok {
+			reactionMXC, resolveErr := resolver.GetCustomEmojiMXC(ctx, strconv.FormatInt(node.id, 10), node.name, node.animated)
+
+			if resolveErr != nil {
+				node.portal.Log.Warn().Err(resolveErr).Int64("emoji_id", node.id).Msg("Failed to resolve custom emoji while rendering message")
+			} else if reactionMXC != "" {
+				attrs := "data-mx-emoticon"
+				if node.animated {
+					attrs += " data-mau-animated-emoji"
+				}
+
+				_, _ = fmt.Fprintf(w, `<img %[3]s src="%[1]s" alt="%[2]s" title="%[2]s" height="32"/>`, string(reactionMXC), node.name, attrs)
+				return
+			}
+		}
 	case *astDiscordTimestamp:
 		ts := time.Unix(node.timestamp, 0).UTC()
 		var formatted string

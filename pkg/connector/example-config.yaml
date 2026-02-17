@@ -4,3 +4,7 @@ guilds:
     # during bridge development. If no guild IDs are specified, then no guilds
     # are bridged at all.
     bridging_guild_ids: []
+
+# Should incoming custom emoji reactions be bridged as mxc:// URIs?
+# If false, they are bridged as :shortcode: instead.
+custom_emoji_reactions: true

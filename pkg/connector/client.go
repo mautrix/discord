@@ -38,10 +38,10 @@ import (
 )
 
 type DiscordClient struct {
-	connector *DiscordConnector
-	UserLogin *bridgev2.UserLogin
-	Session   *discordgo.Session
-	client    *http.Client
+	connector  *DiscordConnector
+	UserLogin  *bridgev2.UserLogin
+	Session    *discordgo.Session
+	httpClient *http.Client
 
 	hasBegunSyncing bool
 
@@ -61,11 +61,11 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 	}
 
 	cl := DiscordClient{
-		connector: d,
-		UserLogin: login,
-		Session:   session,
-		client:    d.Bridge.GetHTTPClientSettings().Compile(),
-		userCache: NewUserCache(session),
+		connector:  d,
+		UserLogin:  login,
+		Session:    session,
+		httpClient: d.Bridge.GetHTTPClientSettings().Compile(),
+		userCache:  NewUserCache(session),
 	}
 
 	login.Client = &cl
@@ -263,7 +263,7 @@ func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Ava
 		ID: discordid.MakeAvatarID(guild.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
 			url := discordgo.EndpointGuildIcon(guild.ID, guild.Icon)
-			return d.simpleDownload(ctx, url, "guild icon")
+			return httpGet(ctx, d.httpClient, url, "guild icon")
 		},
 		Remove: guild.Icon == "",
 	}
@@ -389,19 +389,22 @@ func (d *DiscordClient) subscribeGuild(ctx context.Context, guildID string) {
 	}
 }
 
-func (d *DiscordClient) simpleDownload(ctx context.Context, url, thing string) ([]byte, error) {
+func httpGet(ctx context.Context, httpClient *http.Client, url, thing string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
 
-	resp, err := d.client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download %s: %w", thing, err)
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode > 300 {
+		return nil, fmt.Errorf("failed to download %s: got HTTP %d", thing, resp.StatusCode)
+	}
 
 	data, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s data: %w", thing, err)
 	}

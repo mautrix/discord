@@ -18,6 +18,7 @@ package connector
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
@@ -25,14 +26,17 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
+	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"go.mau.fi/mautrix-discord/pkg/msgconv"
 )
 
 type DiscordConnector struct {
-	Bridge  *bridgev2.Bridge
-	Config  Config
-	MsgConv *msgconv.MessageConverter
+	Bridge     *bridgev2.Bridge
+	Config     Config
+	DB         *discorddb.DiscordDB
+	MsgConv    *msgconv.MessageConverter
+	httpClient *http.Client
 }
 
 var (
@@ -43,7 +47,9 @@ var (
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
 	d.Bridge = bridge
+	d.DB = discorddb.New(bridge.DB.Database, bridge.Log.With().Str("db_section", "discord").Logger())
 	d.MsgConv = msgconv.NewMessageConverter(bridge)
+	d.httpClient = d.Bridge.GetHTTPClientSettings().Compile()
 }
 
 func (d *DiscordConnector) SetMaxFileSize(maxSize int64) {
@@ -52,9 +58,16 @@ func (d *DiscordConnector) SetMaxFileSize(maxSize int64) {
 
 func (d *DiscordConnector) Start(ctx context.Context) error {
 	log := zerolog.Ctx(ctx)
+
+	err := d.DB.Upgrade(ctx)
+	if err != nil {
+		log.Err(err).Msg("Failed to upgrade Discord database")
+		return err
+	}
+
 	log.Debug().Msg("Setting up provisioning API")
 
-	err := d.setUpProvisioningAPIs()
+	err = d.setUpProvisioningAPIs()
 	if err != nil {
 		log.Err(err).Msg("Failed to set up provisioning API, proceeding")
 		// Don't treat this error as fatal.

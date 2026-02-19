@@ -298,6 +298,70 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 	})
 }
 
+func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.ChannelUpdate) error {
+	if upd.BeforeUpdate == nil {
+		// Channel doesn't exist in the discordgo's state; don't bother bridging.
+		return nil
+	}
+
+	log := zerolog.Ctx(ctx).With().Str("action", "handle channel update").Logger()
+	ctx = log.WithContext(ctx)
+
+	portalKey := networkid.PortalKey{
+		ID:       discordid.MakeChannelPortalIDWithID(upd.ID),
+		Receiver: d.UserLogin.ID,
+	}
+	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
+	if err != nil {
+		return fmt.Errorf("failed to look up existing channel: %w", err)
+	}
+	if portal == nil {
+		// Don't bridge updates for channels we haven't actually bridged.
+		return nil
+	}
+
+	ts := time.Now()
+	// Re-use main GetChatInfo logic to avoid drift. The rest of this function
+	// is mostly removing what didn't change.
+	patch, err := d.GetChatInfo(ctx, portal)
+	if err != nil {
+		return fmt.Errorf("failed to recompute chat info: %w", err)
+	}
+
+	patch.Type = nil
+	patch.CanBackfill = false
+	patch.ExtraUpdates = nil
+
+	old := upd.BeforeUpdate
+	// People leaving or joining a group DM isn't expressed via CHANNEL_UPDATE.
+	patch.Members = nil
+	if upd.Name == old.Name {
+		patch.Name = nil
+	}
+	if upd.Topic == old.Topic {
+		patch.Topic = nil
+	}
+	if upd.Icon == old.Icon {
+		patch.Avatar = nil
+	}
+	if upd.ParentID == old.ParentID {
+		patch.ParentID = nil
+	}
+
+	d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventChatInfoChange,
+			PortalKey: portalKey,
+			Timestamp: ts,
+		},
+		ChatInfoChange: &bridgev2.ChatInfoChange{
+			ChatInfo: patch,
+		},
+	})
+
+	return nil
+}
+
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	defer func() {
 		err := recover()
@@ -332,6 +396,11 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})
+	case *discordgo.ChannelUpdate:
+		err := d.handleChannelUpdate(ctx, evt)
+		if err != nil {
+			log.Err(err).Msg("Failed to handle channel update")
+		}
 	case *discordgo.MessageCreate:
 		if evt.Author == nil {
 			log.Trace().Int("message_type", int(evt.Message.Type)).

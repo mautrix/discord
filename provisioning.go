@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -71,6 +72,8 @@ func newProvisioningAPI(br *DiscordBridge) *ProvisioningAPI {
 	r.HandleFunc("/v1/guilds", p.guildsList).Methods(http.MethodGet)
 	r.HandleFunc("/v1/guilds/{guildID}", p.guildsBridge).Methods(http.MethodPost)
 	r.HandleFunc("/v1/guilds/{guildID}", p.guildsUnbridge).Methods(http.MethodDelete)
+
+	r.HandleFunc("/v1/delete-portals", p.deletePortals).Methods(http.MethodPost)
 
 	if p.bridge.Config.Bridge.Provisioning.DebugEndpoints {
 		p.log.Debugln("Enabling debug API at /debug")
@@ -549,4 +552,64 @@ func (p *ProvisioningAPI) guildsUnbridge(w http.ResponseWriter, r *http.Request)
 	} else {
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+type reqDeletePortals struct {
+	DiscordID string `json:"discord_id"`
+}
+
+type respDeletePortals struct {
+	Success     bool   `json:"success"`
+	PortalCount int    `json:"portal_count"`
+	GuildCount  int    `json:"guild_count"`
+	DiscordID   string `json:"discord_id"`
+}
+
+func (p *ProvisioningAPI) deletePortals(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(*User)
+
+	var body reqDeletePortals
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		p.log.Errorln("Failed to parse delete-portals request:", err)
+		jsonResponse(w, http.StatusBadRequest, Error{
+			Error:   "Failed to parse request body",
+			ErrCode: mautrix.MBadJSON.ErrCode,
+		})
+		return
+	}
+
+	discordID := user.DiscordID
+	if discordID == "" {
+		discordID = body.DiscordID
+	}
+	if discordID == "" {
+		jsonResponse(w, http.StatusBadRequest, Error{
+			Error:   "User is not logged in and no discord_id provided in request body",
+			ErrCode: mautrix.MBadJSON.ErrCode,
+		})
+		return
+	}
+
+	var portalCount, guildCount int
+	var panicErr interface{}
+	func() {
+		defer func() { panicErr = recover() }()
+		portalCount, guildCount = user.deleteAllPortals(discordID)
+	}()
+	if panicErr != nil {
+		p.log.Errorfln("Panic during deletePortals for %s/%s: %v", user.MXID, discordID, panicErr)
+		jsonResponse(w, http.StatusInternalServerError, Error{
+			Error:   "Internal error while deleting portals",
+			ErrCode: "M_UNKNOWN",
+		})
+		return
+	}
+
+	p.log.Infofln("Deleted %d portals and %d guilds for %s (discord: %s)", portalCount, guildCount, user.MXID, discordID)
+	jsonResponse(w, http.StatusOK, respDeletePortals{
+		Success:     true,
+		PortalCount: portalCount,
+		GuildCount:  guildCount,
+		DiscordID:   discordID,
+	})
 }

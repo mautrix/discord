@@ -747,8 +747,12 @@ func (user *User) readyHandler(r *discordgo.Ready) {
 		if previousUser, ok := user.bridge.usersByID[user.DiscordID]; ok && previousUser != user {
 			user.log.Warn().
 				Str("previous_user_id", previousUser.MXID.String()).
-				Msg("Another user is logged in with same Discord ID, logging them out")
-			// TODO send notice?
+				Msg("Another user is logged in with same Discord ID, logging them out and cleaning up portals")
+			// Capture discordID before Logout clears it on previousUser.
+			// Run synchronously so DB/cache cleanup completes before this
+			// user's readyHandler continues re-bridging portals.
+			capturedDiscordID := user.DiscordID
+			previousUser.deleteAllPortals(capturedDiscordID)
 			previousUser.Logout(true)
 		}
 		user.bridge.usersByID[user.DiscordID] = user
@@ -1537,4 +1541,81 @@ func (user *User) unbridgeGuild(guildID string) error {
 	guild.cleanup()
 	guild.RemoveMXID()
 	return nil
+}
+
+func (user *User) deleteAllPortals(discordID string) (portalCount, guildCount int) {
+	log := user.log.With().Str("discord_id", discordID).Logger()
+	log.Info().Msg("Deleting all portals for user")
+
+	// Phase 1: Collect portals to delete.
+	// DM portals are scoped by receiver=discordID, always safe to delete.
+	dmPortals := user.bridge.dbPortalsToPortals(
+		user.bridge.DB.Portal.FindPrivateChatsOf(discordID),
+	)
+
+	// Guild portals: only delete guilds where this user is the sole bridge user.
+	var guildsToDelete []*Guild
+	var guildPortals []*Portal
+	for _, up := range user.GetPortals() {
+		if up.Type != database.UserPortalTypeGuild {
+			continue
+		}
+		if user.PortalHasOtherUsers(up.DiscordID) {
+			log.Debug().Str("guild_id", up.DiscordID).
+				Msg("Skipping guild portal deletion: other users present")
+			continue
+		}
+		guild := user.bridge.GetGuildByID(up.DiscordID, false)
+		if guild == nil {
+			continue
+		}
+		guildsToDelete = append(guildsToDelete, guild)
+		guildPortals = append(guildPortals, user.bridge.GetAllPortalsInGuild(up.DiscordID)...)
+	}
+
+	allPortals := append(dmPortals, guildPortals...)
+
+	log.Info().
+		Int("dm_portals", len(dmPortals)).
+		Int("guild_portals", len(guildPortals)).
+		Int("guilds", len(guildsToDelete)).
+		Msg("Collected portals for deletion")
+
+	// Phase 2: DB delete + cache eviction (synchronous).
+	for _, portal := range allPortals {
+		if portal == nil {
+			continue
+		}
+		portal.Delete()
+	}
+	for _, guild := range guildsToDelete {
+		guild.Delete()
+	}
+
+	// Phase 3: Bulk remove user_portal associations.
+	user.DeleteAllPortalAssociations()
+
+	portalCount = len(allPortals)
+	guildCount = len(guildsToDelete)
+
+	// Phase 4: Async Matrix room cleanup (best-effort).
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Msg("Panic during async Matrix cleanup in deleteAllPortals")
+			}
+		}()
+		for _, portal := range allPortals {
+			if portal == nil {
+				continue
+			}
+			portal.cleanup(false)
+		}
+		for _, guild := range guildsToDelete {
+			guild.cleanup()
+		}
+		log.Info().Msg("Async Matrix cleanup for deleted portals complete")
+	}()
+
+	return portalCount, guildCount
 }

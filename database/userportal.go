@@ -115,6 +115,15 @@ func (u *User) MarkNotInPortal(discordID string) {
 	}
 }
 
+func (u *User) DeleteAllPortalAssociations() {
+	query := `DELETE FROM user_portal WHERE user_mxid=$1`
+	_, err := u.db.Exec(query, u.MXID)
+	if err != nil {
+		u.log.Errorfln("Failed to delete all portal associations for %s: %v", u.MXID, err)
+		panic(err)
+	}
+}
+
 func (u *User) PortalHasOtherUsers(discordID string) (hasOtherUsers bool) {
 	query := `SELECT COUNT(*) > 0 FROM user_portal WHERE user_mxid<>$1 AND discord_id=$2`
 	err := u.db.QueryRow(query, u.MXID, discordID).Scan(&hasOtherUsers)

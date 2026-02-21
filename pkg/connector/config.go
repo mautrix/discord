@@ -31,14 +31,20 @@ type Config struct {
 	} `yaml:"guilds"`
 
 	CustomEmojiReactions *bool `yaml:"custom_emoji_reactions"`
+	GuildAvatarsInRooms  *bool `yaml:"guild_avatars_in_rooms"`
 }
 
 func (c Config) CustomEmojiReactionsEnabled() bool {
 	return c.CustomEmojiReactions == nil || *c.CustomEmojiReactions
 }
 
+func (c Config) GuildAvatarsInRoomsEnabled() bool {
+	return c.GuildAvatarsInRooms != nil && *c.GuildAvatarsInRooms
+}
+
 func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.List, "guilds", "bridging_guild_ids")
+	helper.Copy(up.Bool, "guilds", "guild_avatars_in_rooms")
 	helper.Copy(up.Bool, "custom_emoji_reactions")
 }
 

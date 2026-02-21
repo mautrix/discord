@@ -55,8 +55,20 @@ func channelIsPrivate(ch *discordgo.Channel) bool {
 }
 
 func (d *DiscordClient) makeAvatarForChannel(ctx context.Context, ch *discordgo.Channel) *bridgev2.Avatar {
-	// TODO make this configurable (ala workspace_avatar_in_rooms)
-	if !channelIsPrivate(ch) {
+	if channelIsPrivate(ch) {
+		return &bridgev2.Avatar{
+			ID: discordid.MakeAvatarID(ch.Icon),
+			Get: func(ctx context.Context) ([]byte, error) {
+				url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
+				return httpGet(ctx, d.httpClient, url, "channel/gdm icon")
+			},
+			Remove: ch.Icon == "",
+		}
+	} else {
+		if !d.connector.Config.GuildAvatarsInRoomsEnabled() {
+			return nil
+		}
+
 		guild, err := d.Session.State.Guild(ch.GuildID)
 
 		if err != nil || guild == nil {
@@ -65,15 +77,6 @@ func (d *DiscordClient) makeAvatarForChannel(ctx context.Context, ch *discordgo.
 		}
 
 		return d.makeAvatarForGuild(guild)
-	}
-
-	return &bridgev2.Avatar{
-		ID: discordid.MakeAvatarID(ch.Icon),
-		Get: func(ctx context.Context) ([]byte, error) {
-			url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
-			return httpGet(ctx, d.httpClient, url, "channel/gdm icon")
-		},
-		Remove: ch.Icon == "",
 	}
 }
 

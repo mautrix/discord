@@ -5,6 +5,9 @@ guilds:
     # are bridged at all.
     bridging_guild_ids: []
 
+    # Should guild channel portals take on the guild icon as their avatars?
+    guild_avatars_in_rooms: false
+
 # Should incoming custom emoji reactions be bridged as mxc:// URIs?
 # If false, they are bridged as :shortcode: instead.
 custom_emoji_reactions: true

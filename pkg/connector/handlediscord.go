@@ -396,7 +396,7 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 }
 
 func (d *DiscordClient) handleThreadUpdate(ctx context.Context, thread *discordgo.Channel) error {
-	if thread == nil || !isThreadChannelType(thread.Type) {
+	if thread == nil || !isThread(thread) {
 		return nil
 	}
 	return d.upsertThreadInfoFromChannel(ctx, thread)

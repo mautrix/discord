@@ -30,14 +30,14 @@ import (
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
-func isThreadChannelType(chType discordgo.ChannelType) bool {
-	return chType == discordgo.ChannelTypeGuildPublicThread ||
-		chType == discordgo.ChannelTypeGuildPrivateThread ||
-		chType == discordgo.ChannelTypeGuildNewsThread
+func isThread(ch *discordgo.Channel) bool {
+	return ch.Type == discordgo.ChannelTypeGuildPublicThread ||
+		ch.Type == discordgo.ChannelTypeGuildPrivateThread ||
+		ch.Type == discordgo.ChannelTypeGuildNewsThread
 }
 
 func defaultThreadRootMessageID(ch *discordgo.Channel) string {
-	if ch == nil || !isThreadChannelType(ch.Type) {
+	if ch == nil || !isThread(ch) {
 		return ""
 	}
 	if ch.Type == discordgo.ChannelTypeGuildPrivateThread {
@@ -59,7 +59,7 @@ func (d *DiscordClient) upsertThreadInfo(ctx context.Context, threadChannelID, r
 }
 
 func (d *DiscordClient) upsertThreadInfoFromChannel(ctx context.Context, ch *discordgo.Channel) error {
-	if ch == nil || !isThreadChannelType(ch.Type) {
+	if ch == nil || !isThread(ch) {
 		return nil
 	}
 	return d.upsertThreadInfo(ctx, ch.ID, defaultThreadRootMessageID(ch), ch.ParentID)
@@ -90,7 +90,7 @@ func (d *DiscordClient) getThreadByChannelID(ctx context.Context, threadChannelI
 	}
 
 	ch, err := d.Session.State.Channel(threadChannelID)
-	if err == nil && ch != nil && isThreadChannelType(ch.Type) {
+	if err == nil && ch != nil && isThread(ch) {
 		rootMsgID := defaultThreadRootMessageID(ch)
 		if upsertErr := d.upsertThreadInfo(ctx, threadChannelID, rootMsgID, ch.ParentID); upsertErr != nil {
 			return nil, upsertErr
@@ -116,7 +116,7 @@ func (d *DiscordClient) getThreadByRootMessageID(ctx context.Context, rootMessag
 	}
 
 	ch, err := d.Session.State.Channel(rootMessageID)
-	if err == nil && ch != nil && isThreadChannelType(ch.Type) && defaultThreadRootMessageID(ch) == rootMessageID {
+	if err == nil && ch != nil && isThread(ch) && defaultThreadRootMessageID(ch) == rootMessageID {
 		if upsertErr := d.upsertThreadInfo(ctx, ch.ID, rootMessageID, ch.ParentID); upsertErr != nil {
 			return nil, upsertErr
 		}
@@ -146,7 +146,7 @@ func (d *DiscordClient) getThreadPortalInfo(ctx context.Context, channelID strin
 	return
 }
 
-func (d *DiscordClient) getThreadRootRemoteMessageID(threadRoot *database.Message) string {
+func getMatrixThreadRootRemoteMessageID(threadRoot *database.Message) string {
 	if threadRoot == nil {
 		return ""
 	}
@@ -157,7 +157,7 @@ func (d *DiscordClient) getThreadRootRemoteMessageID(threadRoot *database.Messag
 	return remoteID
 }
 
-func (d *DiscordClient) makeDiscordReferer(guildID, parentChannelID, threadChannelID string) discordgo.RequestOption {
+func makeDiscordReferer(guildID, parentChannelID, threadChannelID string) discordgo.RequestOption {
 	if threadChannelID != "" && threadChannelID != parentChannelID {
 		return discordgo.WithThreadReferer(guildID, parentChannelID, threadChannelID)
 	}
@@ -218,7 +218,7 @@ func (d *DiscordClient) startThreadFromMatrix(
 			Type:                threadType,
 			Location:            "Message",
 		},
-		d.makeDiscordReferer(guildID, parentChannelID, ""),
+		makeDiscordReferer(guildID, parentChannelID, ""),
 	)
 	if err != nil {
 		return "", err

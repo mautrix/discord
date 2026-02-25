@@ -51,7 +51,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	parentChannelID := discordid.ParseChannelPortalID(portal.ID)
 	channelID := parentChannelID
 	threadChannelID := ""
-	threadRootRemoteID := d.getThreadRootRemoteMessageID(msg.ThreadRoot)
+	threadRootRemoteID := getMatrixThreadRootRemoteMessageID(msg.ThreadRoot)
 
 	if threadRootRemoteID != "" {
 		thread, err := d.getThreadByRootMessageID(ctx, threadRootRemoteID)
@@ -79,7 +79,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	if threadChannelID != "" {
 		channelID = threadChannelID
 	}
-	refererOpt := d.makeDiscordReferer(guildID, parentChannelID, threadChannelID)
+	refererOpt := makeDiscordReferer(guildID, parentChannelID, threadChannelID)
 
 	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg, channelID, refererOpt)
 	if err != nil {
@@ -140,7 +140,7 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 		channelID,
 		discordid.ParseMessageID(msg.EditTarget.ID),
 		content,
-		d.makeDiscordReferer(guildID, parentChannelID, threadChannelID),
+		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to send message edit to discord: %w", err)
@@ -194,7 +194,7 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 		channelID,
 		discordid.ParseMessageID(reaction.TargetMessage.ID),
 		discordid.ParseEmojiID(reaction.PreHandleResp.EmojiID),
-		d.makeDiscordReferer(meta.GuildID, parentChannelID, threadChannelID),
+		makeDiscordReferer(meta.GuildID, parentChannelID, threadChannelID),
 	)
 	return nil, err
 }
@@ -226,7 +226,7 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 		discordid.ParseMessageID(removing.MessageID),
 		discordid.ParseEmojiID(emojiID),
 		discordid.ParseUserLoginID(d.UserLogin.ID),
-		d.makeDiscordReferer(guildID, parentChannelID, threadChannelID),
+		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
 	)
 	return err
 }
@@ -246,7 +246,7 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 		}
 	}
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
-	return d.Session.ChannelMessageDelete(channelID, messageID, d.makeDiscordReferer(guildID, parentChannelID, threadChannelID))
+	return d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID))
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {
@@ -362,7 +362,7 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 	resp, err := d.Session.ChannelMessageAckNoToken(
 		channelID,
 		targetMessageID,
-		d.makeDiscordReferer(guildID, parentChannelID, threadChannelID),
+		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
 	)
 	if err != nil {
 		log.Err(err).Msg("Failed to send read receipt to Discord")
@@ -419,7 +419,7 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 
 	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
-	err := d.Session.ChannelTyping(channelID, d.makeDiscordReferer(guildID, channelID, ""))
+	err := d.Session.ChannelTyping(channelID, makeDiscordReferer(guildID, channelID, ""))
 
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to mark user as typing")

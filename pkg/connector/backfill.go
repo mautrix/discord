@@ -61,7 +61,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	}
 
 	guildID := fetchParams.Portal.Metadata.(*discordid.PortalMetadata).GuildID
-	refererOpt := dc.makeDiscordReferer(guildID, parentChannelID, threadChannelID)
+	refererOpt := makeDiscordReferer(guildID, parentChannelID, threadChannelID)
 
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "fetch messages").

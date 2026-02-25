@@ -26,6 +26,7 @@ import (
 type DiscordDB struct {
 	*dbutil.Database
 	CustomEmoji *CustomEmojiQuery
+	Role        *RoleQuery
 }
 
 var table dbutil.UpgradeTable
@@ -43,6 +44,9 @@ func New(db *dbutil.Database, log zerolog.Logger) *DiscordDB {
 		Database: db,
 		CustomEmoji: &CustomEmojiQuery{
 			QueryHelper: dbutil.MakeQueryHelper(db, newCustomEmoji),
+		},
+		Role: &RoleQuery{
+			QueryHelper: dbutil.MakeQueryHelper(db, newRole),
 		},
 	}
 }

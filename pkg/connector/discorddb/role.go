@@ -80,6 +80,9 @@ const (
 	deleteRolesByGuildIDQuery = `
 		DELETE FROM role WHERE discord_guild_id=$1
 	`
+	deleteRoleByIDQuery = `
+		DELETE FROM role WHERE discord_guild_id=$1 AND discord_id=$2
+	`
 )
 
 func (rq *RoleQuery) GetByID(ctx context.Context, guildID, roleID string) (*Role, error) {
@@ -105,6 +108,10 @@ func (rq *RoleQuery) PutMany(ctx context.Context, roles []*Role) error {
 
 func (rq *RoleQuery) DeleteByGuildID(ctx context.Context, guildID string) error {
 	return rq.Exec(ctx, deleteRolesByGuildIDQuery, &guildID)
+}
+
+func (rq *RoleQuery) DeleteByID(ctx context.Context, guildID, roleID string) error {
+	return rq.Exec(ctx, deleteRoleByIDQuery, &guildID, &roleID)
 }
 
 func (rq *RoleQuery) ReplaceGuildRoles(ctx context.Context, guildID string, roles []*Role) error {

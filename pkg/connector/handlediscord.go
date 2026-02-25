@@ -396,6 +396,37 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})
+	case *discordgo.GuildCreate:
+		if evt.Unavailable {
+			break
+		}
+		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
+			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild create event")
+		}
+	case *discordgo.GuildUpdate:
+		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
+			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild update event")
+		}
+	case *discordgo.GuildRoleCreate:
+		roleID := ""
+		if evt.Role != nil {
+			roleID = evt.Role.ID
+		}
+		if err := d.upsertGuildRole(ctx, evt.GuildID, evt.Role); err != nil {
+			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", roleID).Msg("Failed to store role create event")
+		}
+	case *discordgo.GuildRoleUpdate:
+		roleID := ""
+		if evt.Role != nil {
+			roleID = evt.Role.ID
+		}
+		if err := d.upsertGuildRole(ctx, evt.GuildID, evt.Role); err != nil {
+			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", roleID).Msg("Failed to store role update event")
+		}
+	case *discordgo.GuildRoleDelete:
+		if err := d.connector.DB.Role.DeleteByID(ctx, evt.GuildID, evt.RoleID); err != nil {
+			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", evt.RoleID).Msg("Failed to delete role from database")
+		}
 	case *discordgo.ChannelUpdate:
 		err := d.handleChannelUpdate(ctx, evt)
 		if err != nil {
@@ -441,6 +472,9 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Warn().Str("guild_id", evt.ID).Msg("Guild became unavailable")
 			// For now, leave the portals alone if the guild only went away due to an outage.
 			return
+		}
+		if err := d.connector.DB.Role.DeleteByGuildID(ctx, evt.ID); err != nil {
+			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to delete guild roles from database")
 		}
 		d.deleteGuildPortalSpace(ctx, evt.ID)
 	}

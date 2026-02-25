@@ -345,6 +345,10 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 		return errors.New("couldn't find guild in state")
 	}
 
+	if err = d.syncGuildRoles(ctx, guildID, guild.Roles); err != nil {
+		return fmt.Errorf("failed to sync guild roles during guild sync: %w", err)
+	}
+
 	d.syncGuildSpace(ctx, guild)
 
 	for _, guildCh := range guild.Channels {

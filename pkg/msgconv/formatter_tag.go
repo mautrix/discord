@@ -34,6 +34,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/id"
 
+	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
@@ -140,6 +141,11 @@ type discordTagParser struct{}
 
 type customEmojiMXCProvider interface {
 	GetCustomEmojiMXC(ctx context.Context, emojiID, name string, animated bool) (id.ContentURIString, error)
+}
+
+// (This interface is to avoid an import cycle.)
+type roleInfoProvider interface {
+	GetRoleByID(ctx context.Context, guildID, roleID string) (*discorddb.Role, error)
 }
 
 // Regex to match everything in https://discord.com/developers/docs/reference#message-formatting
@@ -281,13 +287,22 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, mxid.URI().MatrixToURL(), name)
 		return
 	case *astDiscordRoleMention:
-		// FIXME(skip): Implement.
-		// role := node.portal.Bridge.DB.Role.GetByID(node.portal.GuildID, strconv.FormatInt(node.id, 10))
-		// if role != nil {
-		_, _ = fmt.Fprintf(w, `<strong>@unknown-role</strong>`)
-		// _, _ = fmt.Fprintf(w, `<font color="#%06x"><strong>@%s</strong></font>`, role.Color, role.Name)
-		return
-		// }
+		meta, _ := node.portal.Metadata.(*discordid.PortalMetadata)
+		if meta != nil && meta.GuildID != "" {
+			if provider, ok := node.portal.Bridge.Network.(roleInfoProvider); ok {
+				role, roleErr := provider.GetRoleByID(ctx, meta.GuildID, strconv.FormatInt(node.id, 10))
+				if roleErr != nil {
+					node.portal.Log.Warn().
+						Err(roleErr).
+						Str("guild_id", meta.GuildID).
+						Int64("role_id", node.id).
+						Msg("Failed to resolve role while rendering mention")
+				} else if role != nil {
+					_, _ = fmt.Fprintf(w, `<font color="#%06x"><strong>@%s</strong></font>`, role.Color, role.Name)
+					return
+				}
+			}
+		}
 	case *astDiscordChannelMention:
 		if portal, _ := node.portal.Bridge.GetPortalByKey(ctx, discordid.MakeChannelPortalKeyWithID(
 			strconv.FormatInt(node.id, 10),

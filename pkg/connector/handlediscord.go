@@ -60,8 +60,9 @@ func (em *DiscordEventMeta) GetPortalKey() networkid.PortalKey {
 
 type DiscordMessage struct {
 	*DiscordEventMeta
-	Data   *discordgo.Message
-	Client *DiscordClient
+	Data         *discordgo.Message
+	Client       *DiscordClient
+	ThreadRootID *networkid.MessageID
 }
 
 func (m *DiscordMessage) ConvertEdit(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message) (*bridgev2.ConvertedEdit, error) {
@@ -77,6 +78,7 @@ func (m *DiscordMessage) ConvertEdit(ctx context.Context, portal *bridgev2.Porta
 		m.Client.UserLogin,
 		m.Client.Session,
 		m.Data,
+		m.ThreadRootID,
 	)
 
 	// TODO this is really gross and relies on how we assign incrementing numeric
@@ -128,7 +130,7 @@ func (m *DiscordMessage) GetTransactionID() networkid.TransactionID {
 }
 
 func (m *DiscordMessage) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI) (*bridgev2.ConvertedMessage, error) {
-	return m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data), nil
+	return m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data, m.ThreadRootID), nil
 }
 
 func (m *DiscordMessage) GetID() networkid.MessageID {
@@ -144,17 +146,30 @@ func (m *DiscordMessage) GetSender() bridgev2.EventSender {
 	return m.Client.makeEventSender(m.Data.Author)
 }
 
-func (d *DiscordClient) wrapDiscordMessage(msg *discordgo.Message, typ bridgev2.RemoteEventType) DiscordMessage {
+func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.Message, typ bridgev2.RemoteEventType) DiscordMessage {
+	if msg == nil {
+		msg = &discordgo.Message{}
+	}
+	portalChannelID, threadRootID, err := d.getThreadPortalInfo(ctx, msg.ChannelID)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).
+			Str("channel_id", msg.ChannelID).
+			Str("message_id", msg.ID).
+			Msg("Failed to resolve thread mapping for message")
+		portalChannelID = msg.ChannelID
+		threadRootID = nil
+	}
 	return DiscordMessage{
 		DiscordEventMeta: &DiscordEventMeta{
 			Type: typ,
 			PortalKey: networkid.PortalKey{
-				ID:       discordid.MakeChannelPortalIDWithID(msg.ChannelID),
+				ID:       discordid.MakeChannelPortalIDWithID(portalChannelID),
 				Receiver: d.UserLogin.ID,
 			},
 		},
-		Data:   msg,
-		Client: d,
+		Data:         msg,
+		Client:       d,
+		ThreadRootID: threadRootID,
 	}
 }
 
@@ -195,9 +210,21 @@ func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
 }
 
 func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, beingAdded bool) (*DiscordReaction, error) {
+	if reaction == nil {
+		return nil, nil
+	}
 	evtType := bridgev2.RemoteEventReaction
 	if !beingAdded {
 		evtType = bridgev2.RemoteEventReactionRemove
+	}
+
+	portalChannelID, _, resolveErr := d.getThreadPortalInfo(ctx, reaction.ChannelID)
+	if resolveErr != nil {
+		zerolog.Ctx(ctx).Err(resolveErr).
+			Str("reaction_channel_id", reaction.ChannelID).
+			Str("reaction_message_id", reaction.MessageID).
+			Msg("Failed to resolve thread mapping for reaction")
+		portalChannelID = reaction.ChannelID
 	}
 
 	var matrixEmoji string
@@ -252,7 +279,7 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 		DiscordEventMeta: &DiscordEventMeta{
 			Type: evtType,
 			PortalKey: networkid.PortalKey{
-				ID:       discordid.MakeChannelPortalIDWithID(reaction.ChannelID),
+				ID:       discordid.MakeChannelPortalIDWithID(portalChannelID),
 				Receiver: d.UserLogin.ID,
 			},
 		},
@@ -271,8 +298,14 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 
 	log := zerolog.Ctx(ctx)
 
+	portalChannelID, _, err := d.getThreadPortalInfo(ctx, typing.ChannelID)
+	if err != nil {
+		log.Err(err).Str("channel_id", typing.ChannelID).Msg("Failed to resolve thread mapping for typing event")
+		portalChannelID = typing.ChannelID
+	}
+
 	portalKey := networkid.PortalKey{
-		ID:       discordid.MakeChannelPortalIDWithID(typing.ChannelID),
+		ID:       discordid.MakeChannelPortalIDWithID(portalChannelID),
 		Receiver: d.UserLogin.ID,
 	}
 	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
@@ -362,6 +395,20 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 	return nil
 }
 
+func (d *DiscordClient) handleThreadUpdate(ctx context.Context, thread *discordgo.Channel) error {
+	if thread == nil || !isThreadChannelType(thread.Type) {
+		return nil
+	}
+	return d.upsertThreadInfoFromChannel(ctx, thread)
+}
+
+func (d *DiscordClient) handleThreadDelete(ctx context.Context, thread *discordgo.Channel) error {
+	if thread == nil || thread.ID == "" {
+		return nil
+	}
+	return d.connector.DB.Thread.DeleteByThreadChannelID(ctx, string(d.UserLogin.ID), thread.ID)
+}
+
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	defer func() {
 		err := recover()
@@ -432,6 +479,28 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err != nil {
 			log.Err(err).Msg("Failed to handle channel update")
 		}
+	case *discordgo.ThreadCreate:
+		err := d.handleThreadUpdate(ctx, evt.Channel)
+		if err != nil {
+			log.Err(err).Str("thread_id", evt.ID).Msg("Failed to handle thread create event")
+		}
+	case *discordgo.ThreadUpdate:
+		err := d.handleThreadUpdate(ctx, evt.Channel)
+		if err != nil {
+			log.Err(err).Str("thread_id", evt.ID).Msg("Failed to handle thread update event")
+		}
+	case *discordgo.ThreadDelete:
+		err := d.handleThreadDelete(ctx, evt.Channel)
+		if err != nil {
+			log.Err(err).Str("thread_id", evt.ID).Msg("Failed to handle thread delete event")
+		}
+	case *discordgo.ThreadListSync:
+		for _, thread := range evt.Threads {
+			err := d.handleThreadUpdate(ctx, thread)
+			if err != nil {
+				log.Err(err).Str("thread_id", thread.ID).Msg("Failed to handle thread in thread list sync event")
+			}
+		}
 	case *discordgo.MessageCreate:
 		if evt.Author == nil {
 			log.Trace().Int("message_type", int(evt.Message.Type)).
@@ -441,16 +510,22 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 				Msg("Dropping message that lacks an author")
 			return
 		}
+		if err := d.upsertThreadInfoFromMessage(ctx, evt.Message); err != nil {
+			log.Err(err).Str("message_id", evt.ID).Msg("Failed to persist thread info from message create")
+		}
 		d.userCache.UpdateWithMessage(evt.Message)
-		wrappedEvt := d.wrapDiscordMessage(evt.Message, bridgev2.RemoteEventMessage)
+		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessage)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.MessageUpdate:
-		wrappedEvt := d.wrapDiscordMessage(evt.Message, bridgev2.RemoteEventEdit)
+		if err := d.upsertThreadInfoFromMessage(ctx, evt.Message); err != nil {
+			log.Err(err).Str("message_id", evt.ID).Msg("Failed to persist thread info from message update")
+		}
+		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventEdit)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.UserUpdate:
 		d.userCache.UpdateWithUserUpdate(evt)
 	case *discordgo.MessageDelete:
-		wrappedEvt := d.wrapDiscordMessage(evt.Message, bridgev2.RemoteEventMessageRemove)
+		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessageRemove)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	// TODO *discordgo.MessageDeleteBulk
 	case *discordgo.MessageReactionAdd:

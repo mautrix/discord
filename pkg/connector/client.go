@@ -373,6 +373,13 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 		d.syncChannel(ctx, guildCh)
 	}
 
+	for _, thread := range guild.Threads {
+		err = d.upsertThreadInfoFromChannel(ctx, thread)
+		if err != nil {
+			log.Err(err).Str("thread_id", thread.ID).Msg("Failed to cache thread info during guild sync")
+		}
+	}
+
 	d.subscribeGuild(ctx, guildID)
 
 	return nil

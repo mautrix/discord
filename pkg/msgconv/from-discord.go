@@ -54,6 +54,7 @@ func (mc *MessageConverter) ToMatrix(
 	source *bridgev2.UserLogin,
 	session *discordgo.Session,
 	msg *discordgo.Message,
+	knownThreadRoot *networkid.MessageID,
 ) *bridgev2.ConvertedMessage {
 	ctx = context.WithValue(ctx, contextKeyUserLogin, source)
 	ctx = context.WithValue(ctx, contextKeyIntent, intent)
@@ -149,6 +150,16 @@ func (mc *MessageConverter) ToMatrix(
 	}
 
 	converted := &bridgev2.ConvertedMessage{Parts: parts}
+	if knownThreadRoot != nil {
+		threadRoot := *knownThreadRoot
+		converted.ThreadRoot = &threadRoot
+	}
+
+	currentThreadChannelID := ""
+	portalChannelID := discordid.ParseChannelPortalID(portal.ID)
+	if msg.ChannelID != portalChannelID {
+		currentThreadChannelID = msg.ChannelID
+	}
 	// TODO This is sorta gross; it might be worth bundling these parameters
 	// into a struct.
 	mc.tryAddingReplyToConvertedMessage(
@@ -157,6 +168,7 @@ func (mc *MessageConverter) ToMatrix(
 		portal,
 		source,
 		msg,
+		currentThreadChannelID,
 	)
 
 	return converted
@@ -180,12 +192,12 @@ func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
 	portal *bridgev2.Portal,
 	source *bridgev2.UserLogin,
 	msg *discordgo.Message,
+	currentThreadChannelID string,
 ) {
 	ref := msg.MessageReference
 	if ref == nil {
 		return
 	}
-	// TODO: Support threads.
 
 	log := zerolog.Ctx(ctx).With().
 		Str("referenced_channel_id", ref.ChannelID).
@@ -194,7 +206,8 @@ func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
 
 	// The portal containing the message that was replied to.
 	targetPortal := portal
-	if ref.ChannelID != discordid.ParseChannelPortalID(portal.ID) {
+	portalChannelID := discordid.ParseChannelPortalID(portal.ID)
+	if ref.ChannelID != portalChannelID && (currentThreadChannelID == "" || ref.ChannelID != currentThreadChannelID) {
 		var err error
 		targetPortal, err = mc.Bridge.GetPortalByKey(ctx, discordid.MakeChannelPortalKeyWithID(ref.ChannelID))
 		if err != nil {

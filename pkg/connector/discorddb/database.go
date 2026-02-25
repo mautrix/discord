@@ -27,6 +27,7 @@ type DiscordDB struct {
 	*dbutil.Database
 	CustomEmoji *CustomEmojiQuery
 	Role        *RoleQuery
+	Thread      *ThreadQuery
 }
 
 var table dbutil.UpgradeTable
@@ -47,6 +48,9 @@ func New(db *dbutil.Database, log zerolog.Logger) *DiscordDB {
 		},
 		Role: &RoleQuery{
 			QueryHelper: dbutil.MakeQueryHelper(db, newRole),
+		},
+		Thread: &ThreadQuery{
+			QueryHelper: dbutil.MakeQueryHelper(db, newThread),
 		},
 	}
 }

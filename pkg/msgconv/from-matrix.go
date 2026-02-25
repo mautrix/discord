@@ -88,6 +88,8 @@ func (mc *MessageConverter) ToDiscord(
 	ctx context.Context,
 	session *discordgo.Session,
 	msg *bridgev2.MatrixMessage,
+	channelID string,
+	refererOpt discordgo.RequestOption,
 ) (*discordgo.MessageSend, error) {
 	ctx = context.WithValue(ctx, contextKeyPortal, msg.Portal)
 	ctx = context.WithValue(ctx, contextKeyDiscordClient, session)
@@ -106,9 +108,6 @@ func (mc *MessageConverter) ToDiscord(
 		}
 	}
 
-	portal := msg.Portal
-	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
-	channelID := discordid.ParseChannelPortalID(portal.ID)
 	content := msg.Content
 
 	convertMatrix := func() {
@@ -121,7 +120,7 @@ func (mc *MessageConverter) ToDiscord(
 	switch content.MsgType {
 	case event.MsgText, event.MsgEmote, event.MsgNotice:
 		convertMatrix()
-	case event.MsgAudio, event.MsgFile, event.MsgVideo:
+	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		mediaData, err := mc.Bridge.Bot.DownloadMedia(ctx, content.URL, content.File)
 		if err != nil {
 			log.Err(err).Msg("Failed to download Matrix attachment for bridging")
@@ -151,8 +150,7 @@ func (mc *MessageConverter) ToDiscord(
 				Name: att.Filename,
 				ID:   mc.NextDiscordUploadID(),
 			}},
-			// TODO: Support threads.
-		}, discordgo.WithChannelReferer(guildID, channelID))
+		}, refererOpt)
 
 		if err != nil {
 			log.Err(err).Msg("Failed to create attachment in preparation for attachment reupload")

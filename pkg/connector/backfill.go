@@ -24,6 +24,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -37,10 +38,35 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 
-	channelID := discordid.ParseChannelPortalID(fetchParams.Portal.ID)
+	parentChannelID := discordid.ParseChannelPortalID(fetchParams.Portal.ID)
+	channelID := parentChannelID
+	threadChannelID := ""
+	var knownThreadRootID *networkid.MessageID
+
+	if fetchParams.ThreadRoot != "" {
+		thread, err := dc.getThreadByRootMessageID(ctx, discordid.ParseMessageID(fetchParams.ThreadRoot))
+		if err != nil {
+			return nil, err
+		}
+		if thread == nil {
+			return &bridgev2.FetchMessagesResponse{
+				Messages: nil,
+				HasMore:  false,
+			}, nil
+		}
+		threadChannelID = thread.ThreadChannelID
+		channelID = threadChannelID
+		threadRootID := fetchParams.ThreadRoot
+		knownThreadRootID = &threadRootID
+	}
+
+	guildID := fetchParams.Portal.Metadata.(*discordid.PortalMetadata).GuildID
+	refererOpt := dc.makeDiscordReferer(guildID, parentChannelID, threadChannelID)
+
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "fetch messages").
 		Str("channel_id", channelID).
+		Str("thread_channel_id", threadChannelID).
 		Int("desired_count", fetchParams.Count).
 		Bool("forward", fetchParams.Forward).Logger()
 	ctx = log.WithContext(ctx)
@@ -61,7 +87,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	// ChannelMessages returns messages ordered from newest to oldest.
 	count := min(fetchParams.Count, 100)
 	log.Debug().Msg("Fetching channel history for backfill")
-	msgs, err := dc.Session.ChannelMessages(channelID, count, beforeID, afterID, "")
+	msgs, err := dc.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
 	if err != nil {
 		return nil, err
 	}
@@ -129,11 +155,26 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 
 		converted = append(converted, &bridgev2.BackfillMessage{
 			ID:               discordid.MakeMessageID(msg.ID),
-			ConvertedMessage: dc.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, dc.Session, msg),
+			ConvertedMessage: dc.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, dc.Session, msg, knownThreadRootID),
 			Sender:           sender,
 			Timestamp:        ts,
 			StreamOrder:      streamOrder,
 		})
+
+		if fetchParams.ThreadRoot == "" && msg.Flags&discordgo.MessageFlagsHasThread != 0 {
+			latest := ""
+			if msg.Thread != nil {
+				latest = msg.Thread.LastMessageID
+			}
+			if latest == "" {
+				latest = msg.ID
+			}
+			converted[len(converted)-1].ShouldBackfillThread = true
+			converted[len(converted)-1].LastThreadMessage = discordid.MakeMessageID(latest)
+			if err := dc.upsertThreadInfoFromMessage(ctx, msg); err != nil {
+				log.Err(err).Str("message_id", msg.ID).Msg("Failed to store thread info while backfilling")
+			}
+		}
 	}
 	// FetchMessagesResponse expects messages to always be ordered from oldest to newest.
 	slices.Reverse(converted)

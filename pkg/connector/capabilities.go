@@ -22,6 +22,8 @@ import (
 	"go.mau.fi/util/ffmpeg"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 var DiscordGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
@@ -147,9 +149,14 @@ var discordCaps = &event.RoomFeatures{
 	},
 	LocationMessage: event.CapLevelUnsupported,
 	MaxTextLength:   MaxTextLength,
-	// TODO: Support threads.
+	Thread:          event.CapLevelPartialSupport,
 }
 
 func (dc *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {
+	if portal.Metadata.(*discordid.PortalMetadata).GuildID == "" {
+		caps := discordCaps.Clone()
+		caps.Thread = event.CapLevelUnsupported
+		return caps
+	}
 	return discordCaps
 }

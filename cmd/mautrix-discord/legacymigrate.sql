@@ -346,6 +346,35 @@ INSERT INTO role (discord_guild_id, discord_id, name, icon, mentionable, managed
     r.permissions
 FROM role_old r;
 
+INSERT INTO custom_emoji (discord_id, name, animated, mxc)
+SELECT
+    picked.id AS discord_id,
+    picked.emoji_name AS name,
+    CASE
+        WHEN picked.mime_type='image/gif' OR lower(picked.url) LIKE '%.gif%' THEN true
+        ELSE false
+    END AS animated,
+    picked.mxc
+FROM (
+    SELECT
+        df.id,
+        df.emoji_name,
+        df.mxc,
+        df.mime_type,
+        df.url,
+        ROW_NUMBER() OVER (
+            PARTITION BY df.id
+            ORDER BY df.timestamp DESC, df.emoji_name DESC, df.mxc DESC
+        ) AS rn
+    FROM discord_file_old AS df
+    WHERE df.id IS NOT NULL AND df.id <> ''
+      AND df.emoji_name IS NOT NULL AND df.emoji_name <> ''
+      AND df.mxc IS NOT NULL AND df.mxc <> ''
+) AS picked
+WHERE picked.rn=1
+ON CONFLICT (discord_id) DO UPDATE
+SET name=excluded.name, animated=excluded.animated, mxc=excluded.mxc;
+
 DROP TABLE thread_old;
 DROP TABLE role_old;
 DROP TABLE guild_old;

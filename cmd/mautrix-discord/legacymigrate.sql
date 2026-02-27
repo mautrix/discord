@@ -14,7 +14,7 @@ SELECT
     COALESCE(uo.dcid, ''), -- remote_name
     NULL, -- remote_profile
     uo.space_room,
-    -- only: postgres
+    -- only: postgres for next 13 lines
     jsonb_build_object(
         'token', uo.discord_token,
         'heartbeat_session', COALESCE(uo.heartbeat_session, '{}'::jsonb),
@@ -28,7 +28,7 @@ SELECT
             ) AS bg
         ), '{}'::jsonb)
     )
-    -- only: sqlite (lines commented)
+    -- only: sqlite for next 16 lines (lines commented)
 --  json_object(
 --      'token', uo.discord_token,
 --      'heartbeat_session', CASE
@@ -243,19 +243,11 @@ SELECT
     up.user_mxid,
     u.dcid, -- login_id
     CASE WHEN up.type='guild' THEN '*' || up.discord_id ELSE up.discord_id END, -- portal_id
-    CASE WHEN up.type='guild' THEN '' ELSE COALESCE((
-        SELECT p.receiver
-        FROM portal_old AS p
-        WHERE p.dcid=up.discord_id
-          AND (p.receiver=u.dcid OR p.receiver='')
-        ORDER BY
-            CASE
-                WHEN p.receiver=u.dcid THEN 0
-                WHEN p.receiver='' THEN 1
-                ELSE 2
-            END
-        LIMIT 1
-    ), '') END, -- portal_receiver
+    CASE WHEN up.type='guild' THEN '' ELSE COALESCE(
+        (SELECT p.receiver FROM portal_old AS p WHERE p.dcid=up.discord_id AND p.receiver=u.dcid LIMIT 1),
+        (SELECT p.receiver FROM portal_old AS p WHERE p.dcid=up.discord_id AND p.receiver='' LIMIT 1),
+        ''
+    ) END, -- portal_receiver
     up.in_space, -- in_space
     false, -- preferred
     CASE WHEN up.timestamp > 0 THEN up.timestamp * 1000000 END -- last_read
@@ -265,19 +257,11 @@ WHERE u.dcid IS NOT NULL AND u.dcid <> '' AND EXISTS(
     SELECT 1
     FROM portal
     WHERE bridge_id='' AND id=(CASE WHEN up.type='guild' THEN '*' || up.discord_id ELSE up.discord_id END)
-      AND receiver=(CASE WHEN up.type='guild' THEN '' ELSE COALESCE((
-        SELECT p.receiver
-        FROM portal_old AS p
-        WHERE p.dcid=up.discord_id
-          AND (p.receiver=u.dcid OR p.receiver='')
-        ORDER BY
-            CASE
-                WHEN p.receiver=u.dcid THEN 0
-                WHEN p.receiver='' THEN 1
-                ELSE 2
-            END
-        LIMIT 1
-      ), '') END)
+      AND receiver=(CASE WHEN up.type='guild' THEN '' ELSE COALESCE(
+        (SELECT p.receiver FROM portal_old AS p WHERE p.dcid=up.discord_id AND p.receiver=u.dcid LIMIT 1),
+        (SELECT p.receiver FROM portal_old AS p WHERE p.dcid=up.discord_id AND p.receiver='' LIMIT 1),
+        ''
+      ) END)
 )
 ON CONFLICT (bridge_id, user_mxid, login_id, portal_id, portal_receiver) DO NOTHING;
 

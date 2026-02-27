@@ -20,6 +20,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/matrix/mxmain"
 
 	"go.mau.fi/mautrix-discord/pkg/connector"
+	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 )
 
 var (
@@ -39,6 +40,19 @@ var m = mxmain.BridgeMain{
 }
 
 func main() {
+	m.PostInit = func() {
+		m.CheckLegacyDB(24, "v0.7.6", "v26.03",
+			m.LegacyMigrateWithAnotherUpgrader(
+				legacyMigrateRenameTables,
+				legacyMigrateCopyData,
+				26,
+				discorddb.UpgradeTable(),
+				"discord_version",
+				2,
+			),
+			true,
+		)
+	}
 	m.InitVersion(Tag, Commit, BuildTime)
 	m.Run()
 }

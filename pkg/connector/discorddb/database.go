@@ -39,6 +39,10 @@ func init() {
 	table.RegisterFS(upgrades)
 }
 
+func UpgradeTable() dbutil.UpgradeTable {
+	return table
+}
+
 func New(db *dbutil.Database, log zerolog.Logger) *DiscordDB {
 	db = db.Child("discord_version", table, dbutil.ZeroLogger(log))
 	return &DiscordDB{

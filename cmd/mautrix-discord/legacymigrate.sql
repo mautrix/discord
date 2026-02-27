@@ -281,6 +281,7 @@ WHERE u.dcid IS NOT NULL AND u.dcid <> '' AND EXISTS(
 )
 ON CONFLICT (bridge_id, user_mxid, login_id, portal_id, portal_receiver) DO NOTHING;
 
+-- migrate thread_old -> discord_thread (receiver already known)
 INSERT INTO discord_thread (user_login_id, parent_channel_id, thread_channel_id, root_message_id)
 SELECT
     t.receiver AS user_login_id,
@@ -292,6 +293,8 @@ WHERE t.receiver <> '' AND t.root_msg_dcid <> ''
 ON CONFLICT (user_login_id, thread_channel_id) DO UPDATE
 SET parent_channel_id=excluded.parent_channel_id, root_message_id=excluded.root_message_id;
 
+-- migrate thread_old -> discord_thread (receiver missing; derive from guild
+-- membership)
 INSERT INTO discord_thread (user_login_id, parent_channel_id, thread_channel_id, root_message_id)
 SELECT DISTINCT
     u.dcid AS user_login_id,
@@ -306,6 +309,7 @@ WHERE t.receiver='' AND t.root_msg_dcid <> '' AND u.dcid <> ''
 ON CONFLICT (user_login_id, thread_channel_id) DO UPDATE
 SET parent_channel_id=excluded.parent_channel_id, root_message_id=excluded.root_message_id;
 
+-- migrate message_old -> discord_thread (thread reference; receiver known)
 INSERT INTO discord_thread (user_login_id, parent_channel_id, thread_channel_id, root_message_id)
 SELECT DISTINCT
     m.dc_chan_receiver AS user_login_id,
@@ -318,6 +322,7 @@ WHERE m.dc_chan_receiver <> '' AND m.dc_thread_id <> '' AND COALESCE(NULLIF(t.ro
 ON CONFLICT (user_login_id, thread_channel_id) DO UPDATE
 SET parent_channel_id=excluded.parent_channel_id, root_message_id=excluded.root_message_id;
 
+-- migrate message_old -> discord_thread (thread reference; eceiverr missing)
 INSERT INTO discord_thread (user_login_id, parent_channel_id, thread_channel_id, root_message_id)
 SELECT DISTINCT
     u.dcid AS user_login_id,

@@ -32,8 +32,9 @@ import (
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
 
-	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"go.mau.fi/util/variationselector"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 type DiscordEventMeta struct {

@@ -366,11 +366,11 @@ SET name=excluded.name, animated=excluded.animated, mxc=excluded.mxc;
 
 DROP TABLE thread_old;
 DROP TABLE role_old;
-DROP TABLE guild_old;
 DROP TABLE user_portal_old;
 DROP TABLE reaction_old;
 DROP TABLE message_old;
 DROP TABLE user_old;
 DROP TABLE puppet_old;
 DROP TABLE portal_old;
+DROP TABLE guild_old;
 DROP TABLE discord_file_old;

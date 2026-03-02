@@ -135,15 +135,11 @@ Expected (example):
 ... matrix-mautrix-discord ... localhost/mautrix/discord:<your_tag> ...
 ```
 
-Optional image check:
-
-```bash
-docker images | grep 'localhost/mautrix/discord'
-```
-
 ---
 
-## Bot-visible debug mode
+## Debug mode
+
+By default, debug information is turned off.
 
 Toggle via env var:
 

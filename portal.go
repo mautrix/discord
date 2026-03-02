@@ -1562,10 +1562,14 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				// TODO save edit in message table
 				msg, err = sess.ChannelMessageEdit(edits.DiscordProtoChannelID(), edits.DiscordID, discordContent)
 			} else {
+				var editOpts []discordgo.RequestOption
+				if edits.ThreadID != "" {
+					editOpts = append(editOpts, discordgo.WithQueryParam("thread_id", edits.ThreadID))
+				}
 				msg, err = relayClient.WebhookMessageEdit(portal.RelayWebhookID, portal.RelayWebhookSecret, edits.DiscordID, &discordgo.WebhookEdit{
 					Content:         &discordContent,
 					AllowedMentions: allowedMentions,
-				})
+				}, editOpts...)
 			}
 			go portal.sendMessageMetrics(evt, err, "Failed to edit")
 			if msg.EditedTimestamp != nil {
@@ -2141,7 +2145,11 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 			err = sess.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID, portal.RefererOptIfUser(sess, message.ThreadID)...)
 		} else {
 			// TODO pre-validate that the message was sent by the webhook?
-			err = relayClient.WebhookMessageDelete(portal.RelayWebhookID, portal.RelayWebhookSecret, message.DiscordID)
+			var deleteOpts []discordgo.RequestOption
+			if message.ThreadID != "" {
+				deleteOpts = append(deleteOpts, discordgo.WithQueryParam("thread_id", message.ThreadID))
+			}
+			err = relayClient.WebhookMessageDelete(portal.RelayWebhookID, portal.RelayWebhookSecret, message.DiscordID, deleteOpts...)
 		}
 		go portal.sendMessageMetrics(evt, err, "Error sending")
 		if err == nil {

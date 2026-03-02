@@ -239,9 +239,10 @@ func sendQRCode(ce *WrappedCommandEvent, code string) id.EventID {
 	}
 
 	content := event.MessageEventContent{
-		MsgType: event.MsgImage,
-		Body:    code,
-		URL:     url.CUString(),
+		MsgType:  event.MsgImage,
+		Body:     code,
+		FileName: "qr.png",
+		URL:      url.CUString(),
 	}
 
 	resp, err := ce.Bot.SendMessageEvent(ce.RoomID, event.EventMessage, &content)
@@ -485,7 +486,7 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			ce.Reply("Couldn't determine parent channel for this thread, so relay webhook can't be auto-created. Use `set-relay --url <webhook URL>` with a webhook from the parent channel.")
 			return
 		}
-		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, targetChannelID)
+		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, targetChannelID, portal.RefererOptIfUser(ce.User.Session, "")...)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to check user permissions")
 			ce.Reply("Failed to check if you have permission to create webhooks")
@@ -500,7 +501,7 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			name = strings.Join(ce.Args[1:], " ")
 		}
 		log.Debug().Str("webhook_name", name).Msg("Creating webhook")
-		webhookMeta, err = ce.User.Session.WebhookCreate(targetChannelID, name, "")
+		webhookMeta, err = ce.User.Session.WebhookCreate(targetChannelID, name, "", portal.RefererOptIfUser(ce.User.Session, "")...)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to create webhook")
 			ce.Reply("Failed to create webhook: %v", err)

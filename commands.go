@@ -468,6 +468,12 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			return
 		}
 	case "create":
+		if portal.Type == discordgo.ChannelTypeGuildPublicThread ||
+			portal.Type == discordgo.ChannelTypeGuildPrivateThread ||
+			portal.Type == discordgo.ChannelTypeGuildNewsThread {
+			ce.Reply("Relay webhook auto-creation isn't supported in thread channels. Use `set-relay --url <webhook URL>` with a webhook created in the parent channel, or use relay in a non-thread channel.")
+			return
+		}
 		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, portal.Key.ChannelID)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to check user permissions")
@@ -708,6 +714,13 @@ func fnBridge(ce *WrappedCommandEvent) {
 	}
 	var channelMeta *discordgo.Channel
 	portal := ce.User.GetExistingPortalByID(channelID)
+	if portal != nil && portal.Type == discordgo.ChannelTypeGuildForum {
+		if forumThreadDebugEnabled() {
+			forumThreadDebugReply(ce, "rejected forum parent channel id=%s from existing portal record", channelID)
+		}
+		ce.Reply("Forum parent channels can't be bridged directly. Bridge a thread ID instead.")
+		return
+	}
 	if portal == nil {
 		// Before giving up, discover if the user is trying to bridge a thread.
 		// Forum parent channels are intentionally not bridgeable in this mode.

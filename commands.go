@@ -742,8 +742,6 @@ func fnBridge(ce *WrappedCommandEvent) {
 		return
 	}
 	if portal == nil {
-		// Before giving up, discover if the user is trying to bridge a thread.
-		// Forum parent channels are intentionally not bridgeable in this mode.
 		ch, err := ce.User.Session.Channel(channelID)
 		if err != nil {
 			ce.Reply("Channel not found")
@@ -766,8 +764,6 @@ func fnBridge(ce *WrappedCommandEvent) {
 		}
 	}
 	if channelMeta != nil {
-		// Ensure guild/parent/type metadata is stored before bridge mode checks,
-		// so Discord->Matrix relay gating behaves like normal text channel portals.
 		portal.UpdateInfo(ce.User, channelMeta)
 	}
 	portal.roomCreateLock.Lock()

@@ -239,10 +239,9 @@ func sendQRCode(ce *WrappedCommandEvent, code string) id.EventID {
 	}
 
 	content := event.MessageEventContent{
-		MsgType:  event.MsgImage,
-		Body:     code,
-		FileName: "qr.png",
-		URL:      url.CUString(),
+		MsgType: event.MsgImage,
+		Body:    code,
+		URL:     url.CUString(),
 	}
 
 	resp, err := ce.Bot.SendMessageEvent(ce.RoomID, event.EventMessage, &content)
@@ -469,7 +468,7 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			return
 		}
 	case "create":
-		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, portal.Key.ChannelID, portal.RefererOptIfUser(ce.User.Session, "")...)
+		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, portal.Key.ChannelID)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to check user permissions")
 			ce.Reply("Failed to check if you have permission to create webhooks")
@@ -484,7 +483,7 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			name = strings.Join(ce.Args[1:], " ")
 		}
 		log.Debug().Str("webhook_name", name).Msg("Creating webhook")
-		webhookMeta, err = ce.User.Session.WebhookCreate(portal.Key.ChannelID, name, "", portal.RefererOptIfUser(ce.User.Session, "")...)
+		webhookMeta, err = ce.User.Session.WebhookCreate(portal.Key.ChannelID, name, "")
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to create webhook")
 			ce.Reply("Failed to create webhook: %v", err)
@@ -704,10 +703,36 @@ func fnBridge(ce *WrappedCommandEvent) {
 		ce.Reply("**Usage**: `$cmdprefix bridge [--replace[=delete]] <channel ID>`")
 		return
 	}
+	var channelMeta *discordgo.Channel
 	portal := ce.User.GetExistingPortalByID(channelID)
 	if portal == nil {
-		ce.Reply("Channel not found")
-		return
+		// Before giving up, discover if the user is trying to bridge a thread.
+		// Forum parent channels are intentionally not bridgeable in this mode.
+		ch, err := ce.User.Session.Channel(channelID)
+		if err != nil {
+			ce.Reply("Channel not found")
+			return
+		}
+		channelMeta = ch
+
+		switch ch.Type {
+		case discordgo.ChannelTypeGuildPublicThread,
+			discordgo.ChannelTypeGuildPrivateThread,
+			discordgo.ChannelTypeGuildNewsThread:
+			ce.ZLog.Debug().Msg("Adding thread as a portal")
+			portal = ce.User.GetPortalByID(channelID, ch.Type)
+		case discordgo.ChannelTypeGuildForum:
+			ce.Reply("Forum parent channels can't be bridged directly. Bridge a thread ID instead.")
+			return
+		default:
+			ce.Reply("That channel type can't be bridged")
+			return
+		}
+	}
+	if channelMeta != nil {
+		// Ensure guild/parent/type metadata is stored before bridge mode checks,
+		// so Discord->Matrix relay gating behaves like normal text channel portals.
+		portal.UpdateInfo(ce.User, channelMeta)
 	}
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()

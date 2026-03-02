@@ -239,10 +239,9 @@ func sendQRCode(ce *WrappedCommandEvent, code string) id.EventID {
 	}
 
 	content := event.MessageEventContent{
-		MsgType:  event.MsgImage,
-		Body:     code,
-		FileName: "qr.png",
-		URL:      url.CUString(),
+		MsgType: event.MsgImage,
+		Body:    code,
+		URL:     url.CUString(),
 	}
 
 	resp, err := ce.Bot.SendMessageEvent(ce.RoomID, event.EventMessage, &content)
@@ -446,6 +445,12 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 		return
 	}
 	createType := strings.ToLower(strings.TrimLeft(ce.Args[0], "-"))
+	targetChannelID := portal.Key.ChannelID
+	threadRelayTargetInfo := ""
+	if isDiscordThreadType(portal.Type) && portal.ParentID != "" {
+		targetChannelID = portal.ParentID
+		threadRelayTargetInfo = fmt.Sprintf(" (thread parent channel %s)", targetChannelID)
+	}
 	var webhookMeta *discordgo.Webhook
 	switch createType {
 	case "url":
@@ -469,7 +474,18 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			return
 		}
 	case "create":
-		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, portal.Key.ChannelID, portal.RefererOptIfUser(ce.User.Session, "")...)
+		if isDiscordThreadType(portal.Type) && targetChannelID == portal.Key.ChannelID {
+			meta, err := ce.User.Session.Channel(portal.Key.ChannelID)
+			if err == nil && meta != nil && meta.ParentID != "" {
+				targetChannelID = meta.ParentID
+				threadRelayTargetInfo = fmt.Sprintf(" (thread parent channel %s)", targetChannelID)
+			}
+		}
+		if isDiscordThreadType(portal.Type) && targetChannelID == portal.Key.ChannelID {
+			ce.Reply("Couldn't determine parent channel for this thread, so relay webhook can't be auto-created. Use `set-relay --url <webhook URL>` with a webhook from the parent channel.")
+			return
+		}
+		perms, err := ce.User.Session.UserChannelPermissions(ce.User.DiscordID, targetChannelID)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to check user permissions")
 			ce.Reply("Failed to check if you have permission to create webhooks")
@@ -484,7 +500,7 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 			name = strings.Join(ce.Args[1:], " ")
 		}
 		log.Debug().Str("webhook_name", name).Msg("Creating webhook")
-		webhookMeta, err = ce.User.Session.WebhookCreate(portal.Key.ChannelID, name, "", portal.RefererOptIfUser(ce.User.Session, "")...)
+		webhookMeta, err = ce.User.Session.WebhookCreate(targetChannelID, name, "")
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to create webhook")
 			ce.Reply("Failed to create webhook: %v", err)
@@ -494,19 +510,28 @@ func fnSetRelay(ce *WrappedCommandEvent) {
 		ce.Reply(selectRelayHelp)
 		return
 	}
-	if portal.Key.ChannelID != webhookMeta.ChannelID {
+	expectedChannelID := portal.Key.ChannelID
+	if isDiscordThreadType(portal.Type) {
+		if portal.ParentID != "" {
+			expectedChannelID = portal.ParentID
+		} else if targetChannelID != "" {
+			expectedChannelID = targetChannelID
+		}
+	}
+	if expectedChannelID != webhookMeta.ChannelID {
 		log.Debug().
 			Str("portal_channel_id", portal.Key.ChannelID).
+			Str("expected_webhook_channel_id", expectedChannelID).
 			Str("webhook_channel_id", webhookMeta.ChannelID).
 			Msg("Provided webhook is for wrong channel")
-		ce.Reply("That webhook is not for the right channel (expected %s, webhook is for %s)", portal.Key.ChannelID, webhookMeta.ChannelID)
+		ce.Reply("That webhook is not for the right channel (expected %s, webhook is for %s)", expectedChannelID, webhookMeta.ChannelID)
 		return
 	}
 	log.Debug().Str("webhook_id", webhookMeta.ID).Msg("Setting portal relay webhook")
 	portal.RelayWebhookID = webhookMeta.ID
 	portal.RelayWebhookSecret = webhookMeta.Token
 	portal.Update()
-	ce.Reply("Saved webhook %s (%s) as portal relay webhook", webhookMeta.Name, portal.RelayWebhookID)
+	ce.Reply("Saved webhook %s (%s) as portal relay webhook%s", webhookMeta.Name, portal.RelayWebhookID, threadRelayTargetInfo)
 }
 
 var cmdUnsetRelay = &commands.FullHandler{
@@ -677,6 +702,12 @@ func isNumber(str string) bool {
 	return true
 }
 
+func isDiscordThreadType(chanType discordgo.ChannelType) bool {
+	return chanType == discordgo.ChannelTypeGuildPublicThread ||
+		chanType == discordgo.ChannelTypeGuildPrivateThread ||
+		chanType == discordgo.ChannelTypeGuildNewsThread
+}
+
 func fnBridge(ce *WrappedCommandEvent) {
 	if ce.Portal != nil {
 		ce.Reply("This is already a portal room. Unbridge with `$cmdprefix unbridge` first if you want to link it to a different channel.")
@@ -704,10 +735,36 @@ func fnBridge(ce *WrappedCommandEvent) {
 		ce.Reply("**Usage**: `$cmdprefix bridge [--replace[=delete]] <channel ID>`")
 		return
 	}
+	var channelMeta *discordgo.Channel
 	portal := ce.User.GetExistingPortalByID(channelID)
-	if portal == nil {
-		ce.Reply("Channel not found")
+	if portal != nil && portal.Type == discordgo.ChannelTypeGuildForum {
+		ce.Reply("Forum parent channels can't be bridged directly. Bridge a thread ID instead.")
 		return
+	}
+	if portal == nil {
+		ch, err := ce.User.Session.Channel(channelID)
+		if err != nil {
+			ce.Reply("Channel not found")
+			return
+		}
+		channelMeta = ch
+
+		switch ch.Type {
+		case discordgo.ChannelTypeGuildPublicThread,
+			discordgo.ChannelTypeGuildPrivateThread,
+			discordgo.ChannelTypeGuildNewsThread:
+			ce.ZLog.Debug().Msg("Adding thread as a portal")
+			portal = ce.User.GetPortalByID(channelID, ch.Type)
+		case discordgo.ChannelTypeGuildForum:
+			ce.Reply("Forum parent channels can't be bridged directly. Bridge a thread ID instead.")
+			return
+		default:
+			ce.Reply("That channel type can't be bridged")
+			return
+		}
+	}
+	if channelMeta != nil {
+		portal.UpdateInfo(ce.User, channelMeta)
 	}
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()

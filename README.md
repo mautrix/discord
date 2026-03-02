@@ -101,6 +101,8 @@ docker run --rm \
 
 ## Deploy with matrix-docker-ansible-deploy
 
+Project address: [matrix-docker-ansible-deploy](https://github.com/spantaleev/matrix-docker-ansible-deploy)
+
 In your server `vars.yml`:
 
 ```yaml

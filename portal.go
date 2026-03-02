@@ -1547,6 +1547,11 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	}
 	isWebhookSend := sess == nil
 	var threadID string
+	if isDiscordThreadType(portal.Type) {
+		// Thread portals represent a single Discord thread as a room.
+		// Relay webhook sends must include thread_id when the webhook belongs to the parent forum channel.
+		threadID = portal.Key.ChannelID
+	}
 
 	if editMXID := content.GetRelatesTo().GetReplaceID(); editMXID != "" && content.NewContent != nil {
 		edits := portal.bridge.DB.Message.GetByMXID(portal.Key, editMXID)

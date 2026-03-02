@@ -703,6 +703,9 @@ func fnBridge(ce *WrappedCommandEvent) {
 		ce.Reply("**Usage**: `$cmdprefix bridge [--replace[=delete]] <channel ID>`")
 		return
 	}
+	if forumThreadDebugEnabled() {
+		forumThreadDebugReply(ce, "bridge args accepted channel_id=%s replace=%t replace_delete=%t", channelID, unbridgeOld, deleteOld)
+	}
 	var channelMeta *discordgo.Channel
 	portal := ce.User.GetExistingPortalByID(channelID)
 	if portal == nil {
@@ -710,10 +713,16 @@ func fnBridge(ce *WrappedCommandEvent) {
 		// Forum parent channels are intentionally not bridgeable in this mode.
 		ch, err := ce.User.Session.Channel(channelID)
 		if err != nil {
+			if forumThreadDebugEnabled() {
+				forumThreadDebugReply(ce, "failed to fetch channel metadata for id=%s: %v", channelID, err)
+			}
 			ce.Reply("Channel not found")
 			return
 		}
 		channelMeta = ch
+		if forumThreadDebugEnabled() {
+			forumThreadDebugReply(ce, "fetched channel metadata id=%s type=%d guild_id=%s parent_id=%s", channelID, ch.Type, ch.GuildID, ch.ParentID)
+		}
 
 		switch ch.Type {
 		case discordgo.ChannelTypeGuildPublicThread,
@@ -722,9 +731,15 @@ func fnBridge(ce *WrappedCommandEvent) {
 			ce.ZLog.Debug().Msg("Adding thread as a portal")
 			portal = ce.User.GetPortalByID(channelID, ch.Type)
 		case discordgo.ChannelTypeGuildForum:
+			if forumThreadDebugEnabled() {
+				forumThreadDebugReply(ce, "rejected forum parent channel id=%s (manual thread-only policy)", channelID)
+			}
 			ce.Reply("Forum parent channels can't be bridged directly. Bridge a thread ID instead.")
 			return
 		default:
+			if forumThreadDebugEnabled() {
+				forumThreadDebugReply(ce, "rejected unsupported channel type id=%s type=%d", channelID, ch.Type)
+			}
 			ce.Reply("That channel type can't be bridged")
 			return
 		}
@@ -733,6 +748,9 @@ func fnBridge(ce *WrappedCommandEvent) {
 		// Ensure guild/parent/type metadata is stored before bridge mode checks,
 		// so Discord->Matrix relay gating behaves like normal text channel portals.
 		portal.UpdateInfo(ce.User, channelMeta)
+		if forumThreadDebugEnabled() {
+			forumThreadDebugReply(ce, "portal metadata hydrated id=%s portal_type=%d portal_guild_id=%s portal_parent_id=%s", channelID, portal.Type, portal.GuildID, portal.ParentID)
+		}
 	}
 	portal.roomCreateLock.Lock()
 	defer portal.roomCreateLock.Unlock()

@@ -1228,18 +1228,12 @@ func (user *User) findPortal(channelID string) (*Portal, *Thread) {
 func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildID string) {
 	incomingMode := user.getGuildBridgingMode(guildID)
 	if incomingMode <= database.GuildBridgeNothing {
-		if forumThreadDebugEnabled() {
-			user.forumThreadDebugNotice("drop incoming event=%s guild_id=%s channel_id=%s reason=incoming_guild_mode mode=%s", typeName, guildID, channelID, incomingMode.String())
-		}
 		// If guild bridging mode is nothing, don't even check if the portal exists
 		return
 	}
 
 	portal, thread := user.findPortal(channelID)
 	if portal == nil {
-		if forumThreadDebugEnabled() {
-			user.forumThreadDebugNotice("drop incoming event=%s guild_id=%s channel_id=%s reason=no_portal_or_thread_match", typeName, guildID, channelID)
-		}
 		user.log.Debug().
 			Str("discord_event", typeName).
 			Str("guild_id", guildID).
@@ -1249,17 +1243,7 @@ func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildI
 	}
 	mode := user.getGuildBridgingMode(portal.GuildID)
 	if mode <= database.GuildBridgeNothing || (portal.MXID == "" && mode <= database.GuildBridgeIfPortalExists) {
-		if forumThreadDebugEnabled() {
-			user.forumThreadDebugNotice("drop incoming event=%s guild_id=%s channel_id=%s reason=portal_mode_or_missing_room portal_mode=%s portal_room_id=%s portal_guild_id=%s", typeName, guildID, channelID, mode.String(), portal.MXID, portal.GuildID)
-		}
 		return
-	}
-	if forumThreadDebugEnabled() {
-		if thread != nil {
-			user.forumThreadDebugNotice("queue relay event=%s guild_id=%s channel_id=%s room_id=%s portal_mode=%s thread_id=%s thread_parent_id=%s", typeName, guildID, channelID, portal.MXID, mode.String(), thread.ID, thread.ParentID)
-		} else {
-			user.forumThreadDebugNotice("queue relay event=%s guild_id=%s channel_id=%s room_id=%s portal_mode=%s", typeName, guildID, channelID, portal.MXID, mode.String())
-		}
 	}
 
 	wrappedMsg := portalDiscordMessage{

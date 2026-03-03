@@ -256,7 +256,15 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 		content.URL = dbFile.MXC.CUString()
 	}
 	if content.MsgType == event.MsgVideo && embed.Thumbnail != nil && embed.Thumbnail.ProxyURL != "" {
-		thumbFile, thumbErr := portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, NoMeta)
+		thumbMeta := AttachmentMeta{
+			Converter: portal.bridge.convertVideoThumbnailToWebP,
+			MimeType:  "image/webp",
+		}
+		thumbFile, thumbErr := portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, thumbMeta)
+		if thumbErr != nil {
+			zerolog.Ctx(ctx).Warn().Err(thumbErr).Str("embed_url", embed.URL).Msg("Failed to convert/upload video embed thumbnail as webp, falling back to original")
+			thumbFile, thumbErr = portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, NoMeta)
+		}
 		if thumbErr != nil {
 			zerolog.Ctx(ctx).Warn().Err(thumbErr).Str("embed_url", embed.URL).Msg("Failed to copy video embed thumbnail to Matrix")
 		} else {

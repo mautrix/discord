@@ -268,6 +268,28 @@ func (br *DiscordBridge) convertLottie(data []byte) ([]byte, string, error) {
 	return data, outputMime, nil
 }
 
+func (br *DiscordBridge) convertVideoThumbnailToWebP(data []byte) ([]byte, string, error) {
+	inputMime := mimetype.Detect(data).String()
+	converted, err := ffmpeg.ConvertBytes(
+		context.Background(),
+		data,
+		".webp",
+		nil,
+		[]string{
+			"-vf", "scale=360:-1:flags=lanczos:force_original_aspect_ratio=decrease",
+			"-q:v", "55",
+			"-compression_level", "6",
+			"-preset", "picture",
+			"-f", "webp",
+		},
+		inputMime,
+	)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to convert thumbnail to webp: %w", err)
+	}
+	return converted, "image/webp", nil
+}
+
 func (br *DiscordBridge) copyAttachmentToMatrix(intent *appservice.IntentAPI, url string, encrypt bool, meta AttachmentMeta) (returnDBFile *database.File, returnErr error) {
 	isCacheable := br.Config.Bridge.CacheMedia != "never" && (br.Config.Bridge.CacheMedia == "always" || !encrypt)
 	returnDBFile = br.DB.File.Get(url, encrypt)

@@ -159,47 +159,68 @@ When enabled:
 
 ## Bugs fix
 
-Some other bugs I've fixed in this fork against the original repo.
+### GIFV Conversion
 
-### Tenor GIFV conversion
+#### Bug Description
 
-Discord GIFV/Tenor embeds were bridged as `m.video`, but `content.body` was set to the Tenor page URL (for example https://tenor.com/view/...).  
+Discord GIFV/Tenor embeds were bridged as `m.video`, but `content.body` was set to the Tenor page URL (for example `https://tenor.com/view/...`).
 
-Some Matrix clients (e.g., Element) rendered this as a link/file tile instead of inline playable media.
+Some Matrix clients (e.g., Element) rendered that as a link/file-style tile (or unfurl-heavy timeline text) instead of clean media behavior.
+
+On Element mobile specifically, GIFV video posts could look broken/low-context:
+- sometimes only a dangling play icon without a useful preview
+- or a noisy Tenor unfurl card leaking external ad-like text
+
+The goal was to keep efficient MP4 relay while making mobile preview usable.
+
+> Attempting to transcode Discord MP4 used by GIFV to GIF in Matrix is way too expensive — over-size files and costs of compute. So we remain the original logic from `port_conver.go` to keep them as MP4s.
+
+#### Files changed
+
+```text
+attachments.go
+portal_convert.go
+```
+
+#### Metadata cleanup
+
+`portal_convert.go`
 
 ```diff
 diff --git a/portal_convert.go b/portal_convert.go
-index 6823e2c..9c7b322 100644
---- a/portal_convert.go
-+++ b/portal_convert.go
-@@ -257,6 +257,8 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
- 	}
- 	extra := map[string]any{}
- 	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
-+		content.Body = makeGIFVFileName(embed.URL)
-+		content.FileName = content.Body
- 		extra["info"] = map[string]any{
- 			"fi.mau.discord.gifv":  true,
- 			"fi.mau.gif":           true,
-@@ -274,6 +276,14 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
- 	}
- }
- 
-+func makeGIFVFileName(embedURL string) string {
-+	if embedURL == "" {
-+		return "discord-gifv.mp4"
-+	}
-+	sum := sha256.Sum256([]byte(embedURL))
-+	return fmt.Sprintf("discord-gifv-%s.mp4", hex.EncodeToString(sum[:4]))
+@@
++if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
++	content.Body = makeGIFVFileName(embed.URL)
++	content.FileName = content.Body
++	...
 +}
-+
- func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
- 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
- 	if msg.Content != "" {
++func makeGIFVFileName(embedURL string) string { ... }
 ```
 
-Keeps efficient MP4 relay path, but avoids URL-as-body rendering quirks in Matrix clients.
+Reason:
+- Keep GIFV as `m.video` (MP4 path)
+- Avoid raw Tenor URL body leaking into Matrix timeline text
 
-- Only affects Discord EmbedTypeGifv video embeds.
-- No MP4->GIF transcoding added.
-- No extra CPU-heavy conversion path (I did add, but decided to keep the original MP4-display way for the moment).
+#### Mobile preview thumbnail
+
+`portal_convert.go` + `attachments.go`
+
+```diff
+diff --git a/portal_convert.go b/portal_convert.go
+@@
++if content.MsgType == event.MsgVideo && embed.Thumbnail != nil && embed.Thumbnail.ProxyURL != "" {
++  // upload thumbnail and set thumbnail_info/thumbnail_url
++}
+
+diff --git a/attachments.go b/attachments.go
+@@
++func (br *DiscordBridge) convertVideoThumbnailToWebP(data []byte) ([]byte, string, error) {
++  // convert thumbnail to webp for lower size
++}
+```
+
+Reason:
+- Improve Element mobile preview for relayed GIFV videos.
+- Keep thumbnail storage lighter by converting to WebP
+
+Now it displays a thumbnail for the relayed GIFV to let mobile user knows if this is an interested "gif" they would click to play.

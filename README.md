@@ -139,7 +139,7 @@ Expected (example):
 
 ---
 
-## Debug mode
+## Debug mode (dev option)
 
 By default, debug information is turned off.
 
@@ -161,7 +161,7 @@ When enabled:
 
 Some other bugs I've fixed in this fork against the original repo.
 
-### Tenor GIFV Conversion
+### Tenor GIFV conversion
 
 Discord GIFV/Tenor embeds were bridged as `m.video`, but `content.body` was set to the Tenor page URL (for example https://tenor.com/view/...).  
 

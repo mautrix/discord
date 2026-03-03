@@ -1227,6 +1227,7 @@ var (
 	errTargetNotFound              = errors.New("target event not found")
 	errUnknownEmoji                = errors.New("unknown emoji")
 	errCantStartThread             = errors.New("can't create thread without being logged into Discord")
+	errWebhookCanOnlyDeleteOwnMsg  = errors.New("relay webhook can only delete messages sent by that webhook")
 )
 
 func errorToStatusReason(err error) (reason event.MessageStatusReason, status event.MessageStatus, isCertain, sendNotice bool, humanMessage string, checkpointError error) {
@@ -1247,6 +1248,8 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		return event.MessageStatusUndecryptable, event.MessageStatusFail, true, true, "", nil
 	case errors.Is(err, errUserNotReceiver), errors.Is(err, errUserNotLoggedIn):
 		return event.MessageStatusNoPermission, event.MessageStatusFail, true, false, "", nil
+	case errors.Is(err, errWebhookCanOnlyDeleteOwnMsg):
+		return event.MessageStatusNoPermission, event.MessageStatusFail, true, true, "This message wasn't sent via the relay webhook, so it can't be deleted from Matrix side.", nil
 	case errors.Is(err, errUnknownEditTarget):
 		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, "", nil
 	case errors.Is(err, errTargetNotFound):
@@ -2146,6 +2149,10 @@ func (portal *Portal) handleMatrixRedaction(sender *User, evt *event.Event) {
 		if sess != nil {
 			err = sess.ChannelMessageDelete(message.DiscordProtoChannelID(), message.DiscordID, portal.RefererOptIfUser(sess, message.ThreadID)...)
 		} else {
+			if message.SenderID != portal.RelayWebhookID {
+				go portal.sendMessageMetrics(evt, errWebhookCanOnlyDeleteOwnMsg, "Ignoring")
+				return
+			}
 			// TODO pre-validate that the message was sent by the webhook?
 			var deleteOpts []discordgo.RequestOption
 			if message.ThreadID != "" {

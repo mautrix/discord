@@ -255,12 +255,36 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	} else {
 		content.URL = dbFile.MXC.CUString()
 	}
+	if content.MsgType == event.MsgVideo && embed.Thumbnail != nil && embed.Thumbnail.ProxyURL != "" {
+		thumbFile, thumbErr := portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, NoMeta)
+		if thumbErr != nil {
+			zerolog.Ctx(ctx).Warn().Err(thumbErr).Str("embed_url", embed.URL).Msg("Failed to copy video embed thumbnail to Matrix")
+		} else {
+			thumbInfo := &event.FileInfo{
+				MimeType: thumbFile.MimeType,
+				Size:     thumbFile.Size,
+				Width:    embed.Thumbnail.Width,
+				Height:   embed.Thumbnail.Height,
+			}
+			if thumbInfo.Width == 0 && thumbInfo.Height == 0 {
+				thumbInfo.Width = thumbFile.Width
+				thumbInfo.Height = thumbFile.Height
+			}
+			content.Info.ThumbnailInfo = thumbInfo
+			if thumbFile.DecryptionInfo != nil {
+				content.Info.ThumbnailFile = &event.EncryptedFileInfo{
+					EncryptedFile: *thumbFile.DecryptionInfo,
+					URL:           thumbFile.MXC.CUString(),
+				}
+			} else {
+				content.Info.ThumbnailURL = thumbFile.MXC.CUString()
+			}
+		}
+	}
 	extra := map[string]any{}
 	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
-		content.FileName = makeGIFVFileName(embed.URL)
-		content.Body = "Discord GIFV"
-		content.Format = event.FormatHTML
-		content.FormattedBody = fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(embed.URL), html.EscapeString(content.Body))
+		content.Body = makeGIFVFileName(embed.URL)
+		content.FileName = content.Body
 		extra["info"] = map[string]any{
 			"fi.mau.discord.gifv":  true,
 			"fi.mau.gif":           true,

@@ -257,7 +257,7 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	}
 	extra := map[string]any{}
 	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
-		content.Body = "discord-gifv.mp4"
+		content.Body = makeGIFVFileName(embed.URL)
 		content.FileName = content.Body
 		extra["info"] = map[string]any{
 			"fi.mau.discord.gifv":  true,
@@ -274,6 +274,14 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 		Content:      content,
 		Extra:        extra,
 	}
+}
+
+func makeGIFVFileName(embedURL string) string {
+	if embedURL == "" {
+		return "discord-gifv.mp4"
+	}
+	sum := sha256.Sum256([]byte(embedURL))
+	return fmt.Sprintf("discord-gifv-%s.mp4", hex.EncodeToString(sum[:4]))
 }
 
 func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {

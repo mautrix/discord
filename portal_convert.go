@@ -255,6 +255,40 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	} else {
 		content.URL = dbFile.MXC.CUString()
 	}
+	if content.MsgType == event.MsgVideo && embed.Thumbnail != nil && embed.Thumbnail.ProxyURL != "" {
+		thumbMeta := AttachmentMeta{
+			Converter: portal.bridge.convertVideoThumbnailToWebP,
+			MimeType:  "image/webp",
+		}
+		thumbFile, thumbErr := portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, thumbMeta)
+		if thumbErr != nil {
+			zerolog.Ctx(ctx).Warn().Err(thumbErr).Str("embed_url", embed.URL).Msg("Failed to convert/upload video embed thumbnail as webp, falling back to original")
+			thumbFile, thumbErr = portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, NoMeta)
+		}
+		if thumbErr != nil {
+			zerolog.Ctx(ctx).Warn().Err(thumbErr).Str("embed_url", embed.URL).Msg("Failed to copy video embed thumbnail to Matrix")
+		} else {
+			thumbInfo := &event.FileInfo{
+				MimeType: thumbFile.MimeType,
+				Size:     thumbFile.Size,
+				Width:    embed.Thumbnail.Width,
+				Height:   embed.Thumbnail.Height,
+			}
+			if thumbInfo.Width == 0 && thumbInfo.Height == 0 {
+				thumbInfo.Width = thumbFile.Width
+				thumbInfo.Height = thumbFile.Height
+			}
+			content.Info.ThumbnailInfo = thumbInfo
+			if thumbFile.DecryptionInfo != nil {
+				content.Info.ThumbnailFile = &event.EncryptedFileInfo{
+					EncryptedFile: *thumbFile.DecryptionInfo,
+					URL:           thumbFile.MXC.CUString(),
+				}
+			} else {
+				content.Info.ThumbnailURL = thumbFile.MXC.CUString()
+			}
+		}
+	}
 	extra := map[string]any{}
 	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
 		content.Body = makeGIFVFileName(embed.URL)

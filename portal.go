@@ -908,11 +908,10 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		deletedAttachment.Delete()
 	}
 
-	isPlainGIF := isPlainGifMessage(msg)
 	var converted *ConvertedMessage
 	// Slightly hacky special case: messages with gif links will get an embed with the gif.
 	// The link isn't rendered on Discord, so just edit the link message into a gif message on Matrix too.
-	if isPlainGIF {
+	if isPlainGifMessage(msg) {
 		converted = portal.convertDiscordVideoEmbed(ctx, intent, msg.Embeds[0])
 	} else {
 		converted = portal.convertDiscordTextMessage(ctx, intent, msg)
@@ -927,32 +926,6 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	puppet.addWebhookMeta(converted, msg)
 	puppet.addMemberMeta(converted, msg)
 	converted.Content.Mentions = portal.convertDiscordMentions(msg, false)
-
-	var editTS int64
-	if msg.EditedTimestamp != nil {
-		editTS = msg.EditedTimestamp.UnixMilli()
-	}
-	if isPlainGIF {
-		resp, err := portal.sendMatrixMessage(intent, event.EventMessage, converted.Content, converted.Extra, editTS)
-		if err != nil {
-			log.Err(err).Msg("Failed to send GIFV replacement message to Matrix")
-			return
-		}
-		portal.sendDeliveryReceipt(resp.EventID)
-		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-		portal.markMessageHandled(msg.ID, msg.Author.ID, ts, existing[0].ThreadID, intent.UserID, []database.MessagePart{{
-			AttachmentID: converted.AttachmentID,
-			MXID:         resp.EventID,
-		}})
-		if msg.EditedTimestamp != nil {
-			existing[0].UpdateEditTimestamp(*msg.EditedTimestamp)
-		}
-		log.Debug().
-			Str("event_id", resp.EventID.String()).
-			Dict("redacted_attachments", redactions).
-			Msg("Finished handling Discord GIFV update as replacement message")
-		return
-	}
 	converted.Content.SetEdit(existing[0].MXID)
 	// Never actually mention new users of edits, only include mentions inside m.new_content
 	converted.Content.Mentions = &event.Mentions{}
@@ -960,6 +933,10 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		converted.Extra = map[string]any{
 			"m.new_content": converted.Extra,
 		}
+	}
+	var editTS int64
+	if msg.EditedTimestamp != nil {
+		editTS = msg.EditedTimestamp.UnixMilli()
 	}
 	// TODO figure out some way to deduplicate outgoing edits
 	resp, err := portal.sendMatrixMessage(intent, event.EventMessage, converted.Content, converted.Extra, editTS)

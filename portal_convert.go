@@ -257,8 +257,10 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	}
 	extra := map[string]any{}
 	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
-		content.Body = makeGIFVFileName(embed.URL)
-		content.FileName = content.Body
+		content.FileName = makeGIFVFileName(embed.URL)
+		content.Body = "Discord GIFV"
+		content.Format = event.FormatHTML
+		content.FormattedBody = fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(embed.URL), html.EscapeString(content.Body))
 		extra["info"] = map[string]any{
 			"fi.mau.discord.gifv":  true,
 			"fi.mau.gif":           true,

@@ -79,6 +79,8 @@ func DoUpgrade(helper *up.Helper) {
 	helper.Copy(up.Int, "bridge", "animated_sticker", "args", "width")
 	helper.Copy(up.Int, "bridge", "animated_sticker", "args", "height")
 	helper.Copy(up.Int, "bridge", "animated_sticker", "args", "fps")
+	helper.Copy(up.Str, "bridge", "gifv", "mode")
+	helper.Copy(up.Int, "bridge", "gifv", "auto_max_size")
 	helper.Copy(up.Map, "bridge", "double_puppet_server_map")
 	helper.Copy(up.Bool, "bridge", "double_puppet_allow_discovery")
 	helper.Copy(up.Map, "bridge", "login_shared_secret_map")

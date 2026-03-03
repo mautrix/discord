@@ -217,23 +217,7 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 			},
 		}
 	}
-	isGIFV := embed.Type == discordgo.EmbedTypeGifv
-	gifvMode := portal.bridge.Config.Bridge.GIFV.Mode
-	copyMeta := NoMeta
-	if isGIFV && gifvMode != "video" {
-		autoMode := gifvMode == "auto"
-		autoMaxSize := portal.bridge.Config.Bridge.GIFV.AutoMaxSize
-		copyMeta = AttachmentMeta{
-			Converter: func(data []byte) ([]byte, string, error) {
-				return portal.bridge.convertGIFVToGIF(data, autoMaxSize, autoMode)
-			},
-		}
-	}
-	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, proxyURL, portal.Encrypted, copyMeta)
-	if err != nil && isGIFV && gifvMode != "video" {
-		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to apply GIFV mode, falling back to video relay")
-		dbFile, err = portal.bridge.copyAttachmentToMatrix(intent, proxyURL, portal.Encrypted, NoMeta)
-	}
+	dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, proxyURL, portal.Encrypted, NoMeta)
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy video embed to Matrix")
 		return &ConvertedMessage{
@@ -250,18 +234,7 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 			Size:     dbFile.Size,
 		},
 	}
-	if isGIFV && strings.HasPrefix(dbFile.MimeType, "image/") {
-		content.MsgType = event.MsgImage
-		if embed.Video != nil {
-			content.Info.Width = embed.Video.Width
-			content.Info.Height = embed.Video.Height
-		} else if embed.Thumbnail != nil {
-			content.Info.Width = embed.Thumbnail.Width
-			content.Info.Height = embed.Thumbnail.Height
-		}
-		content.Body = strings.TrimSuffix(makeGIFVFileName(embed.URL), ".mp4") + ".gif"
-		content.FileName = content.Body
-	} else if embed.Video != nil {
+	if embed.Video != nil {
 		content.MsgType = event.MsgVideo
 		content.Info.Width = embed.Video.Width
 		content.Info.Height = embed.Video.Height
@@ -283,7 +256,7 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 		content.URL = dbFile.MXC.CUString()
 	}
 	extra := map[string]any{}
-	if content.MsgType == event.MsgVideo && isGIFV {
+	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
 		content.Body = makeGIFVFileName(embed.URL)
 		content.FileName = content.Body
 		extra["info"] = map[string]any{

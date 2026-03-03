@@ -934,7 +934,6 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 			"m.new_content": converted.Extra,
 		}
 	}
-
 	var editTS int64
 	if msg.EditedTimestamp != nil {
 		editTS = msg.EditedTimestamp.UnixMilli()

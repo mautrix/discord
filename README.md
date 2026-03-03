@@ -173,7 +173,7 @@ On Element mobile specifically, GIFV video posts could look broken/low-context:
 
 The goal was to keep efficient MP4 relay while making mobile preview usable.
 
-> Attempting to transcode Discord MP4 used by GIFV to GIF in Matrix is way too expensive — over-size files and costs of compute. So we remain the original logic from `port_conver.go` to keep them as MP4s.
+> Attempting to transcode Discord MP4 used by GIFV to GIF in Matrix is too expensive (oversized output and extra compute), so this fork keeps GIFV as MP4 (`m.video`).
 
 #### Files changed
 
@@ -223,4 +223,29 @@ Reason:
 - Improve Element mobile preview for relayed GIFV videos.
 - Keep thumbnail storage lighter by converting to WebP
 
-Now it displays a thumbnail for the relayed GIFV to let mobile user knows if this is an interested "gif" they would click to play.
+#### Duplicate link card suppression
+
+> This is not a bug from original repo, but a patch after patching on the IOS Element side, while on Element desktop, web app is being fine.
+
+`portal_convert.go`
+
+```diff
+diff --git a/portal_convert.go b/portal_convert.go
+@@
++videoEmbedURLs := make(map[string]struct{})
++for _, emb := range msg.Embeds {
++  if getEmbedType(msg, emb) == EmbedVideo && emb.URL != "" {
++    videoEmbedURLs[emb.URL] = struct{}{}
++  }
++}
+@@
++if sameURLAsVideoEmbed || (len(videoEmbedURLs) > 0 && contentLooksLikeSingleURL) {
++  continue
++}
+```
+
+Reason:
+- Prevent duplicate UI for one Discord GIFV message (link-preview card + media event).
+- Keep only the media event for cleaner rendering and better delete consistency.
+
+Now the relayed GIFV message keeps MP4 efficiency, has lightweight thumbnail preview, and avoids extra unfurl card noise.

@@ -779,6 +779,12 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 		htmlParts = append(htmlParts, fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink))
 	}
 	previews := make([]*BeeperLinkPreview, 0)
+	videoEmbedURLs := make(map[string]struct{})
+	for _, emb := range msg.Embeds {
+		if getEmbedType(msg, emb) == EmbedVideo && emb.URL != "" {
+			videoEmbedURLs[emb.URL] = struct{}{}
+		}
+	}
 	for i, embed := range msg.Embeds {
 		if i == 0 && msg.MessageReference == nil && isReplyEmbed(embed) {
 			continue
@@ -791,6 +797,12 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 			log := with.Str("computed_embed_type", "rich").Logger()
 			htmlParts = append(htmlParts, portal.convertDiscordRichEmbed(log.WithContext(ctx), intent, embed, msg.ID, i))
 		case EmbedLinkPreview:
+			_, sameURLAsVideoEmbed := videoEmbedURLs[embed.URL]
+			contentLooksLikeSingleURL := msg.Content == embed.URL || discordLinkRegexFull.MatchString(msg.Content)
+			// Avoid duplicate UI (link card + media event) when a video embed is already bridged separately.
+			if sameURLAsVideoEmbed || (len(videoEmbedURLs) > 0 && contentLooksLikeSingleURL) {
+				continue
+			}
 			log := with.Str("computed_embed_type", "link preview").Logger()
 			previews = append(previews, portal.convertDiscordLinkEmbedToBeeper(log.WithContext(ctx), intent, embed))
 		case EmbedVideo:

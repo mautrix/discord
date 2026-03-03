@@ -154,3 +154,52 @@ Enabled values: `1`, `true`, `yes`, `on`, `debug`
 When enabled:
 - command-flow debug messages are posted in the command room
 - relay-flow debug notices are posted in the user management room
+
+---
+
+## Bugs fix
+
+Some other bugs I've fixed in this fork against the original repo.
+
+### Tenor GIFV Conversion
+
+Discord GIFV/Tenor embeds were bridged as `m.video`, but `content.body` was set to the Tenor page URL (for example https://tenor.com/view/...).  
+
+Some Matrix clients (e.g., Element) rendered this as a link/file tile instead of inline playable media.
+
+```diff
+diff --git a/portal_convert.go b/portal_convert.go
+index 6823e2c..9c7b322 100644
+--- a/portal_convert.go
++++ b/portal_convert.go
+@@ -257,6 +257,8 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
+ 	}
+ 	extra := map[string]any{}
+ 	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
++		content.Body = makeGIFVFileName(embed.URL)
++		content.FileName = content.Body
+ 		extra["info"] = map[string]any{
+ 			"fi.mau.discord.gifv":  true,
+ 			"fi.mau.gif":           true,
+@@ -274,6 +276,14 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
+ 	}
+ }
+ 
++func makeGIFVFileName(embedURL string) string {
++	if embedURL == "" {
++		return "discord-gifv.mp4"
++	}
++	sum := sha256.Sum256([]byte(embedURL))
++	return fmt.Sprintf("discord-gifv-%s.mp4", hex.EncodeToString(sum[:4]))
++}
++
+ func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
+ 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
+ 	if msg.Content != "" {
+```
+
+Keeps efficient MP4 relay path, but avoids URL-as-body rendering quirks in Matrix clients.
+
+- Only affects Discord EmbedTypeGifv video embeds.
+- No MP4->GIF transcoding added.
+- No extra CPU-heavy conversion path (I did add, but decided to keep the original MP4-display way for the moment).

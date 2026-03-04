@@ -27,6 +27,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
+	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -155,20 +156,13 @@ func (mc *MessageConverter) ToMatrix(
 		converted.ThreadRoot = &threadRoot
 	}
 
-	currentThreadChannelID := ""
-	portalChannelID := discordid.ParseChannelPortalID(portal.ID)
-	if msg.ChannelID != portalChannelID {
-		currentThreadChannelID = msg.ChannelID
-	}
 	// TODO This is sorta gross; it might be worth bundling these parameters
 	// into a struct.
-	mc.tryAddingReplyToConvertedMessage(
+	mc.addReplyToConvertedMessage(
 		ctx,
 		converted,
-		portal,
 		source,
 		msg,
-		currentThreadChannelID,
 	)
 
 	return converted
@@ -186,16 +180,14 @@ const msgInteractionTemplateHTML = `<blockquote>
 
 const msgComponentTemplateHTML = `<p>This message contains interactive elements. Use the Discord app to interact with the message.</p>`
 
-func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
+func (mc *MessageConverter) addReplyToConvertedMessage(
 	ctx context.Context,
 	converted *bridgev2.ConvertedMessage,
-	portal *bridgev2.Portal,
 	source *bridgev2.UserLogin,
 	msg *discordgo.Message,
-	currentThreadChannelID string,
 ) {
 	ref := msg.MessageReference
-	if ref == nil {
+	if ref == nil || ref.Type != discordgo.MessageReferenceTypeDefault {
 		return
 	}
 
@@ -205,39 +197,31 @@ func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
 		Str("referenced_message_id", ref.MessageID).Logger()
 	ctx = log.WithContext(ctx)
 
-	// The portal containing the message that was replied to.
-	targetPortal := portal
-	portalChannelID := discordid.ParseChannelPortalID(portal.ID)
-	if ref.ChannelID != portalChannelID && (currentThreadChannelID == "" || ref.ChannelID != currentThreadChannelID) {
-		var err error
-		targetPortal, err = mc.Bridge.GetPortalByKey(ctx, discordid.MakeChannelPortalKeyWithID(ref.ChannelID))
-		if err != nil {
-			log.Err(err).Msg("Failed to get cross-room reply portal; proceeding")
-			return
-		}
-
-		if targetPortal == nil {
-			return
-		}
+	targetMessageID := discordid.MakeMessageID(ref.MessageID)
+	converted.ReplyTo = &networkid.MessageOptionalPartID{
+		MessageID: targetMessageID,
+		// This needs to point to a valid part. Since we assign part ids
+		// counting upwards from zero, default to it.
+		PartID: ptr.Ptr(networkid.PartID("0")),
+	}
+	if msg.ReferencedMessage != nil {
+		// ReferencedMessage will be nil if Discord's backend didn't feel like
+		// fetching the message or if the message has been deleted.
+		converted.ReplyToUser = discordid.MakeUserID(msg.ReferencedMessage.Author.ID)
 	}
 
-	messageID := discordid.MakeMessageID(ref.MessageID)
-	repliedToMatrixMsg, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, messageID)
+	// Try to provide a more correct ReplyTo.PartID if the message is already
+	// in the database. This won't be the case for e.g. initial backfill.
+	targetMatrixMsg, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, targetMessageID)
 	if err != nil {
-		log.Err(err).Msg("Failed to query database for first message part; proceeding")
+		log.Warn().Err(err).Msg("Failed to query database for first message part; proceeding")
 		return
 	}
-	if repliedToMatrixMsg == nil {
+	if targetMatrixMsg == nil {
 		log.Debug().Msg("Couldn't find a first message part for reply target; proceeding")
 		return
 	}
-
-	converted.ReplyTo = &networkid.MessageOptionalPartID{
-		MessageID: repliedToMatrixMsg.ID,
-		PartID:    &repliedToMatrixMsg.PartID,
-	}
-	converted.ReplyToRoom = targetPortal.PortalKey
-	converted.ReplyToUser = repliedToMatrixMsg.SenderID
+	converted.ReplyTo.PartID = &targetMatrixMsg.PartID
 }
 
 func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, msg *discordgo.Message, source *bridgev2.UserLogin) *bridgev2.ConvertedMessagePart {

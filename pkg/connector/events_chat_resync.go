@@ -46,7 +46,8 @@ func (d *DiscordChatResync) AddLogContext(c zerolog.Context) zerolog.Context {
 }
 
 func (d *DiscordChatResync) GetPortalKey() networkid.PortalKey {
-	return d.portalKey
+	ch := d.channel
+	return d.Client.portalKeyForChannel(ch)
 }
 
 func (d *DiscordChatResync) GetSender() bridgev2.EventSender {

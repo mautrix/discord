@@ -36,10 +36,12 @@ import (
 
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
 type astDiscordTag struct {
 	ast.BaseInline
+	source *bridgev2.UserLogin
 	portal *bridgev2.Portal
 	id     int64
 }
@@ -157,9 +159,11 @@ func (s *discordTagParser) Trigger() []byte {
 }
 
 var parserContextPortal = parser.NewContextKey()
+var parserContextUserLogin = parser.NewContextKey()
 
 func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
 	portal := pc.Get(parserContextPortal).(*bridgev2.Portal)
+	source := pc.Get(parserContextUserLogin).(*bridgev2.UserLogin)
 	//before := block.PrecendingCharacter()
 	line, _ := block.PeekLine()
 	match := discordTagRegex.FindSubmatch(line)
@@ -173,7 +177,7 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 	if err != nil {
 		return nil
 	}
-	tag := astDiscordTag{id: id, portal: portal}
+	tag := astDiscordTag{id: id, source: source, portal: portal}
 	tagName := string(match[1])
 	switch {
 	case tagName == "@":
@@ -304,15 +308,24 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			}
 		}
 	case *astDiscordChannelMention:
-		if portal, _ := node.portal.Bridge.GetPortalByKey(ctx, discordid.MakeChannelPortalKeyWithID(
-			strconv.FormatInt(node.id, 10),
-		)); portal != nil {
-			if portal.MXID != "" {
-				_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(portal.Bridge.Matrix.ServerName()).MatrixToURL(), portal.Name)
+		rtr, ok := node.source.Client.(router.Router)
+
+		if ok {
+			var r *router.Route
+			mentionedChannelID := strconv.FormatInt(node.id, 10)
+			r, err = rtr.Route(ctx, mentionedChannelID)
+			if err == nil {
+				if portal, _ := node.portal.Bridge.GetPortalByKey(ctx, r.PortalKey); portal != nil {
+					if portal.MXID != "" {
+						_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(portal.Bridge.Matrix.ServerName()).MatrixToURL(), portal.Name)
+					} else {
+						_, _ = w.WriteString(portal.Name)
+					}
+					return
+				}
 			} else {
-				_, _ = w.WriteString(portal.Name)
+				node.portal.Log.Err(err).Msg("Failed to route mentioned channel")
 			}
-			return
 		}
 	case *astDiscordCustomEmoji:
 		if resolver, ok := node.portal.Bridge.Network.(customEmojiMXCProvider); ok {

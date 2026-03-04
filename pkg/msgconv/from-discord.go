@@ -34,6 +34,7 @@ import (
 	"maunium.net/go/mautrix/format"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
 type contextKey int
@@ -253,7 +254,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 
 	if msg.Content != "" && !isPlainGifMessage(msg) {
 		// Bridge basic text messages.
-		htmlParts = append(htmlParts, mc.renderDiscordMarkdownOnlyHTML(portal, msg.Content, true))
+		htmlParts = append(htmlParts, mc.renderDiscordMarkdownOnlyHTML(portal, source, msg.Content, true))
 	} else if msg.MessageReference != nil &&
 		msg.MessageReference.Type == discordgo.MessageReferenceTypeForward &&
 		len(msg.MessageSnapshots) > 0 &&
@@ -275,7 +276,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 		switch getEmbedType(msg, embed) {
 		case EmbedRich:
 			log := with.Str("computed_embed_type", "rich").Logger()
-			htmlParts = append(htmlParts, mc.renderDiscordRichEmbed(log.WithContext(ctx), embed))
+			htmlParts = append(htmlParts, mc.renderDiscordRichEmbed(log.WithContext(ctx), source, embed))
 		case EmbedLinkPreview:
 			log := with.Str("computed_embed_type", "link preview").Logger()
 			previews = append(previews, mc.renderDiscordLinkEmbed(log.WithContext(ctx), embed))
@@ -308,37 +309,66 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
 }
 
+func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source *bridgev2.UserLogin, msg *discordgo.Message, msgTSText string) (string, error) {
+	router, ok := source.Client.(router.Router)
+	if !ok {
+		return "", fmt.Errorf("network api can't route") // impossible?
+	}
+	route, err := router.Route(ctx, msg.MessageReference.ChannelID)
+	if err != nil {
+		return "", fmt.Errorf("couldn't route forwarded message: %w", err)
+	}
+
+	forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, route.PortalKey)
+	if err != nil {
+		return "", fmt.Errorf("couldn't get containing portal for forwarded message: %w", err)
+	}
+	if forwardedFromPortal == nil {
+		return "", fmt.Errorf("containing portal for forwarded message doesn't exist")
+	}
+
+	origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, discordid.MakeMessageID(msg.MessageReference.MessageID))
+	if err != nil {
+		return "", fmt.Errorf("couldn't get forwarded message from db: %w", err)
+	}
+
+	if origMessage != nil {
+		// We've bridged the message that was forwarded, so we can link to it directly.
+		return fmt.Sprintf(
+			`<a href="%s">#%s • %s</a>`,
+			forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.Bridge.Matrix.ServerName()),
+			forwardedFromPortal.Name,
+			msgTSText,
+		), nil
+	}
+
+	if forwardedFromPortal.MXID != "" {
+		// We don't have the message but we have the portal (and it has a room),
+		// so link to that.
+		return fmt.Sprintf(
+			`<a href="%s">#%s</a> • %s`,
+			forwardedFromPortal.MXID.URI(mc.Bridge.Matrix.ServerName()),
+			forwardedFromPortal.Name,
+			msgTSText,
+		), nil
+	} else if forwardedFromPortal.Name != "" {
+		// We only have the name of the portal.
+		return fmt.Sprintf("%s • %s", forwardedFromPortal.Name, msgTSText), nil
+	}
+
+	// Give up if we don't have the message nor any portal information.
+	return "", fmt.Errorf("couldn't resolve forwarded message link")
+}
+
 func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, msg *discordgo.Message) string {
 	log := zerolog.Ctx(ctx)
 
-	forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, msg.MessageSnapshots[0].Message.Content, true)
+	forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, source, msg.MessageSnapshots[0].Message.Content, true)
 	msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
-	origLink := fmt.Sprintf("unknown channel • %s", msgTSText)
-	if forwardedFromPortal, err := mc.Bridge.DB.Portal.GetByKey(ctx, discordid.MakeChannelPortalKeyWithID(msg.MessageReference.ChannelID)); err == nil && forwardedFromPortal != nil {
-		if origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, discordid.MakeMessageID(msg.MessageReference.MessageID)); err == nil && origMessage != nil {
-			// We've bridged the message that was forwarded, so we can link to it directly.
-			origLink = fmt.Sprintf(
-				`<a href="%s">#%s • %s</a>`,
-				forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.Bridge.Matrix.ServerName()),
-				forwardedFromPortal.Name,
-				msgTSText,
-			)
-		} else if err != nil {
-			log.Err(err).Msg("Couldn't find corresponding message when bridging forwarded message")
-		} else if forwardedFromPortal.MXID != "" {
-			// We don't have the message but we have the portal, so link to that.
-			origLink = fmt.Sprintf(
-				`<a href="%s">#%s</a> • %s`,
-				forwardedFromPortal.MXID.URI(mc.Bridge.Matrix.ServerName()),
-				forwardedFromPortal.Name,
-				msgTSText,
-			)
-		} else if forwardedFromPortal.Name != "" {
-			// We only have the name of the portal.
-			origLink = fmt.Sprintf("%s • %s", forwardedFromPortal.Name, msgTSText)
-		}
-	} else if err != nil {
-		log.Err(err).Msg("Couldn't find corresponding portal when bridging forwarded message")
+	origLink, err := mc.forwardedMessageOrigLink(ctx, source, msg, msgTSText)
+	if err != nil {
+		log.Err(err).Msg("Failed to render original link to forwarded message, using generic placeholder")
+		origLink = fmt.Sprintf("unknown channel • %s", msgTSText)
 	}
 
 	return fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink)
@@ -505,7 +535,7 @@ const (
 	embedFooterDateSeparator = ` • `
 )
 
-func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, embed *discordgo.MessageEmbed) string {
+func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *bridgev2.UserLogin, embed *discordgo.MessageEmbed) string {
 	log := zerolog.Ctx(ctx)
 	var htmlParts []string
 	if embed.Author != nil {
@@ -530,7 +560,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, embed *d
 	portal := ctx.Value(contextKeyPortal).(*bridgev2.Portal)
 	if embed.Title != "" {
 		var titleHTML string
-		baseTitleHTML := mc.renderDiscordMarkdownOnlyHTML(portal, embed.Title, false)
+		baseTitleHTML := mc.renderDiscordMarkdownOnlyHTML(portal, source, embed.Title, false)
 		if embed.URL != "" {
 			titleHTML = fmt.Sprintf(embedHTMLTitleWithLink, html.EscapeString(embed.URL), baseTitleHTML)
 		} else {
@@ -540,7 +570,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, embed *d
 	}
 
 	if embed.Description != "" {
-		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, mc.renderDiscordMarkdownOnlyHTML(portal, embed.Description, true)))
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, mc.renderDiscordMarkdownOnlyHTML(portal, source, embed.Description, true)))
 	}
 
 	for i := 0; i < len(embed.Fields); i++ {
@@ -559,15 +589,15 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, embed *d
 			headerParts := make([]string, len(splitItems))
 			contentParts := make([]string, len(splitItems))
 			for j, splitItem := range splitItems {
-				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, mc.renderDiscordMarkdownOnlyHTML(portal, splitItem.Name, false))
-				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, mc.renderDiscordMarkdownOnlyHTML(portal, splitItem.Value, true))
+				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, mc.renderDiscordMarkdownOnlyHTML(portal, source, splitItem.Name, false))
+				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, mc.renderDiscordMarkdownOnlyHTML(portal, source, splitItem.Value, true))
 			}
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFields, strings.Join(headerParts, ""), strings.Join(contentParts, "")))
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLLinearField,
 				strconv.FormatBool(item.Inline),
-				mc.renderDiscordMarkdownOnlyHTML(portal, item.Name, false),
-				mc.renderDiscordMarkdownOnlyHTML(portal, item.Value, true),
+				mc.renderDiscordMarkdownOnlyHTML(portal, source, item.Name, false),
+				mc.renderDiscordMarkdownOnlyHTML(portal, source, item.Value, true),
 			))
 		}
 	}

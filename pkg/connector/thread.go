@@ -23,7 +23,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/database"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
@@ -80,32 +79,6 @@ func (d *DiscordClient) upsertThreadInfoFromMessage(ctx context.Context, msg *di
 	return d.upsertThreadInfo(ctx, threadChannelID, msg.ID, parentChannelID)
 }
 
-func (d *DiscordClient) getThreadByChannelID(ctx context.Context, threadChannelID string) (*discorddb.Thread, error) {
-	if threadChannelID == "" {
-		return nil, nil
-	}
-	thread, err := d.connector.DB.Thread.GetByThreadChannelID(ctx, string(d.UserLogin.ID), threadChannelID)
-	if err != nil || thread != nil {
-		return thread, err
-	}
-
-	ch, err := d.Session.State.Channel(threadChannelID)
-	if err == nil && ch != nil && isThread(ch) {
-		rootMsgID := defaultThreadRootMessageID(ch)
-		if upsertErr := d.upsertThreadInfo(ctx, threadChannelID, rootMsgID, ch.ParentID); upsertErr != nil {
-			return nil, upsertErr
-		}
-		return &discorddb.Thread{
-			UserLoginID:     string(d.UserLogin.ID),
-			ThreadChannelID: threadChannelID,
-			RootMessageID:   rootMsgID,
-			ParentChannelID: ch.ParentID,
-		}, nil
-	}
-
-	return nil, nil
-}
-
 func (d *DiscordClient) getThreadByRootMessageID(ctx context.Context, rootMessageID string) (*discorddb.Thread, error) {
 	if rootMessageID == "" {
 		return nil, nil
@@ -129,21 +102,6 @@ func (d *DiscordClient) getThreadByRootMessageID(ctx context.Context, rootMessag
 	}
 
 	return nil, nil
-}
-
-func (d *DiscordClient) getThreadPortalInfo(ctx context.Context, channelID string) (portalChannelID string, threadRootID *networkid.MessageID, err error) {
-	portalChannelID = channelID
-	thread, err := d.getThreadByChannelID(ctx, channelID)
-	if err != nil || thread == nil {
-		return
-	}
-
-	portalChannelID = thread.ParentChannelID
-	if thread.RootMessageID != "" {
-		rootID := discordid.MakeMessageID(thread.RootMessageID)
-		threadRootID = &rootID
-	}
-	return
 }
 
 func getMatrixThreadRootRemoteMessageID(threadRoot *database.Message) string {

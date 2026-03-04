@@ -35,12 +35,13 @@ import (
 	"go.mau.fi/util/variationselector"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
 type DiscordEventMeta struct {
 	Type       bridgev2.RemoteEventType
-	PortalKey  networkid.PortalKey
 	LogContext func(c zerolog.Context) zerolog.Context
+	route      router.Route
 }
 
 func (em *DiscordEventMeta) AddLogContext(c zerolog.Context) zerolog.Context {
@@ -56,7 +57,11 @@ func (em *DiscordEventMeta) GetType() bridgev2.RemoteEventType {
 }
 
 func (em *DiscordEventMeta) GetPortalKey() networkid.PortalKey {
-	return em.PortalKey
+	return em.route.PortalKey
+}
+
+func (em *DiscordEventMeta) PortalReceiverIsUncertain() bool {
+	return em.route.Uncertain
 }
 
 type DiscordMessage struct {
@@ -113,10 +118,11 @@ func (m *DiscordMessage) ConvertEdit(ctx context.Context, portal *bridgev2.Porta
 }
 
 var (
-	_ bridgev2.RemoteMessage                  = (*DiscordMessage)(nil)
-	_ bridgev2.RemoteMessageWithTransactionID = (*DiscordMessage)(nil)
-	_ bridgev2.RemoteEdit                     = (*DiscordMessage)(nil)
-	_ bridgev2.RemoteMessageRemove            = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteMessage                          = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteMessageWithTransactionID         = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithUncertainPortalReceiver = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEdit                             = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteMessageRemove                    = (*DiscordMessage)(nil)
 )
 
 func (m *DiscordMessage) GetTargetMessage() networkid.MessageID {
@@ -147,31 +153,25 @@ func (m *DiscordMessage) GetSender() bridgev2.EventSender {
 	return m.Client.makeEventSender(m.Data.Author)
 }
 
-func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.Message, typ bridgev2.RemoteEventType) DiscordMessage {
+func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.Message, typ bridgev2.RemoteEventType) (*DiscordMessage, error) {
 	if msg == nil {
 		msg = &discordgo.Message{}
 	}
-	portalChannelID, threadRootID, err := d.getThreadPortalInfo(ctx, msg.ChannelID)
+
+	route, err := d.Route(ctx, msg.ChannelID)
 	if err != nil {
-		zerolog.Ctx(ctx).Err(err).
-			Str("channel_id", msg.ChannelID).
-			Str("message_id", msg.ID).
-			Msg("Failed to resolve thread mapping for message")
-		portalChannelID = msg.ChannelID
-		threadRootID = nil
+		return nil, err
 	}
-	return DiscordMessage{
+
+	return &DiscordMessage{
 		DiscordEventMeta: &DiscordEventMeta{
-			Type: typ,
-			PortalKey: networkid.PortalKey{
-				ID:       discordid.MakeChannelPortalIDWithID(portalChannelID),
-				Receiver: d.UserLogin.ID,
-			},
+			Type:  typ,
+			route: *route,
 		},
 		Data:         msg,
 		Client:       d,
-		ThreadRootID: threadRootID,
-	}
+		ThreadRootID: route.FromThreadRootMessageID(),
+	}, nil
 }
 
 type DiscordReaction struct {
@@ -197,9 +197,10 @@ func (r *DiscordReaction) GetRemovedEmojiID() networkid.EmojiID {
 }
 
 var (
-	_ bridgev2.RemoteReaction                 = (*DiscordReaction)(nil)
-	_ bridgev2.RemoteReactionRemove           = (*DiscordReaction)(nil)
-	_ bridgev2.RemoteReactionWithExtraContent = (*DiscordReaction)(nil)
+	_ bridgev2.RemoteReaction                         = (*DiscordReaction)(nil)
+	_ bridgev2.RemoteEventWithUncertainPortalReceiver = (*DiscordReaction)(nil)
+	_ bridgev2.RemoteReactionRemove                   = (*DiscordReaction)(nil)
+	_ bridgev2.RemoteReactionWithExtraContent         = (*DiscordReaction)(nil)
 )
 
 func (r *DiscordReaction) GetReactionEmoji() (string, networkid.EmojiID) {
@@ -219,13 +220,13 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 		evtType = bridgev2.RemoteEventReactionRemove
 	}
 
-	portalChannelID, _, resolveErr := d.getThreadPortalInfo(ctx, reaction.ChannelID)
-	if resolveErr != nil {
-		zerolog.Ctx(ctx).Err(resolveErr).
+	route, err := d.Route(ctx, reaction.ChannelID)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).
 			Str("reaction_channel_id", reaction.ChannelID).
 			Str("reaction_message_id", reaction.MessageID).
-			Msg("Failed to resolve thread mapping for reaction")
-		portalChannelID = reaction.ChannelID
+			Msg("Failed to route reaction")
+		return nil, err
 	}
 
 	var matrixEmoji string
@@ -278,11 +279,8 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 
 	return &DiscordReaction{
 		DiscordEventMeta: &DiscordEventMeta{
-			Type: evtType,
-			PortalKey: networkid.PortalKey{
-				ID:       discordid.MakeChannelPortalIDWithID(portalChannelID),
-				Receiver: d.UserLogin.ID,
-			},
+			Type:  evtType,
+			route: *route,
 		},
 		Reaction: reaction,
 		Client:   d,
@@ -297,24 +295,27 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 		return
 	}
 
-	log := zerolog.Ctx(ctx)
+	log := zerolog.Ctx(ctx).With().
+		Str("typing_channel_id", typing.ChannelID).
+		Str("typing_user_id", typing.UserID).
+		Str("typing_guild_id", typing.GuildID).
+		Logger()
+	ctx = log.WithContext(ctx)
 
-	portalChannelID, _, err := d.getThreadPortalInfo(ctx, typing.ChannelID)
+	route, err := d.Route(ctx, typing.ChannelID)
 	if err != nil {
-		log.Err(err).Str("channel_id", typing.ChannelID).Msg("Failed to resolve thread mapping for typing event")
-		portalChannelID = typing.ChannelID
+		log.Err(err).Msg("Failed to route typing event")
+		return
 	}
 
-	portalKey := networkid.PortalKey{
-		ID:       discordid.MakeChannelPortalIDWithID(portalChannelID),
-		Receiver: d.UserLogin.ID,
-	}
-	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
+	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, route.PortalKey)
 	if err != nil {
 		log.Err(err).Msg("Failed to query for existing portal")
 		return
 	}
 	if portal == nil || portal.MXID == "" {
+		// Don't bother queueing typing events (which occur extremely
+		// frequently) for portals that don't exist or lack a Matrix room.
 		return
 	}
 
@@ -323,9 +324,10 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 
 	d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Typing{
 		EventMeta: simplevent.EventMeta{
-			Type:      bridgev2.RemoteEventTyping,
-			PortalKey: portalKey,
-			Sender:    d.makeEventSenderWithID(typing.UserID),
+			Type:              bridgev2.RemoteEventTyping,
+			PortalKey:         route.PortalKey,
+			Sender:            d.makeEventSenderWithID(typing.UserID),
+			UncertainReceiver: route.Uncertain,
 		},
 		Timeout: 12 * time.Second,
 		Type:    bridgev2.TypingTypeText,
@@ -341,10 +343,7 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 	log := zerolog.Ctx(ctx).With().Str("action", "handle channel update").Logger()
 	ctx = log.WithContext(ctx)
 
-	portalKey := networkid.PortalKey{
-		ID:       discordid.MakeChannelPortalIDWithID(upd.ID),
-		Receiver: d.UserLogin.ID,
-	}
+	portalKey := d.portalKeyForChannel(upd.Channel)
 	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
 	if err != nil {
 		return fmt.Errorf("failed to look up existing channel: %w", err)
@@ -426,6 +425,27 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 		ID:            ack.ChannelID,
 		LastMessageID: discordgo.StringOrInt(ack.MessageID),
 	}
+}
+
+func messageCtx(ctx context.Context, msg *discordgo.Message) (context.Context, *zerolog.Logger) {
+	if msg == nil {
+		return ctx, zerolog.Ctx(ctx)
+	}
+
+	wipLog := zerolog.Ctx(ctx).With().
+		Str("guild_id", msg.GuildID).
+		Str("channel_id", msg.ChannelID).
+		Str("message_id", msg.ID)
+	if msg.Author != nil {
+		wipLog = wipLog.Str("author_id", msg.Author.ID).
+			Bool("author_bot", msg.Author.Bot)
+	}
+	if msg.WebhookID != "" {
+		wipLog = wipLog.Str("webhook_id", msg.WebhookID)
+	}
+	log := wipLog.Logger()
+
+	return log.WithContext(ctx), &log
 }
 
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
@@ -529,32 +549,56 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 				Msg("Dropping message that lacks an author")
 			return
 		}
+		ctx, log := messageCtx(ctx, evt.Message)
+
 		if err := d.upsertThreadInfoFromMessage(ctx, evt.Message); err != nil {
-			log.Err(err).Str("message_id", evt.ID).Msg("Failed to persist thread info from message create")
+			log.Err(err).Msg("Failed to persist thread info from message create")
 		}
 		d.userCache.UpdateWithMessage(evt.Message)
-		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessage)
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+
+		wrappedEvt, err := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessage)
+		if err != nil {
+			log.Err(err).Msg("Dropping incoming message due to routing failure")
+		} else {
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+		}
 	case *discordgo.MessageUpdate:
+		ctx, log := messageCtx(ctx, evt.Message)
+
 		if err := d.upsertThreadInfoFromMessage(ctx, evt.Message); err != nil {
 			log.Err(err).Str("message_id", evt.ID).Msg("Failed to persist thread info from message update")
 		}
-		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventEdit)
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+
+		wrappedEvt, err := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventEdit)
+		if err != nil {
+			log.Err(err).Msg("Dropping incoming message edit due to routing failure")
+		} else {
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+		}
 	case *discordgo.UserUpdate:
 		d.userCache.UpdateWithUserUpdate(evt)
 	case *discordgo.MessageDelete:
-		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessageRemove)
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+		ctx, log := messageCtx(ctx, evt.Message)
+
+		wrappedEvt, err := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessageRemove)
+		if err != nil {
+			log.Warn().Err(err).Msg("Dropping incoming message deletion due to routing failure")
+		} else {
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+		}
 	// TODO *discordgo.MessageDeleteBulk
 	case *discordgo.MessageReactionAdd:
 		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, true)
-		if wrappedEvt != nil && err == nil {
+		if err != nil {
+			log.Err(err).Msg("Dropping incoming reaction due to routing failure")
+		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}
 	case *discordgo.MessageReactionRemove:
 		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, false)
-		if wrappedEvt != nil && err == nil {
+		if err != nil {
+			log.Err(err).Msg("Dropping incoming reaction removal due to routing failure")
+		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}
 	// TODO case *discordgo.MessageReactionRemoveAll:

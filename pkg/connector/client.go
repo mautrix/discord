@@ -30,7 +30,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
 
@@ -268,14 +267,6 @@ func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Ch
 	return canView
 }
 
-func (d *DiscordClient) guildPortalKeyFromID(guildID string) networkid.PortalKey {
-	// TODO: Support configuring `split_portals`.
-	return networkid.PortalKey{
-		ID:       discordid.MakeGuildPortalIDWithID(guildID),
-		Receiver: d.UserLogin.ID,
-	}
-}
-
 func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Avatar {
 	return &bridgev2.Avatar{
 		ID: discordid.MakeAvatarID(guild.Icon),
@@ -291,7 +282,7 @@ func (d *DiscordClient) syncGuildSpace(_ context.Context, guild *discordgo.Guild
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordGuildResync{
 		Client:    d,
 		guild:     guild,
-		portalKey: d.guildPortalKeyFromID(guild.ID),
+		portalKey: d.guildPortalKey(guild.ID),
 	})
 }
 
@@ -342,7 +333,7 @@ func (d *DiscordClient) deleteGuildPortalSpace(ctx context.Context, guildID stri
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.ChatDelete{
 		EventMeta: simplevent.EventMeta{
 			Type:      bridgev2.RemoteEventChatDelete,
-			PortalKey: d.guildPortalKeyFromID(guildID),
+			PortalKey: d.guildPortalKey(guildID),
 		},
 		OnlyForMe: true,
 		Children:  true,
@@ -462,9 +453,8 @@ func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSend
 
 func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel) {
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
-		Client:    d,
-		channel:   ch,
-		portalKey: discordid.MakeChannelPortalKey(ch, d.UserLogin.ID, true),
+		Client:  d,
+		channel: ch,
 	})
 }
 
@@ -473,4 +463,22 @@ func (d *DiscordClient) readStateForID(resourceID string) *discordgo.ReadState {
 	defer d.readStatesLock.RUnlock()
 
 	return d.readStates[resourceID]
+}
+
+func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *discordgo.Channel {
+	ch, err := d.Session.State.Channel(channelID)
+	if err != nil {
+		if errors.Is(err, discordgo.ErrStateNotFound) {
+			return nil
+		}
+
+		// Some other weird error happened. This is currently impossible but it's
+		// best to not rely on implementation details.
+		zerolog.Ctx(ctx).Err(err).
+			Str("channel_id", channelID).
+			Msg("Failed to look up channel")
+		return nil
+	}
+
+	return ch
 }

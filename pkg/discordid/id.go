@@ -72,8 +72,13 @@ func UserLoginIDToUserID(id networkid.UserLoginID) networkid.UserID {
 	return networkid.UserID(id)
 }
 
-func MakeChannelPortalKey(ch *discordgo.Channel, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
-	key.ID = MakeChannelPortalIDWithID(ch.ID)
+// MakeChannelPortalKey creates a PortalKey from a Discord channel ID and the
+// user login it was received from.
+//
+// If you can reach a DiscordClient, prefer calling the helper methods defined
+// on it instead, as split portal configuration will be respected for you.
+func MakeChannelPortalKey(channelID string, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
+	key.ID = MakeChannelPortalIDWithID(channelID)
 	if wantReceiver {
 		key.Receiver = userLoginID
 	}
@@ -138,6 +143,14 @@ const GuildPortalKeySigil = "*"
 
 func MakeGuildPortalIDWithID(guildID string) networkid.PortalID {
 	return networkid.PortalID(GuildPortalKeySigil + guildID)
+}
+
+func MakeGuildPortalKey(guildID string, userLoginID networkid.UserLoginID, wantReceiver bool) (key networkid.PortalKey) {
+	key.ID = MakeGuildPortalIDWithID(guildID)
+	if wantReceiver {
+		key.Receiver = userLoginID
+	}
+	return
 }
 
 // ParseGuildPortalID converts a [network.PortalID] pointing to a guild space

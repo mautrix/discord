@@ -127,7 +127,7 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, log
 	var resp respGuildsList
 	resp.Guilds = []guildEntry{}
 	for _, guild := range client.Session.State.Guilds {
-		portalKey := client.guildPortalKeyFromID(guild.ID)
+		portalKey := client.guildPortalKey(guild.ID)
 		portal, err := p.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
 		if err != nil {
 			p.log.Err(err).
@@ -253,7 +253,7 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 		Logger().
 		WithContext(context.Background())
 
-	portalKey := client.guildPortalKeyFromID(guildID)
+	portalKey := client.guildPortalKey(guildID)
 	portal, err := p.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
 	if err != nil {
 		p.log.Err(err).Msg("Failed to get guild portal")

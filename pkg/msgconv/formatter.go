@@ -75,17 +75,18 @@ var discordRendererWithInlineLinks = goldmark.New(
 //
 // After conversion, if the text is surrounded by a single outermost paragraph
 // tag, it is unwrapped.
-func (mc *MessageConverter) renderDiscordMarkdownOnlyHTML(portal *bridgev2.Portal, text string, allowInlineLinks bool) string {
-	return format.UnwrapSingleParagraph(mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, text, allowInlineLinks))
+func (mc *MessageConverter) renderDiscordMarkdownOnlyHTML(portal *bridgev2.Portal, source *bridgev2.UserLogin, text string, allowInlineLinks bool) string {
+	return format.UnwrapSingleParagraph(mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, source, text, allowInlineLinks))
 }
 
 // renderDiscordMarkdownOnlyHTMLNoUnwrap converts Discord-flavored Markdown text to HTML.
-func (mc *MessageConverter) renderDiscordMarkdownOnlyHTMLNoUnwrap(portal *bridgev2.Portal, text string, allowInlineLinks bool) string {
+func (mc *MessageConverter) renderDiscordMarkdownOnlyHTMLNoUnwrap(portal *bridgev2.Portal, source *bridgev2.UserLogin, text string, allowInlineLinks bool) string {
 	text = escapeFixer.ReplaceAllStringFunc(text, escapeReplacement)
 
 	var buf strings.Builder
 	ctx := parser.NewContext()
 	ctx.Set(parserContextPortal, portal)
+	ctx.Set(parserContextUserLogin, source)
 	renderer := discordRenderer
 	if allowInlineLinks {
 		renderer = discordRendererWithInlineLinks

@@ -48,6 +48,13 @@ type DiscordClient struct {
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
 
+	// A map of resource (e.g. channel) ID to its corresponding read state.
+	//
+	// Since there can be thousands of read state entries, the map is to help
+	// keep lookups by channel ID speedy by avoiding constant linear searching.
+	readStates     map[string]*discordgo.ReadState
+	readStatesLock sync.RWMutex
+
 	userCache *UserCache
 }
 
@@ -66,6 +73,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		Session:    session,
 		httpClient: d.Bridge.GetHTTPClientSettings().Compile(),
 		userCache:  NewUserCache(session),
+		readStates: make(map[string]*discordgo.ReadState),
 	}
 
 	login.Client = &cl
@@ -134,6 +142,16 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	// Populate the user cache with the users from the READY payload.
 	log.Debug().Int("n_users", len(cl.Session.State.Ready.Users)).Msg("Inserting users from READY into cache")
 	cl.userCache.UpdateWithReady(&cl.Session.State.Ready)
+	readState := cl.Session.State.Ready.ReadState
+
+	// Populate the read state mapping.
+	if readState != nil {
+		cl.readStatesLock.Lock()
+		for _, state := range readState.Entries {
+			cl.readStates[state.ID] = state
+		}
+		cl.readStatesLock.Unlock()
+	}
 
 	cl.BeginSyncing(ctx)
 
@@ -448,4 +466,11 @@ func (d *DiscordClient) syncChannel(_ context.Context, ch *discordgo.Channel) {
 		channel:   ch,
 		portalKey: discordid.MakeChannelPortalKey(ch, d.UserLogin.ID, true),
 	})
+}
+
+func (d *DiscordClient) readStateForID(resourceID string) *discordgo.ReadState {
+	d.readStatesLock.RLock()
+	defer d.readStatesLock.RUnlock()
+
+	return d.readStates[resourceID]
 }

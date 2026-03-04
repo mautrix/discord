@@ -410,6 +410,24 @@ func (d *DiscordClient) handleThreadDelete(ctx context.Context, thread *discordg
 	return d.connector.DB.Thread.DeleteByThreadChannelID(ctx, string(d.UserLogin.ID), thread.ID)
 }
 
+func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck) {
+	d.readStatesLock.Lock()
+	defer d.readStatesLock.Unlock()
+
+	zerolog.Ctx(ctx).Trace().
+		Str("channel_id", ack.ChannelID).
+		Str("message_id", ack.MessageID).
+		Msg("Updating state with MESSAGE_ACK")
+
+	// TODO: mention_count can appear in MESSAGE_ACK payloads. Update it if it's
+	// present and not `null`. This needs discordgo changes. (There's even more
+	// missing fields than this.)
+	d.readStates[ack.ChannelID] = &discordgo.ReadState{
+		ID:            ack.ChannelID,
+		LastMessageID: discordgo.StringOrInt(ack.MessageID),
+	}
+}
+
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	defer func() {
 		err := recover()
@@ -543,6 +561,8 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
 	case *discordgo.PresenceUpdate:
 		return
+	case *discordgo.MessageAck:
+		d.handleMessageAck(ctx, evt)
 	case *discordgo.GuildDelete:
 		if evt.Unavailable {
 			log.Warn().Str("guild_id", evt.ID).Msg("Guild became unavailable")

@@ -119,9 +119,18 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	}
 
 	converted := make([]*bridgev2.BackfillMessage, 0, len(msgs))
+	provablyReadMessageCount := 0
 	for _, msg := range msgs {
-		streamOrder, _ := strconv.ParseInt(msg.ID, 10, 64)
-		ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
+		parsedMsgID, _ := strconv.ParseInt(msg.ID, 10, 64)
+		msgTs, _ := discordgo.SnowflakeTimestamp(msg.ID)
+
+		readState := dc.readStateForID(msg.ChannelID)
+		if readState != nil {
+			lastAckedMsgID, _ := strconv.ParseInt(string(readState.LastMessageID), 10, 64)
+			if lastAckedMsgID >= parsedMsgID {
+				provablyReadMessageCount += 1
+			}
+		}
 
 		// NOTE: For now, we aren't backfilling reactions. This is because:
 		//
@@ -157,8 +166,8 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 			ID:               discordid.MakeMessageID(msg.ID),
 			ConvertedMessage: dc.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, dc.UserLogin, dc.Session, msg, knownThreadRootID),
 			Sender:           sender,
-			Timestamp:        ts,
-			StreamOrder:      streamOrder,
+			Timestamp:        msgTs,
+			StreamOrder:      parsedMsgID,
 		})
 
 		if fetchParams.ThreadRoot == "" && msg.Flags&discordgo.MessageFlagsHasThread != 0 {
@@ -179,11 +188,19 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	// FetchMessagesResponse expects messages to always be ordered from oldest to newest.
 	slices.Reverse(converted)
 
-	log.Debug().Int("converted_count", len(converted)).Msg("Finished fetching and converting, returning backfill response")
+	log.Debug().
+		Int("converted_count", len(converted)).
+		Int("provably_read_message_count", provablyReadMessageCount).
+		Msg("Finished fetching and converting, returning backfill response")
 
+	// It doesn't seem like we can express unreadness for every message, so do
+	// it for the entire batch. A single unread message makes the entire batch
+	// unread, even if some messages were actually read.
+	entireBatchWasProvablyRead := len(msgs) == provablyReadMessageCount
 	return &bridgev2.FetchMessagesResponse{
 		Messages: converted,
 		Forward:  fetchParams.Forward,
+		MarkRead: entireBatchWasProvablyRead,
 		// This might not actually be true if the channel's total number of messages is itself a multiple
 		// of `count`, but that's probably okay.
 		HasMore: len(msgs) == count,

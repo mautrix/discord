@@ -24,13 +24,15 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 var (
-	_ bridgev2.BackfillingNetworkAPI = (*DiscordClient)(nil)
+	_ bridgev2.BackfillingNetworkAPI           = (*DiscordClient)(nil)
+	_ bridgev2.BackfillingNetworkAPIWithLimits = (*DiscordClient)(nil)
 )
 
 func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
@@ -205,4 +207,21 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 		// of `count`, but that's probably okay.
 		HasMore: len(msgs) == count,
 	}, nil
+}
+
+func (dc *DiscordClient) GetBackfillMaxBatchCount(
+	_ context.Context,
+	portal *bridgev2.Portal,
+	_ *database.BackfillTask,
+) int {
+	backfillQueueConfig := dc.connector.Bridge.Config.Backfill.Queue
+
+	switch portal.RoomType {
+	case database.RoomTypeDM:
+		return backfillQueueConfig.GetOverride("dm")
+	case database.RoomTypeGroupDM:
+		return backfillQueueConfig.GetOverride("group_dm")
+	default:
+		return backfillQueueConfig.GetOverride("channel")
+	}
 }

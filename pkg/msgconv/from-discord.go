@@ -203,6 +203,7 @@ func (mc *MessageConverter) tryAddingReplyToConvertedMessage(
 		Str("referenced_channel_id", ref.ChannelID).
 		Str("referenced_guild_id", ref.GuildID).
 		Str("referenced_message_id", ref.MessageID).Logger()
+	ctx = log.WithContext(ctx)
 
 	// The portal containing the message that was replied to.
 	targetPortal := portal

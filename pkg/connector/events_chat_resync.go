@@ -29,9 +29,8 @@ import (
 )
 
 type DiscordChatResync struct {
-	Client    *DiscordClient
-	channel   *discordgo.Channel
-	portalKey networkid.PortalKey
+	Client  *DiscordClient
+	channel *discordgo.Channel
 }
 
 var (

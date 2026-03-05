@@ -67,10 +67,48 @@ func (d *DiscordChatResync) ShouldCreatePortal() bool {
 	return true
 }
 
-func (d *DiscordChatResync) CheckNeedsBackfill(ctx context.Context, latestBridged *database.Message) (bool, error) {
-	if latestBridged == nil {
-		zerolog.Ctx(ctx).Debug().Str("channel_id", d.channel.ID).Msg("Haven't bridged any messages at all, not forward backfilling")
-		return false, nil
+// compareMessageIDs compares two Discord message IDs.
+//
+// If the first ID is lower, -1 is returned.
+// If the second ID is lower, 1 is returned.
+// If the IDs are equal, 0 is returned.
+func compareMessageIDs(id1, id2 string) int {
+	if id1 == id2 {
+		return 0
 	}
-	return latestBridged.ID < discordid.MakeMessageID(d.channel.LastMessageID), nil
+	if len(id1) < len(id2) {
+		return -1
+	} else if len(id2) < len(id1) {
+		return 1
+	}
+	if id1 < id2 {
+		return -1
+	}
+	return 1
+}
+
+func shouldBackfill(latestBridgedIDStr, latestIDFromServerStr string) bool {
+	return compareMessageIDs(latestBridgedIDStr, latestIDFromServerStr) == -1
+}
+
+func (d *DiscordChatResync) CheckNeedsBackfill(ctx context.Context, latestBridged *database.Message) (bool, error) {
+	log := zerolog.Ctx(ctx).With().
+		Str("resyncing_channel_id", d.channel.ID).
+		Str("resyncing_channel_last_message_id", d.channel.LastMessageID).
+		Str("resyncing_guild_id", d.channel.GuildID).
+		Bool("has_latest_bridged", latestBridged != nil).
+		Logger()
+
+	if latestBridged == nil {
+		needsBackfill := d.channel.LastMessageID != ""
+		log.Debug().Bool("needs_backfill", needsBackfill).Msg("Computed needs backfill")
+		return needsBackfill, nil
+	}
+
+	needsBackfill := shouldBackfill(
+		discordid.ParseMessageID(latestBridged.ID),
+		d.channel.LastMessageID,
+	)
+	log.Debug().Bool("needs_backfill", needsBackfill).Msg("Computed needs backfill")
+	return needsBackfill, nil
 }

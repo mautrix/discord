@@ -332,7 +332,6 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 
 	patch.Type = nil
 	patch.CanBackfill = false
-	patch.ExtraUpdates = nil
 
 	old := upd.BeforeUpdate
 	// People leaving or joining a group DM isn't expressed via CHANNEL_UPDATE.

@@ -177,9 +177,15 @@ SELECT
         ELSE ''
     END, -- room_type
     -- only: postgres
-    jsonb_build_object('guild_id', COALESCE(p.dc_guild_id, ''))
+    jsonb_build_object(
+        'guild_id', COALESCE(p.dc_guild_id, ''),
+        'channel_type', p.type
+    )
     -- only: sqlite (line commented)
---  json_object('guild_id', COALESCE(p.dc_guild_id, ''))
+--  json_object(
+--      'guild_id', COALESCE(p.dc_guild_id, ''),
+--      'channel_type', p.type
+--  )
 FROM portal_old AS p;
 
 INSERT INTO message (

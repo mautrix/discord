@@ -28,6 +28,11 @@ type PortalMetadata struct {
 	// For private channels (DMs and group DMs), this will be the zero value
 	// (an empty string).
 	GuildID string `json:"guild_id"`
+
+	// The type of Discord channel this portal corresponds to.
+	//
+	// This is omitted for guild space portals.
+	ChannelType *discordgo.ChannelType `json:"channel_type,omitempty"`
 }
 
 type UserLoginMetadata struct {

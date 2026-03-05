@@ -160,6 +160,10 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 				meta.GuildID = ch.GuildID
 				changed = true
 			}
+			if meta.ChannelType == nil || *meta.ChannelType != ch.Type {
+				meta.ChannelType = ptr.Ptr(ch.Type)
+				changed = true
+			}
 
 			return
 		},

@@ -153,17 +153,12 @@ func (m *DiscordMessage) GetSender() bridgev2.EventSender {
 	return m.Client.makeEventSender(m.Data.Author)
 }
 
-func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.Message, typ bridgev2.RemoteEventType) (*DiscordMessage, error) {
+func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.Message, route *router.Route, typ bridgev2.RemoteEventType) DiscordMessage {
 	if msg == nil {
 		msg = &discordgo.Message{}
 	}
 
-	route, err := d.Route(ctx, msg.ChannelID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &DiscordMessage{
+	return DiscordMessage{
 		DiscordEventMeta: &DiscordEventMeta{
 			Type:  typ,
 			route: *route,
@@ -171,7 +166,7 @@ func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.M
 		Data:         msg,
 		Client:       d,
 		ThreadRootID: route.FromThreadRootMessageID(),
-	}, nil
+	}
 }
 
 type DiscordReaction struct {
@@ -211,22 +206,13 @@ func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
 	return r.Extra
 }
 
-func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, beingAdded bool) (*DiscordReaction, error) {
+func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, route *router.Route, beingAdded bool) (*DiscordReaction, error) {
 	if reaction == nil {
 		return nil, nil
 	}
 	evtType := bridgev2.RemoteEventReaction
 	if !beingAdded {
 		evtType = bridgev2.RemoteEventReactionRemove
-	}
-
-	route, err := d.Route(ctx, reaction.ChannelID)
-	if err != nil {
-		zerolog.Ctx(ctx).Err(err).
-			Str("reaction_channel_id", reaction.ChannelID).
-			Str("reaction_message_id", reaction.MessageID).
-			Msg("Failed to route reaction")
-		return nil, err
 	}
 
 	var matrixEmoji string
@@ -290,7 +276,7 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 	}, nil
 }
 
-func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discordgo.TypingStart) {
+func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discordgo.TypingStart, route *router.Route) {
 	if typing.UserID == d.Session.State.User.ID {
 		return
 	}
@@ -301,23 +287,6 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 		Str("typing_guild_id", typing.GuildID).
 		Logger()
 	ctx = log.WithContext(ctx)
-
-	route, err := d.Route(ctx, typing.ChannelID)
-	if err != nil {
-		log.Err(err).Msg("Failed to route typing event")
-		return
-	}
-
-	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, route.PortalKey)
-	if err != nil {
-		log.Err(err).Msg("Failed to query for existing portal")
-		return
-	}
-	if portal == nil || portal.MXID == "" {
-		// Don't bother queueing typing events (which occur extremely
-		// frequently) for portals that don't exist or lack a Matrix room.
-		return
-	}
 
 	// Make sure we have this user's info in case we haven't seen them at all yet.
 	_ = d.userCache.Resolve(ctx, typing.UserID)
@@ -427,6 +396,24 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 	}
 }
 
+// channelIsBridged uses routing logic to check whether a portal (with an
+// existing room) exists for a given Discord channel ID.
+func (d *DiscordClient) channelIsBridged(ctx context.Context, channelID string) (bool, *router.Route) {
+	log := zerolog.Ctx(ctx)
+
+	route, err := d.Route(ctx, channelID)
+	if err != nil {
+		log.Err(err).Msg("Failed to route channel when determining channel bridgedness")
+		return false, nil
+	}
+	existingPortal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, route.PortalKey)
+	if err != nil {
+		log.Err(err).Msg("Failed to look up existing portal when determining channel bridgedness")
+		return false, route
+	}
+	return existingPortal != nil && existingPortal.MXID != "", route
+}
+
 func messageCtx(ctx context.Context, msg *discordgo.Message) (context.Context, *zerolog.Logger) {
 	if msg == nil {
 		return ctx, zerolog.Ctx(ctx)
@@ -467,7 +454,20 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	// NOTE: discordgo seemingly dispatches both the proper unmarshalled type
 	// (e.g. `*discordgo.TypingStart`) _as well as_ a "raw" *discordgo.Event
 	// (e.g. `*discordgo.Event` with `Type` of `TYPING_START`) for every gateway
-	// event
+	// event.
+
+	// NOTE: We explicitly return early from paths where we would otherwise
+	// QueueRemoteEvent for a portal that hasn't been bridged by the user yet.
+	// (Specifically, we check for an extant portal with an associated room.)
+	// This avoids the eager creation of stub portals that have bogus metadata
+	// (e.g. GuildID == "" despite being a guild channel). This is because you
+	// can't specify metadata upfront when a portal is implicitly created. We
+	// might want to rely on our metadata always being "correct" in the future.
+	//
+	// This also helps avoid excessive "Dropping event as portal doesn't exist"
+	// logs from Mautrix. You receive events for every guild you're in, so this
+	// can become noisy fast.
+
 	switch evt := rawEvt.(type) {
 	case *discordgo.Ready:
 		log.Info().Msg("Received READY dispatch from discordgo")
@@ -476,7 +476,11 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			StateEvent: status.StateConnected,
 		})
 	case *discordgo.TypingStart:
-		d.handleDiscordTyping(ctx, evt)
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		d.handleDiscordTyping(ctx, evt, route)
 	case *discordgo.Resumed:
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
 		d.UserLogin.BridgeState.Send(status.BridgeState{
@@ -514,6 +518,10 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", evt.RoleID).Msg("Failed to delete role from database")
 		}
 	case *discordgo.ChannelUpdate:
+		bridged, _ := d.channelIsBridged(ctx, evt.ID)
+		if !bridged {
+			return
+		}
 		err := d.handleChannelUpdate(ctx, evt)
 		if err != nil {
 			log.Err(err).Msg("Failed to handle channel update")
@@ -550,54 +558,62 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			return
 		}
 		ctx, log := messageCtx(ctx, evt.Message)
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
 
 		if err := d.upsertThreadInfoFromMessage(ctx, evt.Message); err != nil {
 			log.Err(err).Msg("Failed to persist thread info from message create")
 		}
 		d.userCache.UpdateWithMessage(evt.Message)
 
-		wrappedEvt, err := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessage)
-		if err != nil {
-			log.Err(err).Msg("Dropping incoming message due to routing failure")
-		} else {
-			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
-		}
+		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessage)
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.MessageUpdate:
 		ctx, log := messageCtx(ctx, evt.Message)
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
 
 		if err := d.upsertThreadInfoFromMessage(ctx, evt.Message); err != nil {
 			log.Err(err).Str("message_id", evt.ID).Msg("Failed to persist thread info from message update")
 		}
 
-		wrappedEvt, err := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventEdit)
-		if err != nil {
-			log.Err(err).Msg("Dropping incoming message edit due to routing failure")
-		} else {
-			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
-		}
+		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventEdit)
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.UserUpdate:
 		d.userCache.UpdateWithUserUpdate(evt)
 	case *discordgo.MessageDelete:
-		ctx, log := messageCtx(ctx, evt.Message)
-
-		wrappedEvt, err := d.wrapDiscordMessage(ctx, evt.Message, bridgev2.RemoteEventMessageRemove)
-		if err != nil {
-			log.Warn().Err(err).Msg("Dropping incoming message deletion due to routing failure")
-		} else {
-			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+		ctx, _ := messageCtx(ctx, evt.Message)
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
 		}
+
+		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessageRemove)
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	// TODO *discordgo.MessageDeleteBulk
 	case *discordgo.MessageReactionAdd:
-		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, true)
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, route, true)
 		if err != nil {
-			log.Err(err).Msg("Dropping incoming reaction due to routing failure")
+			log.Err(err).Msg("Dropping incoming reaction due to error")
 		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}
 	case *discordgo.MessageReactionRemove:
-		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, false)
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, route, false)
 		if err != nil {
-			log.Err(err).Msg("Dropping incoming reaction removal due to routing failure")
+			log.Err(err).Msg("Dropping incoming reaction removal due to error")
 		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}

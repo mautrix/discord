@@ -314,8 +314,9 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			var r *router.Route
 			mentionedChannelID := strconv.FormatInt(node.id, 10)
 			r, err = rtr.Route(ctx, mentionedChannelID)
-			if err == nil {
-				if portal, _ := node.portal.Bridge.GetPortalByKey(ctx, r.PortalKey); portal != nil {
+
+			if err == nil && !r.Uncertain {
+				if portal, _ := node.portal.Bridge.GetExistingPortalByKey(ctx, r.PortalKey); portal != nil {
 					if portal.MXID != "" {
 						_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(portal.Bridge.Matrix.ServerName()).MatrixToURL(), portal.Name)
 					} else {
@@ -323,7 +324,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 					}
 					return
 				}
-			} else {
+			} else if err != nil {
 				node.portal.Log.Err(err).Msg("Failed to route mentioned channel")
 			}
 		}

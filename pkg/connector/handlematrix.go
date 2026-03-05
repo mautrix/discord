@@ -19,6 +19,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/event"
 
+	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -39,6 +41,7 @@ var (
 	_ bridgev2.EditHandlingNetworkAPI        = (*DiscordClient)(nil)
 	_ bridgev2.ReadReceiptHandlingNetworkAPI = (*DiscordClient)(nil)
 	_ bridgev2.TypingHandlingNetworkAPI      = (*DiscordClient)(nil)
+	_ bridgev2.MuteHandlingNetworkAPI        = (*DiscordClient)(nil)
 )
 
 func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
@@ -427,5 +430,58 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 	}
 
 	log.Debug().Msg("Marked user as typing")
+	return nil
+}
+
+func (d *DiscordClient) HandleMute(ctx context.Context, msg *bridgev2.MatrixMute) error {
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	log := zerolog.Ctx(ctx).With().
+		Str("muting_channel_id", channelID).
+		Int64("muting_until", msg.Content.MutedUntil).
+		Logger()
+	ctx = log.WithContext(ctx)
+	log.Debug().Msg("Handling Matrix mute")
+
+	ch := d.channelWithID(ctx, channelID)
+	if ch == nil {
+		log.Error().Msg("Failed to find channel to mute")
+		return fmt.Errorf("failed to mute non-existent channel %s", channelID)
+	}
+
+	mutedUntil := msg.Content.GetMutedUntilTime()
+	isMuting := mutedUntil.After(time.Now())
+	override := discordgo.UserGuildSettingsChannelOverrideEdit{
+		Muted: ptr.Ptr(isMuting),
+	}
+	if isMuting && mutedUntil != event.MutedForever {
+		// At the time of writing, arbitrary mute durations are supported by
+		// Discord; you aren't restricted to the official client's choices
+		// of 15 minutes, 1 hour, 3 hours, 8 hours, and 24 hours.
+		secs := int(math.Round(msg.Content.GetMuteDuration().Seconds()))
+		override.MuteConfig = &discordgo.MuteConfig{
+			EndTime:            &mutedUntil,
+			SelectedTimeWindow: &secs,
+		}
+	}
+
+	overrides := make(map[string]*discordgo.UserGuildSettingsChannelOverrideEdit)
+	overrides[ch.ID] = &override
+
+	edit := discordgo.UserGuildSettingsEdit{
+		ChannelOverrides: overrides,
+	}
+
+	log.Debug().Interface("muting_override", override).Msg("Computed channel override for mute")
+
+	guildID := ch.GuildID
+	if guildID == "" {
+		// Target private channels properly.
+		guildID = "@me"
+	}
+	_, err := d.Session.UserGuildSettingsEdit(guildID, &edit)
+	if err != nil {
+		return fmt.Errorf("failed to edit guild settings in response to mute: %w", err)
+
+	}
 	return nil
 }

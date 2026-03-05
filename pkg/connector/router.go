@@ -18,7 +18,8 @@ package connector
 
 import (
 	"context"
-	"fmt"
+
+	"github.com/rs/zerolog"
 
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -39,6 +40,8 @@ func (d *DiscordClient) uncertainRoute(_ context.Context, channelID string) *rou
 	}
 }
 
+// FIXME(skip): This method is infallible now, remove the error from the
+// signature in the interface and refactor.
 func (d *DiscordClient) Route(ctx context.Context, channelID string) (*router.Route, error) {
 	ch := d.channelWithID(ctx, channelID)
 	dbThread, err := d.connector.DB.Thread.GetByThreadChannelID(
@@ -47,9 +50,13 @@ func (d *DiscordClient) Route(ctx context.Context, channelID string) (*router.Ro
 		channelID,
 	)
 	if err != nil {
-		// FIXME: If ch isn't nil here, we can actually return a correct route.
-		// Do that instead of bailing.
-		return nil, fmt.Errorf("failed to look up potential thread channel id: %w", err)
+		// Even if we can't touch the database right now, we can try examining
+		// the channel from State to make a routing decision.
+		zerolog.Ctx(ctx).Warn().
+			Err(err).
+			Str("channel_id", channelID).
+			Msg("Failed to look up potential thread channel ID, proceeding with route")
+		dbThread = nil
 	}
 
 	// Most routes will just go to the channel the event originated from. (Not
@@ -89,7 +96,13 @@ func (d *DiscordClient) Route(ctx context.Context, channelID string) (*router.Ro
 			// This is a thread we haven't seen before, so insert it into the database.
 			rootMsgID := defaultThreadRootMessageID(ch)
 			if upsertErr := d.upsertThreadInfo(ctx, channelID, rootMsgID, ch.ParentID); upsertErr != nil {
-				return nil, fmt.Errorf("failed to insert new thread: %w", upsertErr)
+				// Even if we can't save the thread to the database, we can still
+				// use the routing decision.
+				zerolog.Ctx(ctx).Warn().
+					Err(upsertErr).
+					Str("thread_channel_id", channelID).
+					Str("parent_channel_id", ch.ParentID).
+					Msg("Failed to upsert newly discovered thread, proceeding with route")
 			}
 			thread := discorddb.Thread{
 				UserLoginID:     discordid.ParseUserLoginID(d.UserLogin.ID),

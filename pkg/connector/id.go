@@ -18,8 +18,9 @@ package connector
 
 import (
 	"github.com/bwmarrin/discordgo"
-	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 func (d *DiscordClient) portalKeyForChannel(ch *discordgo.Channel) networkid.PortalKey {

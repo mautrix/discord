@@ -20,10 +20,11 @@ import (
 	"context"
 
 	"github.com/bwmarrin/discordgo"
-	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
-	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
+	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 type Router interface {

@@ -32,6 +32,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
+	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -499,6 +500,61 @@ func (d *DiscordClient) readStateForID(resourceID string) *discordgo.ReadState {
 	defer d.readStatesLock.RUnlock()
 
 	return d.readStates[resourceID]
+}
+
+func (d *DiscordClient) computeMutedUntil(muted bool, cfg *discordgo.MuteConfig) time.Time {
+	if !muted {
+		return bridgev2.Unmuted
+	}
+
+	// If Muted is true but we don't have a MuteConfig, then the mute is
+	// indefinite.
+	if cfg == nil {
+		return event.MutedForever
+	}
+
+	// Check for the explicit "forever" time window.
+	if cfg.SelectedTimeWindow != nil && *cfg.SelectedTimeWindow == -1 {
+		return event.MutedForever
+	}
+
+	endTime := cfg.EndTime
+	if endTime == nil {
+		d.UserLogin.Log.Warn().
+			Bool("muted", muted).
+			Any("mute_config", cfg).
+			Msg("Encountered bogus mute state, falling back to indefinite mute")
+		return event.MutedForever
+	}
+	return *endTime
+}
+
+// channelMutedUntil computes an appropriate UserLocalPortalInfo.MutedUntil time
+// for a given channel.
+//
+// This method works with private channels if an empty string is passed as the
+// guild ID.
+func (d *DiscordClient) channelMutedUntil(guildID string, channelID string) time.Time {
+	settings := d.guildSettingsForGuildID(guildID)
+	if settings == nil {
+		return bridgev2.Unmuted
+	}
+
+	// TODO: Might be worth speeding this up via map.
+	for _, override := range settings.ChannelOverrides {
+		if override.ChannelID == channelID {
+			return d.computeMutedUntil(override.Muted, override.MuteConfig)
+		}
+	}
+
+	return d.computeMutedUntil(settings.Muted, settings.MuteConfig)
+}
+
+func (d *DiscordClient) guildSettingsForGuildID(guildID string) *discordgo.UserGuildSettings {
+	d.guildSettingsLock.RLock()
+	defer d.guildSettingsLock.RUnlock()
+
+	return d.guildSettings[guildID]
 }
 
 func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *discordgo.Channel {

@@ -413,6 +413,12 @@ func (d *DiscordClient) channelIsBridged(ctx context.Context, channelID string) 
 	return existingPortal != nil && existingPortal.MXID != "", route
 }
 
+func (d *DiscordClient) handleUserGuildSettingsUpdate(ctx context.Context, evt *discordgo.UserGuildSettingsUpdate) {
+	log := zerolog.Ctx(ctx)
+	log.Debug().Msg("Handling user guild settings update")
+	d.applySingleGuildSettings(evt.UserGuildSettings)
+}
+
 func messageCtx(ctx context.Context, msg *discordgo.Message) (context.Context, *zerolog.Logger) {
 	if msg == nil {
 		return ctx, zerolog.Ctx(ctx)
@@ -622,6 +628,8 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		return
 	case *discordgo.MessageAck:
 		d.handleMessageAck(ctx, evt)
+	case *discordgo.UserGuildSettingsUpdate:
+		d.handleUserGuildSettingsUpdate(ctx, evt)
 	case *discordgo.GuildDelete:
 		if evt.Unavailable {
 			log.Warn().Str("guild_id", evt.ID).Msg("Guild became unavailable")

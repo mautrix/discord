@@ -47,6 +47,11 @@ type DiscordClient struct {
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
 
+	// A map of guild ID (or "" for the settings concerning private channels)
+	// to its corresponding UserGuildSettings.
+	guildSettings     map[string]*discordgo.UserGuildSettings
+	guildSettingsLock sync.RWMutex
+
 	// A map of resource (e.g. channel) ID to its corresponding read state.
 	//
 	// Since there can be thousands of read state entries, the map is to help
@@ -67,12 +72,13 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 	}
 
 	cl := DiscordClient{
-		connector:  d,
-		UserLogin:  login,
-		Session:    session,
-		httpClient: d.Bridge.GetHTTPClientSettings().Compile(),
-		userCache:  NewUserCache(session),
-		readStates: make(map[string]*discordgo.ReadState),
+		connector:     d,
+		UserLogin:     login,
+		Session:       session,
+		httpClient:    d.Bridge.GetHTTPClientSettings().Compile(),
+		userCache:     NewUserCache(session),
+		guildSettings: make(map[string]*discordgo.UserGuildSettings),
+		readStates:    make(map[string]*discordgo.ReadState),
 	}
 
 	login.Client = &cl
@@ -139,10 +145,11 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	log.Info().Str("user_id", user.ID).Str("user_username", user.Username).Msg("Connected to Discord")
 
 	// Populate the user cache with the users from the READY payload.
-	log.Debug().Int("n_users", len(cl.Session.State.Ready.Users)).Msg("Inserting users from READY into cache")
-	cl.userCache.UpdateWithReady(&cl.Session.State.Ready)
-	readState := cl.Session.State.Ready.ReadState
+	ready := cl.Session.State.Ready
+	log.Debug().Int("n_users", len(ready.Users)).Msg("Inserting users from READY into cache")
+	cl.userCache.UpdateWithReady(&ready)
 
+	readState := ready.ReadState
 	// Populate the read state mapping.
 	if readState != nil {
 		cl.readStatesLock.Lock()
@@ -152,9 +159,38 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 		cl.readStatesLock.Unlock()
 	}
 
+	settings := ready.UserGuildSettings
+	if settings != nil {
+		cl.bulkApplyGuildSettings(settings)
+	}
+
 	cl.BeginSyncing(ctx)
 
 	return nil
+}
+
+func (d *DiscordClient) bulkApplyGuildSettings(sl *discordgo.UserGuildSettingsList) {
+	d.guildSettingsLock.Lock()
+	defer d.guildSettingsLock.Unlock()
+
+	if sl.Partial {
+		// Not sure what the implications of this are but just log a warning
+		// for now.
+		d.UserLogin.Log.Warn().
+			Int("settings_entries", len(sl.Entries)).
+			Msg("Bulk applying partial guild settings")
+	}
+
+	for _, setting := range sl.Entries {
+		d.guildSettings[setting.GuildID] = setting
+	}
+}
+
+func (d *DiscordClient) applySingleGuildSettings(s *discordgo.UserGuildSettings) {
+	d.guildSettingsLock.Lock()
+	defer d.guildSettingsLock.Unlock()
+
+	d.guildSettings[s.GuildID] = s
 }
 
 func (d *DiscordClient) Disconnect() {

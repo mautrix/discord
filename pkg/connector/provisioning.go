@@ -189,6 +189,38 @@ func normalizeGuildID(guildID string) string {
 	return strings.TrimPrefix(guildID, discordid.GuildPortalKeySigil)
 }
 
+// collectAllGuildPortals fetches all portals associated with a guild. This
+// includes the guild space portal itself as well as child portals inside of
+// portals that represent guild category channels.
+//
+// The order of the returned slice is undefined.
+func (p *ProvisioningAPI) collectAllGuildPortals(ctx context.Context, guild *bridgev2.Portal) ([]*bridgev2.Portal, error) {
+	if guild == nil {
+		return nil, nil
+	}
+
+	// Fetch all top-level channels and category channels.
+	children, err := p.connector.Bridge.GetChildPortals(ctx, guild.PortalKey)
+	if err != nil {
+		return nil, err
+	}
+
+	portals := make([]*bridgev2.Portal, 0, 1+len(children))
+	portals = append(portals, guild)
+	portals = append(portals, children...)
+
+	// Fetch channels that are inside of categories.
+	for _, child := range children {
+		grandchildren, err := p.connector.Bridge.GetChildPortals(ctx, child.PortalKey)
+		if err != nil {
+			return nil, err
+		}
+		portals = append(portals, grandchildren...)
+	}
+
+	return portals, nil
+}
+
 func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, login *bridgev2.UserLogin, client *DiscordClient) {
 	guildID := normalizeGuildID(r.PathValue("guildID"))
 	if guildID == "" {
@@ -231,36 +263,35 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	p.log.Info().
+	log := p.log.With().
 		Str("login_id", discordid.ParseUserLoginID(login.ID)).
 		Str("guild_id", guildID).
-		Msg("requested to unbridge guild via provisioning api")
+		Str("action", "unbridge guild").
+		Logger()
+	ctx := log.WithContext(r.Context())
 
+	log.Info().Msg("Unbridging guild via provisioning API")
+
+	// Immediately record user intent by committing the change to UserLogin
+	// metadata, even if the portal deletion we're about to attempt fails.
 	meta := login.Metadata.(*discordid.UserLoginMetadata)
 	if meta.BridgedGuildIDs != nil {
 		delete(meta.BridgedGuildIDs, guildID)
 	}
-	if err := login.Save(r.Context()); err != nil {
-		p.log.Err(err).Msg("Failed to save login after guild unbridge request")
+	if err := login.Save(ctx); err != nil {
+		log.Err(err).Msg("Failed to save login after guild unbridge request")
 		mautrix.MUnknown.WithMessage("failed to save login: %v", err).Write(w)
 		return
 	}
 
-	ctx := login.Log.With().
-		Str("component", "provisioning").
-		Str("action", "unbridge guild").
-		Str("guild_id", guildID).
-		Logger().
-		WithContext(context.Background())
-
 	portalKey := client.guildPortalKey(guildID)
-	portal, err := p.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
+	guildPortal, err := p.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
 	if err != nil {
-		p.log.Err(err).Msg("Failed to get guild portal")
+		log.Err(err).Msg("Failed to get guild portal")
 		mautrix.MUnknown.WithMessage("failed to get portal: %v", err).Write(w)
 		return
 	}
-	if portal == nil || portal.MXID == "" {
+	if guildPortal == nil || guildPortal.MXID == "" {
 		mautrix.RespError{
 			ErrCode: ErrCodeGuildNotBridged,
 			Err:     "guild is not bridged",
@@ -268,24 +299,26 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	children, err := p.connector.Bridge.GetChildPortals(ctx, portalKey)
+	deletingPortals, err := p.collectAllGuildPortals(ctx, guildPortal)
 	if err != nil {
-		p.log.Err(err).Msg("Failed to get child portals")
-		mautrix.MUnknown.WithMessage("failed to get children: %v", err).Write(w)
+		log.Err(err).Msg("Failed to collect portal subtree for deletion")
+		mautrix.MUnknown.WithMessage("failed to collect portal subtree for deletion: %v", err).Write(w)
 		return
 	}
-
-	portalsToDelete := append(children, portal)
-	bridgev2.DeleteManyPortals(ctx, portalsToDelete, func(portal *bridgev2.Portal, del bool, err error) {
-		p.log.Err(err).
+	// DeleteManyPortals will sort by depth for us so children get deleted
+	// before their parents.
+	bridgev2.DeleteManyPortals(ctx, deletingPortals, func(portal *bridgev2.Portal, del bool, err error) {
+		log.Err(err).
 			Stringer("portal_mxid", portal.MXID).
 			Bool("delete_room", del).
 			Msg("Failed during portal cleanup")
 	})
 
-	p.log.Info().Int("children", len(children)).Msg("Finished unbridging")
+	log.Info().
+		Int("deleted_portals", len(deletingPortals)).
+		Msg("Finished unbridging")
 	exhttp.WriteJSONResponse(w, 200, map[string]any{
 		"success":         true,
-		"deleted_portals": len(children) + 1,
+		"deleted_portals": len(deletingPortals),
 	})
 }

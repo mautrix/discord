@@ -25,9 +25,30 @@ import (
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/status"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
+
+// makeRemoteName computes an appropriate value for the RemoteName field on
+// [bridgev2.UserLogin].
+func makeRemoteName(u *discordgo.User) string {
+	return u.String()
+}
+
+// makeRemoteProfile creates a [status.makeRemoteProfile] from a
+// [discordgo.User]. A [bridgev2.Ghost] may optionally be passed to provide an
+// avatar.
+func makeRemoteProfile(u *discordgo.User, ghost *bridgev2.Ghost) (p status.RemoteProfile) {
+	p.Phone = u.Phone
+	p.Email = u.Email
+	p.Username = u.String()
+	p.Name = u.GlobalName
+	if ghost != nil {
+		p.Avatar = ghost.AvatarMXC
+	}
+	return
+}
 
 func (d *DiscordClient) IsThisUser(ctx context.Context, userID networkid.UserID) bool {
 	// We define `UserID`s and `UserLoginID`s to be interchangeable, i.e. they map

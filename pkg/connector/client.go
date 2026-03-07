@@ -208,6 +208,9 @@ func (d *DiscordClient) LogoutRemote(ctx context.Context) {
 	d.Disconnect()
 }
 
+// BeginSyncing kicks off background sync of the remote profile, all private
+// channels, and bridged guilds. This occurs asynchronously. This should only
+// be called once the gateway connection is READY or RESUMED.
 func (cl *DiscordClient) BeginSyncing(ctx context.Context) {
 	if cl.hasBegunSyncing {
 		cl.connector.Bridge.Log.Warn().Msg("Not beginning sync more than once")
@@ -215,19 +218,7 @@ func (cl *DiscordClient) BeginSyncing(ctx context.Context) {
 	}
 	cl.hasBegunSyncing = true
 
-	log := cl.UserLogin.Log
-	user := cl.Session.State.User
-
-	// FIXME(skip): Avatar.
-	cl.UserLogin.RemoteProfile = status.RemoteProfile{
-		Email: user.Email,
-		Phone: user.Phone,
-		Name:  user.String(),
-	}
-	if err := cl.UserLogin.Save(ctx); err != nil {
-		log.Err(err).Msg("Couldn't save UserLogin after connecting")
-	}
-
+	cl.syncRemoteProfile(ctx)
 	go cl.syncPrivateChannels(ctx)
 	go cl.syncGuilds(ctx)
 }
@@ -573,4 +564,56 @@ func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *di
 	}
 
 	return ch
+}
+
+func (d *DiscordClient) syncRemoteProfile(ctx context.Context) bool {
+	log := zerolog.Ctx(ctx).With().
+		Str("action", "sync remote discord profile").
+		Logger()
+	ctx = log.WithContext(ctx)
+
+	if d.Session == nil {
+		return false
+	}
+	me := d.Session.State.User
+	if me == nil {
+		return false
+	}
+
+	log.Debug().Msg("Updating remote profile if needed")
+	changed := false
+	remoteName := makeRemoteName(me)
+
+	// Try to update our own ghost, which should upload the avatar if
+	// everything goes well.
+	ghost, err := d.connector.Bridge.GetGhostByID(ctx, discordid.MakeUserID(me.ID))
+	if err != nil {
+		log.Err(err).Msg("Failed to get own ghost, remote profile will lack an avatar")
+	} else if info, err := d.GetUserInfo(ctx, ghost); err != nil {
+		// Shouldn't happen as the user cache shouldn't even reach out to the
+		// network; our own user should be there by now.
+		log.Err(err).Msg("Failed to get own user info")
+	} else {
+		log.Debug().Msg("Updating own ghost with user info")
+		ghost.UpdateInfo(ctx, info)
+	}
+
+	profile := makeRemoteProfile(me, ghost)
+	if d.UserLogin.RemoteName != remoteName {
+		d.UserLogin.RemoteName = remoteName
+		changed = true
+	}
+	if d.UserLogin.RemoteProfile != profile {
+		d.UserLogin.RemoteProfile = profile
+		changed = true
+	}
+
+	if changed {
+		if err := d.UserLogin.Save(ctx); err != nil {
+			log.Err(err).Msg("Failed to save UserLogin while updating remote profile")
+		}
+	}
+	return changed
+	// NOTE: For clients to immediately get the new remote profile, you need to
+	// send a bridge state.
 }

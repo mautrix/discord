@@ -477,6 +477,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	case *discordgo.Ready:
 		log.Info().Msg("Received READY dispatch from discordgo")
 		d.userCache.UpdateWithReady(evt)
+		d.syncRemoteProfile(ctx)
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})
@@ -487,6 +488,8 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		}
 		d.handleDiscordTyping(ctx, evt, route)
 	case *discordgo.Resumed:
+		// (All missed gateway events have been replayed, and all subsequent
+		// events will be new.)
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
@@ -531,6 +534,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err != nil {
 			log.Err(err).Msg("Failed to handle channel update")
 		}
+	// TODO: discordgo.ChannelDelete
 	case *discordgo.ThreadCreate:
 		err := d.handleThreadUpdate(ctx, evt.Channel)
 		if err != nil {
@@ -589,7 +593,26 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventEdit)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.UserUpdate:
+		// The current user changed. (This is not sent out for anyone else.)
+		log.Info().Msg("Current user was updated")
+
+		// discordgo does not update State.User for us. This is probably a bug.
+		// Do it ourselves in the meantime.
+		{
+			state := d.Session.State
+			state.Lock()
+			*d.Session.State.User = *evt.User
+			state.Unlock()
+		}
 		d.userCache.UpdateWithUserUpdate(evt)
+
+		if d.syncRemoteProfile(ctx) {
+			// Send out a new bridge state so clients immediately get the
+			// updated profile.
+			d.UserLogin.BridgeState.Send(status.BridgeState{
+				StateEvent: status.StateConnected,
+			})
+		}
 	case *discordgo.MessageDelete:
 		ctx, _ := messageCtx(ctx, evt.Message)
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)

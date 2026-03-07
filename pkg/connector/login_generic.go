@@ -68,6 +68,10 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 	log.Info().Msg("Fetched @me")
 	ul, err := dl.User.NewLogin(ctx, &database.UserLogin{
 		ID: discordid.MakeUserLoginID(self.ID),
+		// (This will lack an avatar. Don't want to block login finalization on
+		// downloading it.)
+		RemoteProfile: makeRemoteProfile(self, nil),
+		RemoteName:    makeRemoteName(self),
 		Metadata: &discordid.UserLoginMetadata{
 			Token:            token,
 			HeartbeatSession: session.HeartbeatSession,

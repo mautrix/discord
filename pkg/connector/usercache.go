@@ -54,6 +54,9 @@ func (uc *UserCache) UpdateWithReady(ready *discordgo.Ready) {
 	uc.lock.Lock()
 	defer uc.lock.Unlock()
 
+	self := ready.User
+	uc.cache[self.ID] = self
+
 	for _, user := range ready.Users {
 		uc.cache[user.ID] = user
 	}

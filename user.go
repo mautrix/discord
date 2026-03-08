@@ -30,6 +30,7 @@ import (
 	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/pushrules"
 
+	"go.mau.fi/mautrix-discord/config"
 	"go.mau.fi/mautrix-discord/database"
 )
 
@@ -866,28 +867,32 @@ func (user *User) handleRelationshipChange(userID, nickname string) {
 		return
 	}
 
-	updated := portal.FriendNick == (nickname != "")
+	prevFriendNick := portal.FriendNick
 	portal.FriendNick = nickname != ""
-	if nickname != "" {
-		updated = portal.UpdateNameDirect(nickname, true)
-	} else if portal.Name != puppet.Name {
-		if portal.shouldSetDMRoomMetadata() {
-			updated = portal.UpdateNameDirect(puppet.Name, false)
-		} else if portal.NameSet {
-			_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateRoomName, "", map[string]any{})
-			if err != nil {
-				portal.log.Warn().Err(err).Msg("Failed to clear room name after friend nickname was removed")
-			} else {
-				portal.log.Debug().Msg("Cleared room name after friend nickname was removed")
-				portal.NameSet = false
-				portal.Update()
-				updated = true
-			}
+
+	// Update the puppet's Matrix display name using the nickname via displayname_template.
+	// This must happen before FormatChannelName so puppet.Name reflects the new state.
+	if puppetChanged := puppet.UpdateName(puppet.toDiscordUser(), nickname); puppetChanged {
+		puppet.Update()
+	}
+
+	if nickname != "" || portal.shouldSetDMRoomMetadata() {
+		formattedName := portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
+			Name:           puppet.Name,
+			FriendNickname: nickname,
+			Type:           discordgo.ChannelTypeDM,
+		})
+		portal.UpdateNameDirect(formattedName, nickname != "")
+	} else if prevFriendNick && portal.NameSet && portal.MXID != "" {
+		_, err := portal.MainIntent().SendStateEvent(portal.MXID, event.StateRoomName, "", map[string]any{})
+		if err != nil {
+			portal.log.Warn().Err(err).Msg("Failed to clear room name after friend nickname was removed")
+		} else {
+			portal.log.Debug().Msg("Cleared room name after friend nickname was removed")
+			portal.NameSet = false
 		}
 	}
-	if !updated {
-		portal.Update()
-	}
+	portal.Update()
 }
 
 func (user *User) handlePrivateChannel(portal *Portal, meta *discordgo.Channel, timestamp time.Time, create, isInSpace bool) {

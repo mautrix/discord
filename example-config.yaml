@@ -91,6 +91,7 @@ bridge:
     #   .System - Whether the user is an official system user
     #   .Webhook - Whether the user is a webhook and is not an application
     #   .Application - Whether the user is an application
+    #   .Nickname - The Discord relationship nickname ("friend nick"), per logged-in user. Typically available for DMs.
     displayname_template: '{{if .Webhook}}Webhook{{else}}{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}{{end}}'
     # Displayname template for Discord channels (bridged as rooms, or spaces when type=4).
     # Available variables:
@@ -99,7 +100,8 @@ bridge:
     #   .GuildName - Guild name.
     #   .NSFW - Whether the channel is marked as NSFW.
     #   .Type - Channel type (see values at https://github.com/bwmarrin/discordgo/blob/v0.25.0/structs.go#L251-L267)
-    channel_name_template: '{{if or (eq .Type 3) (eq .Type 4)}}{{.Name}}{{else}}#{{.Name}}{{end}}'
+    #   .Nickname - The Discord relationship nickname ("friend nick"), per logged-in user. Available for DMs (type=1).
+    channel_name_template: '{{if eq .Type 1}}{{or .Nickname .Name}}{{else if or (eq .Type 3) (eq .Type 4)}}{{.Name}}{{else}}#{{.Name}}{{end}}'
     # Displayname template for Discord guilds (bridged as spaces).
     # Available variables:
     #   .Name - Guild name

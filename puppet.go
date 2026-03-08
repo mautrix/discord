@@ -14,6 +14,7 @@ import (
 	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/id"
 
+	"go.mau.fi/mautrix-discord/config"
 	"go.mau.fi/mautrix-discord/database"
 )
 
@@ -206,7 +207,15 @@ func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
 		puppet.log.Warn().Err(err).Msg("Failed to update displayname")
 	} else {
 		go puppet.updatePortalMeta(func(portal *Portal) {
-			if portal.UpdateNameDirect(puppet.Name, false) {
+			// Friend nicknames take precedence over puppet name updates.
+			// When the nickname is removed, handleRelationshipChange will recompute the name.
+			if portal.FriendNick {
+				return
+			}
+			if portal.UpdateNameDirect(portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
+				Name: puppet.Name,
+				Type: discordgo.ChannelTypeDM,
+			}), false) {
 				portal.Update()
 				portal.UpdateBridgeInfo()
 			}

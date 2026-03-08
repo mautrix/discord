@@ -202,6 +202,7 @@ type DisplaynameParams struct {
 	*discordgo.User
 	Webhook     bool
 	Application bool
+	Nickname    string
 }
 
 func (bc BridgeConfig) FormatDisplayname(user *discordgo.User, webhook, application bool) string {
@@ -220,6 +221,7 @@ type ChannelNameParams struct {
 	GuildName  string
 	NSFW       bool
 	Type       discordgo.ChannelType
+	Nickname   string
 }
 
 func (bc BridgeConfig) FormatChannelName(params ChannelNameParams) string {

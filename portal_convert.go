@@ -376,17 +376,13 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 		"avatar_mxc": avatarURL.String(),
 	}
 	if msg.Member.Nick != "" || !avatarURL.IsEmpty() {
-		nick := msg.Member.Nick
-		var displayname string
-		if nick != "" {
-			displayname = puppet.bridge.Config.Bridge.FormatDisplayname(msg.Author, puppet.IsWebhook, puppet.IsApplication, nick)
-		} else {
-			displayname = puppet.Name
-		}
 		perMessageProfile := map[string]any{
 			"id":          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
-			"displayname": displayname,
+			"displayname": msg.Member.Nick,
 			"avatar_url":  avatarURL.String(),
+		}
+		if msg.Member.Nick == "" {
+			perMessageProfile["displayname"] = puppet.Name
 		}
 		if avatarURL.IsEmpty() {
 			perMessageProfile["avatar_url"] = puppet.AvatarURL.String()

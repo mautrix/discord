@@ -200,29 +200,29 @@ func (bc BridgeConfig) FormatUsername(userID string) string {
 
 type DisplaynameParams struct {
 	*discordgo.User
-	Webhook     bool
-	Application bool
-	Nickname    string
+	Webhook        bool
+	Application    bool
+	FriendNickname string
 }
 
 func (bc BridgeConfig) FormatDisplayname(user *discordgo.User, webhook, application bool, nickname string) string {
 	var buffer strings.Builder
 	_ = bc.displaynameTemplate.Execute(&buffer, &DisplaynameParams{
-		User:        user,
-		Webhook:     webhook,
-		Application: application,
-		Nickname:    nickname,
+		User:           user,
+		Webhook:        webhook,
+		Application:    application,
+		FriendNickname: nickname,
 	})
 	return buffer.String()
 }
 
 type ChannelNameParams struct {
-	Name       string
-	ParentName string
-	GuildName  string
-	NSFW       bool
-	Type       discordgo.ChannelType
-	Nickname   string
+	Name           string
+	ParentName     string
+	GuildName      string
+	NSFW           bool
+	Type           discordgo.ChannelType
+	FriendNickname string
 }
 
 func (bc BridgeConfig) FormatChannelName(params ChannelNameParams) string {

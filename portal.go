@@ -2551,9 +2551,9 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 				changed = true
 			}
 			changed = portal.UpdateNameDirect(portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
-				Name:     puppet.Name,
-				Nickname: nickname,
-				Type:     discordgo.ChannelTypeDM,
+				Name:           puppet.Name,
+				FriendNickname: nickname,
+				Type:           discordgo.ChannelTypeDM,
 			}), nickname != "") || changed
 		}
 		if portal.MXID != "" {

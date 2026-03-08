@@ -195,8 +195,20 @@ func (puppet *Puppet) updatePortalMeta(meta func(portal *Portal)) {
 	}
 }
 
-func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
-	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info, puppet.IsWebhook, puppet.IsApplication, "")
+// toDiscordUser reconstructs a minimal discordgo.User from the puppet's stored fields.
+// Used when updating the display name without a live discordgo.User object available.
+func (puppet *Puppet) toDiscordUser() *discordgo.User {
+	return &discordgo.User{
+		ID:            puppet.ID,
+		Username:      puppet.Username,
+		GlobalName:    puppet.GlobalName,
+		Discriminator: puppet.Discriminator,
+		Bot:           puppet.IsBot,
+	}
+}
+
+func (puppet *Puppet) UpdateName(info *discordgo.User, nickname string) bool {
+	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info, puppet.IsWebhook, puppet.IsApplication, nickname)
 	if puppet.Name == newName && puppet.NameSet {
 		return false
 	}
@@ -333,7 +345,13 @@ func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User, message *di
 		}
 	}
 	changed = puppet.UpdateContactInfo(info) || changed
-	changed = puppet.UpdateName(info) || changed
+	var nickname string
+	if source != nil {
+		if rel, ok := source.relationships[info.ID]; ok {
+			nickname = rel.Nickname
+		}
+	}
+	changed = puppet.UpdateName(info, nickname) || changed
 	changed = puppet.UpdateAvatar(info) || changed
 	if changed {
 		puppet.Update()

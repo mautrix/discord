@@ -870,6 +870,12 @@ func (user *User) handleRelationshipChange(userID, nickname string) {
 	prevFriendNick := portal.FriendNick
 	portal.FriendNick = nickname != ""
 
+	// Update the puppet's Matrix display name using the nickname via displayname_template.
+	// This must happen before FormatChannelName so puppet.Name reflects the new state.
+	if puppetChanged := puppet.UpdateName(puppet.toDiscordUser(), nickname); puppetChanged {
+		puppet.Update()
+	}
+
 	if nickname != "" || portal.shouldSetDMRoomMetadata() {
 		formattedName := portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
 			Name:     puppet.Name,

@@ -274,7 +274,7 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	}
 }
 
-func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
+func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message, source *User) []*ConvertedMessage {
 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
 	if msg.Content != "" {
 		predictedLength++
@@ -333,13 +333,26 @@ func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet,
 	}
 	for _, part := range parts {
 		puppet.addWebhookMeta(part, msg)
-		puppet.addMemberMeta(part, msg)
+		puppet.addMemberMeta(part, msg, source)
 	}
 	return parts
 }
 
-func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Message) {
+func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Message, source *User) {
 	if msg.Member == nil {
+		if source != nil {
+			if rel, ok := source.relationships[msg.Author.ID]; ok && rel.Nickname != "" {
+				if part.Extra == nil {
+					part.Extra = make(map[string]any)
+				}
+				displayname := puppet.bridge.Config.Bridge.FormatDisplayname(msg.Author, puppet.IsWebhook, puppet.IsApplication, rel.Nickname)
+				part.Extra["com.beeper.per_message_profile"] = map[string]any{
+					"id":          msg.Author.ID,
+					"displayname": displayname,
+					"avatar_url":  puppet.AvatarURL.String(),
+				}
+			}
+		}
 		return
 	}
 	if part.Extra == nil {

@@ -660,7 +660,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	mentions := portal.convertDiscordMentions(msg, true)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg)
+	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg, user)
 	dbParts := make([]database.MessagePart, 0, len(parts))
 	eventIDs := zerolog.Dict()
 	for i, part := range parts {
@@ -924,7 +924,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		return
 	}
 	puppet.addWebhookMeta(converted, msg)
-	puppet.addMemberMeta(converted, msg)
+	puppet.addMemberMeta(converted, msg, user)
 	converted.Content.Mentions = portal.convertDiscordMentions(msg, false)
 	converted.Content.SetEdit(existing[0].MXID)
 	// Never actually mention new users of edits, only include mentions inside m.new_content

@@ -196,7 +196,7 @@ func (puppet *Puppet) updatePortalMeta(meta func(portal *Portal)) {
 }
 
 func (puppet *Puppet) UpdateName(info *discordgo.User) bool {
-	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info, puppet.IsWebhook, puppet.IsApplication)
+	newName := puppet.bridge.Config.Bridge.FormatDisplayname(info, puppet.IsWebhook, puppet.IsApplication, "")
 	if puppet.Name == newName && puppet.NameSet {
 		return false
 	}

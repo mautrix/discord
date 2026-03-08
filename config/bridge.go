@@ -205,12 +205,13 @@ type DisplaynameParams struct {
 	Nickname    string
 }
 
-func (bc BridgeConfig) FormatDisplayname(user *discordgo.User, webhook, application bool) string {
+func (bc BridgeConfig) FormatDisplayname(user *discordgo.User, webhook, application bool, nickname string) string {
 	var buffer strings.Builder
 	_ = bc.displaynameTemplate.Execute(&buffer, &DisplaynameParams{
 		User:        user,
 		Webhook:     webhook,
 		Application: application,
+		Nickname:    nickname,
 	})
 	return buffer.String()
 }

@@ -375,19 +375,30 @@ func (puppet *Puppet) addMemberMeta(part *ConvertedMessage, msg *discordgo.Messa
 		"avatar_url": discordAvatarURL,
 		"avatar_mxc": avatarURL.String(),
 	}
-	if msg.Member.Nick != "" || !avatarURL.IsEmpty() {
-		perMessageProfile := map[string]any{
-			"id":          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
-			"displayname": msg.Member.Nick,
-			"avatar_url":  avatarURL.String(),
+	var friendNickname string
+	if source != nil {
+		if rel, ok := source.relationships[msg.Author.ID]; ok {
+			friendNickname = rel.Nickname
 		}
-		if msg.Member.Nick == "" {
-			perMessageProfile["displayname"] = puppet.Name
+	}
+	if msg.Member.Nick != "" || !avatarURL.IsEmpty() || friendNickname != "" {
+		var displayname string
+		if friendNickname != "" {
+			displayname = puppet.bridge.Config.Bridge.FormatDisplayname(msg.Author, puppet.IsWebhook, puppet.IsApplication, friendNickname)
+		} else if msg.Member.Nick != "" {
+			displayname = msg.Member.Nick
+		} else {
+			displayname = puppet.Name
 		}
+		avatarStr := avatarURL.String()
 		if avatarURL.IsEmpty() {
-			perMessageProfile["avatar_url"] = puppet.AvatarURL.String()
+			avatarStr = puppet.AvatarURL.String()
 		}
-		part.Extra["com.beeper.per_message_profile"] = perMessageProfile
+		part.Extra["com.beeper.per_message_profile"] = map[string]any{
+			"id":          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
+			"displayname": displayname,
+			"avatar_url":  avatarStr,
+		}
 	}
 }
 

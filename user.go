@@ -878,9 +878,9 @@ func (user *User) handleRelationshipChange(userID, nickname string) {
 
 	if nickname != "" || portal.shouldSetDMRoomMetadata() {
 		formattedName := portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
-			Name:     puppet.Name,
-			Nickname: nickname,
-			Type:     discordgo.ChannelTypeDM,
+			Name:           puppet.Name,
+			FriendNickname: nickname,
+			Type:           discordgo.ChannelTypeDM,
 		})
 		portal.UpdateNameDirect(formattedName, nickname != "")
 	} else if prevFriendNick && portal.NameSet && portal.MXID != "" {

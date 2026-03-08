@@ -2541,13 +2541,20 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		if portal.OtherUserID != "" {
 			puppet := portal.bridge.GetPuppetByID(portal.OtherUserID)
 			changed = portal.UpdateAvatarFromPuppet(puppet) || changed
-			if rel, ok := source.relationships[portal.OtherUserID]; ok && rel.Nickname != "" {
-				portal.FriendNick = true
-				changed = portal.UpdateNameDirect(rel.Nickname, true) || changed
-			} else {
-				portal.FriendNick = false
-				changed = portal.UpdateNameDirect(puppet.Name, false) || changed
+			var nickname string
+			if rel, ok := source.relationships[portal.OtherUserID]; ok {
+				nickname = rel.Nickname
 			}
+			prevFriendNick := portal.FriendNick
+			portal.FriendNick = nickname != ""
+			if prevFriendNick != portal.FriendNick {
+				changed = true
+			}
+			changed = portal.UpdateNameDirect(portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
+				Name:     puppet.Name,
+				Nickname: nickname,
+				Type:     discordgo.ChannelTypeDM,
+			}), nickname != "") || changed
 		}
 		if portal.MXID != "" {
 			portal.syncParticipants(source, meta.Recipients)

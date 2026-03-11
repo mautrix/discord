@@ -25,9 +25,11 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
@@ -43,6 +45,7 @@ type DiscordClient struct {
 	Session    *discordgo.Session
 	httpClient *http.Client
 
+	stopConnecting  atomic.Pointer[context.CancelFunc]
 	hasBegunSyncing bool
 
 	markedOpened     map[string]time.Time
@@ -112,17 +115,78 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 
 	d.markedOpened = make(map[string]time.Time)
 
+	d.connectRetrying(ctx, 0)
+}
+
+const maxGatewayConnectRetries = 5
+
+func (cl *DiscordClient) invalidateUserLogin(ctx context.Context) {
+	meta := cl.UserLogin.Metadata.(*discordid.UserLoginMetadata)
+	meta.Token = ""
+	if err := cl.UserLogin.Save(ctx); err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to save user login in order to invalidate session")
+	}
+}
+
+func (cl *DiscordClient) sendInvalidAuthBridgeState() {
+	cl.UserLogin.BridgeState.Send(status.BridgeState{
+		StateEvent: status.StateBadCredentials,
+		Error:      DCWebsocketDisconnect4004,
+		UserAction: status.UserActionRelogin,
+	})
+}
+
+func (cl *DiscordClient) connectRetrying(ctx context.Context, retryCount int) {
+	retryCtx, cancel := context.WithCancel(ctx)
+	oldStop := cl.stopConnecting.Swap(&cancel)
+	if oldStop != nil {
+		(*oldStop)()
+	}
+
+	log := zerolog.Ctx(ctx).With().Int("retry_count", retryCount).Logger()
+
 	log.Debug().Msg("Connecting to Discord")
-	d.UserLogin.BridgeState.Send(status.BridgeState{
+	cl.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnecting,
 	})
-	if err := d.connect(ctx); err != nil {
+
+	err := cl.connect(ctx)
+	if err != nil {
 		log.Err(err).Msg("Couldn't connect to Discord")
-		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateUnknownError,
-			Error:      "discord-connect-error",
-			Message:    err.Error(),
-		})
+
+		closeErr := &websocket.CloseError{}
+		if errors.As(err, &closeErr) && closeErr.Code == 4004 {
+			// Effectively the same as *discordgo.InvalidAuth, but at connect
+			// time. Do not retry.
+			cl.sendInvalidAuthBridgeState()
+			cl.invalidateUserLogin(ctx)
+		} else if retryCount <= maxGatewayConnectRetries {
+			cl.UserLogin.BridgeState.Send(status.BridgeState{
+				StateEvent: status.StateTransientDisconnect,
+				Error:      DCUnknownWebsocketError,
+				Message:    err.Error(),
+			})
+
+			sleepDuration := time.Second * time.Duration(2<<retryCount)
+			log.Debug().Dur("retry_sleeping_seconds", sleepDuration).
+				Msg("Sleeping and retrying gateway connection")
+
+			select {
+			case <-time.After(sleepDuration):
+			case <-retryCtx.Done():
+				log.Debug().Msg("Was told to stop connecting")
+				return
+			}
+			cl.connectRetrying(ctx, retryCount+1)
+		} else {
+			cl.UserLogin.BridgeState.Send(status.BridgeState{
+				StateEvent: status.StateUnknownError,
+				Error:      DCUnknownWebsocketError,
+				Message:    err.Error(),
+			})
+
+			log.Error().Msg("Exhausted connect retries")
+		}
 	}
 }
 
@@ -137,11 +201,6 @@ func (cl *DiscordClient) connect(ctx context.Context) error {
 	cl.Session.EventHandler = cl.handleDiscordEventSync
 
 	err := cl.Session.Open()
-	for attempts := 0; errors.Is(err, discordgo.ErrImmediateDisconnect) && attempts < 2; attempts += 1 {
-		log.Err(err).Int("attempts", attempts).Msg("Immediately disconnected while trying to open session, trying again in 5 seconds")
-		time.Sleep(5 * time.Second)
-		err = cl.Session.Open()
-	}
 	if err != nil {
 		log.Err(err).Msg("Failed to connect to Discord")
 		return err
@@ -204,6 +263,9 @@ func (d *DiscordClient) applySingleGuildSettings(s *discordgo.UserGuildSettings)
 }
 
 func (d *DiscordClient) Disconnect() {
+	if stopConnecting := d.stopConnecting.Swap(nil); stopConnecting != nil {
+		(*stopConnecting)()
+	}
 	d.UserLogin.Log.Info().Msg("Disconnecting session")
 	d.Session.Close()
 }

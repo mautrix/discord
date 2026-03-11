@@ -500,12 +500,6 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})
-	case *discordgo.TypingStart:
-		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
-		if !bridged {
-			return
-		}
-		d.handleDiscordTyping(ctx, evt, route)
 	case *discordgo.Resumed:
 		// (All missed gateway events have been replayed, and all subsequent
 		// events will be new.)
@@ -513,6 +507,16 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})
+	case *discordgo.InvalidAuth:
+		log.Warn().Msg("Got logged out of Discord due to invalid token")
+		d.sendInvalidAuthBridgeState()
+		d.invalidateUserLogin(ctx)
+	case *discordgo.TypingStart:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		d.handleDiscordTyping(ctx, evt, route)
 	case *discordgo.GuildCreate:
 		if evt.Unavailable {
 			break

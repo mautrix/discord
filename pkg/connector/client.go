@@ -69,10 +69,16 @@ type DiscordClient struct {
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
 	meta := login.Metadata.(*discordid.UserLoginMetadata)
 
-	session, err := NewDiscordSession(ctx, meta.Token)
-
-	if err != nil {
-		return err
+	var session *discordgo.Session
+	if meta.Token == "" {
+		login.Log.Warn().Msg("Login has no token, not setting up a session")
+		// Session on the UserLogin will be nil.
+	} else {
+		var err error
+		session, err = NewDiscordSession(ctx, meta.Token)
+		if err != nil {
+			return err
+		}
 	}
 
 	cl := DiscordClient{
@@ -84,7 +90,6 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		guildSettings: make(map[string]*discordgo.UserGuildSettings),
 		readStates:    make(map[string]*discordgo.ReadState),
 	}
-
 	login.Client = &cl
 
 	return nil
@@ -92,12 +97,21 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 
 var _ bridgev2.NetworkAPI = (*DiscordClient)(nil)
 
+func (d *DiscordClient) userLoginMetadata() *discordid.UserLoginMetadata {
+	return d.UserLogin.Metadata.(*discordid.UserLoginMetadata)
+}
+
 func (d *DiscordClient) Connect(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
-	meta := d.UserLogin.Metadata.(*discordid.UserLoginMetadata)
-	if meta.Token == "" {
-		log.Debug().Msg("No token is present in the login, sending a bad credentials state and refusing to connect")
+	lacksToken := !d.HasToken()
+	lacksSession := d.Session == nil
+	if lacksToken || lacksSession {
+		// (d.Session can be nil if we lacked credentials on startup.)
+		log.Warn().Bool("lacking_token", lacksToken).
+			Bool("lacking_session", lacksSession).
+			Msg("Refusing to connect")
+
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
 			Error:      DCNotLoggedIn,
@@ -106,6 +120,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 		return
 	}
 
+	meta := d.userLoginMetadata()
 	if meta.HeartbeatSession.IsExpired() {
 		log.Info().Msg("Heartbeat session expired, creating a new one")
 		meta.HeartbeatSession = discordgo.NewHeartbeatSession()
@@ -272,7 +287,19 @@ func (d *DiscordClient) Disconnect() {
 	}
 }
 
+func (d *DiscordClient) HasToken() bool {
+	meta := d.userLoginMetadata()
+	return meta != nil && meta.Token != ""
+}
+
 func (d *DiscordClient) IsLoggedIn() bool {
+	if !d.HasToken() {
+		// If the token was emptied, immediately treat that as if we were
+		// logged out, even if we still hold a connection to Discord. This is
+		// less risky than nilling out Session entirely.
+		return false
+	}
+
 	return d.Session != nil && d.Session.State != nil && d.Session.State.User != nil && d.Session.State.User.ID != ""
 }
 

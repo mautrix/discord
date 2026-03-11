@@ -45,7 +45,7 @@ var (
 )
 
 func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
-	if d.Session == nil {
+	if !d.IsLoggedIn() {
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 
@@ -116,6 +116,10 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 }
 
 func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.MatrixEdit) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+
 	log := zerolog.Ctx(ctx).With().Str("action", "matrix message edit").Logger()
 	ctx = log.WithContext(ctx)
 
@@ -156,6 +160,10 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 }
 
 func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
+	if !d.IsLoggedIn() {
+		return bridgev2.MatrixReactionPreResponse{}, bridgev2.ErrNotLoggedIn
+	}
+
 	emojiID := reaction.Content.RelatesTo.Key
 
 	// Figure out if this is a custom emoji or not.
@@ -180,6 +188,10 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 }
 
 func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (*database.Reaction, error) {
+	if !d.IsLoggedIn() {
+		return nil, bridgev2.ErrNotLoggedIn
+	}
+
 	portal := reaction.Portal
 	meta := portal.Metadata.(*discordid.PortalMetadata)
 	parentChannelID := discordid.ParseChannelPortalID(portal.ID)
@@ -205,6 +217,10 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 }
 
 func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal *bridgev2.MatrixReactionRemove) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+
 	removing := removal.TargetReaction
 	emojiID := removing.EmojiID
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
@@ -236,6 +252,10 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+
 	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
 	channelID := parentChannelID
@@ -254,6 +274,10 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+
 	log := msg.Portal.Log.With().
 		Str("event_id", string(msg.EventID)).
 		Str("action", "matrix read receipt").Logger()
@@ -416,6 +440,10 @@ func (d *DiscordClient) viewingChannel(ctx context.Context, portal *bridgev2.Por
 }
 
 func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.MatrixTyping) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+
 	log := zerolog.Ctx(ctx)
 
 	// Don't mind if this fails.
@@ -435,6 +463,10 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 }
 
 func (d *DiscordClient) HandleMute(ctx context.Context, msg *bridgev2.MatrixMute) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+
 	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
 	log := zerolog.Ctx(ctx).With().
 		Str("muting_channel_id", channelID).

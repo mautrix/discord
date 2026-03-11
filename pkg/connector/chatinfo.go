@@ -174,6 +174,10 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 }
 
 func (d *DiscordClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
+	if !d.IsLoggedIn() {
+		return nil, bridgev2.ErrNotLoggedIn
+	}
+
 	guildID := discordid.ParseGuildPortalID(portal.ID)
 	if guildID != "" {
 		// Portal is a space representing a Discord guild.

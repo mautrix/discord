@@ -620,6 +620,10 @@ func (d *DiscordClient) guildSettingsForGuildID(guildID string) *discordgo.UserG
 }
 
 func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *discordgo.Channel {
+	if !d.IsLoggedIn() {
+		return nil
+	}
+
 	ch, err := d.Session.State.Channel(channelID)
 	if err != nil {
 		if errors.Is(err, discordgo.ErrStateNotFound) {
@@ -638,14 +642,15 @@ func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *di
 }
 
 func (d *DiscordClient) syncRemoteProfile(ctx context.Context) bool {
+	if !d.IsLoggedIn() {
+		return false
+	}
+
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "sync remote discord profile").
 		Logger()
 	ctx = log.WithContext(ctx)
 
-	if d.Session == nil {
-		return false
-	}
 	me := d.Session.State.User
 	if me == nil {
 		return false

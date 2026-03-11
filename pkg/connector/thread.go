@@ -157,7 +157,7 @@ func (d *DiscordClient) startThreadFromMatrix(
 	rootMessageID string,
 	threadName string,
 ) (string, error) {
-	if !d.Session.IsUser {
+	if !d.IsLoggedIn() {
 		return "", fmt.Errorf("can't create thread without being logged into Discord")
 	}
 

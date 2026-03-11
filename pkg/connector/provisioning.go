@@ -72,11 +72,43 @@ func (d *DiscordConnector) setUpProvisioningAPIs() error {
 	}
 
 	// NOTE: aim to provide backwards compatibility with v1 provisioning APIs
-	r.HandleFunc("GET /v1/guilds", p.makeHandler(p.guildsList))
-	r.HandleFunc("POST /v1/guilds/{guildID}", p.makeHandler(p.bridgeGuild))
-	r.HandleFunc("DELETE /v1/guilds/{guildID}", p.makeHandler(p.unbridgeGuild))
+	r.HandleFunc("GET /v1/guilds", p.makeHandler(p.guildsList, true))
+	r.HandleFunc("POST /v1/guilds/{guildID}", p.makeHandler(p.bridgeGuild, true))
+	// Unbridging doesn't touch discordgo, so it's okay to do it even when
+	// logged out.
+	r.HandleFunc("DELETE /v1/guilds/{guildID}", p.makeHandler(p.unbridgeGuild, false))
 
 	return nil
+}
+
+type provHandler func(http.ResponseWriter, *http.Request, *bridgev2.UserLogin, *DiscordClient)
+
+func (p *ProvisioningAPI) makeHandler(handler provHandler, enforceLoggedIn bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := p.prov.GetUser(r)
+
+		logins := user.GetUserLogins()
+		if len(logins) < 1 {
+			mautrix.RespError{
+				ErrCode: ErrCodeNotConnected,
+				Err:     "user has no logins",
+			}.Write(w)
+			return
+		}
+
+		login := logins[0]
+		client := login.Client.(*DiscordClient)
+
+		if !client.IsLoggedIn() && enforceLoggedIn {
+			mautrix.RespError{
+				ErrCode: ErrCodeNotConnected,
+				Err:     "not logged in to discord",
+			}.Write(w)
+			return
+		}
+
+		handler(w, r, login, client)
+	}
 }
 
 type guildEntry struct {
@@ -96,26 +128,6 @@ type guildEntry struct {
 }
 type respGuildsList struct {
 	Guilds []guildEntry `json:"guilds"`
-}
-
-func (p *ProvisioningAPI) makeHandler(handler func(http.ResponseWriter, *http.Request, *bridgev2.UserLogin, *DiscordClient)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user := p.prov.GetUser(r)
-		logins := user.GetUserLogins()
-
-		if len(logins) < 1 {
-			mautrix.RespError{
-				ErrCode: ErrCodeNotConnected,
-				Err:     "user has no logins",
-			}.Write(w)
-			return
-		}
-
-		login := logins[0]
-		client := login.Client.(*DiscordClient)
-
-		handler(w, r, login, client)
-	}
 }
 
 func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, login *bridgev2.UserLogin, client *DiscordClient) {

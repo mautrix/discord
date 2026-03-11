@@ -1565,7 +1565,7 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 				})
 			}
 			go portal.sendMessageMetrics(evt, err, "Failed to edit")
-			if msg.EditedTimestamp != nil {
+			if msg != nil && msg.EditedTimestamp != nil {
 				edits.UpdateEditTimestamp(*msg.EditedTimestamp)
 			}
 		} else {

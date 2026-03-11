@@ -617,3 +617,41 @@ func (d *DiscordClient) syncRemoteProfile(ctx context.Context) bool {
 	// NOTE: For clients to immediately get the new remote profile, you need to
 	// send a bridge state.
 }
+
+func (d *DiscordClient) wrapReceived40002(ctx context.Context, err error) error {
+	zerolog.Ctx(ctx).Err(err).Msg("Received 40002 from Discord")
+
+	message := "You need to verify your account in the Discord app."
+
+	d.UserLogin.BridgeState.Send(status.BridgeState{
+		StateEvent: status.StateBadCredentials,
+		UserAction: status.UserActionOpenNative,
+		Error:      "dc-http-40002",
+		// The error message is normally "You need to verify your account in order to perform this action.".
+		Message: message,
+	})
+
+	return bridgev2.WrapErrorInStatus(err).
+		// Tell clients to not retry.
+		WithStatus(event.MessageStatusFail).
+		WithIsCertain(true).
+		WithMessage(message).
+		WithSendNotice(true)
+}
+
+func (d *DiscordClient) tryWrappingError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var restErr *discordgo.RESTError
+
+	if errors.As(err, &restErr) && restErr.Message != nil {
+		if restErr.Message.Code == discordgo.ErrCodeActionRequiredVerifiedAccount {
+			return d.wrapReceived40002(ctx, err)
+		}
+	}
+
+	return err
+
+}

@@ -91,7 +91,7 @@ func (dc *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2
 	log.Debug().Msg("Fetching channel history for backfill")
 	msgs, err := dc.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
 	if err != nil {
-		return nil, err
+		return nil, dc.tryWrappingError(ctx, err)
 	}
 
 	// Update our user cache with all of the users present in the response. This

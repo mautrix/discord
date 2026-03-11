@@ -49,6 +49,9 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 
+	log := zerolog.Ctx(ctx).With().Str("action", "matrix message send").Logger()
+	ctx = log.WithContext(ctx)
+
 	portal := msg.Portal
 	guildID := portal.Metadata.(*discordid.PortalMetadata).GuildID
 	parentChannelID := discordid.ParseChannelPortalID(portal.ID)
@@ -95,7 +98,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	sentMsg, err := d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt)
 	if err != nil {
-		return nil, err
+		return nil, d.tryWrappingError(ctx, err)
 	}
 	sentMsgTimestamp, _ := discordgo.SnowflakeTimestamp(sentMsg.ID)
 	dbMessage := &database.Message{
@@ -146,7 +149,7 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to send message edit to discord: %w", err)
+		return d.tryWrappingError(ctx, err)
 	}
 
 	return nil
@@ -192,14 +195,13 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 		}
 	}
 
-	err := d.Session.MessageReactionAddUser(
+	return nil, d.tryWrappingError(ctx, d.Session.MessageReactionAddUser(
 		meta.GuildID,
 		channelID,
 		discordid.ParseMessageID(reaction.TargetMessage.ID),
 		discordid.ParseEmojiID(reaction.PreHandleResp.EmojiID),
 		makeDiscordReferer(meta.GuildID, parentChannelID, threadChannelID),
-	)
-	return nil, err
+	))
 }
 
 func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal *bridgev2.MatrixReactionRemove) error {
@@ -223,15 +225,14 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 		}
 	}
 
-	err = d.Session.MessageReactionRemoveUser(
+	return d.tryWrappingError(ctx, d.Session.MessageReactionRemoveUser(
 		guildID,
 		channelID,
 		discordid.ParseMessageID(removing.MessageID),
 		discordid.ParseEmojiID(emojiID),
 		discordid.ParseUserLoginID(d.UserLogin.ID),
 		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
-	)
-	return err
+	))
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
@@ -249,7 +250,7 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 		}
 	}
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
-	return d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID))
+	return d.tryWrappingError(ctx, d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID)))
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {

@@ -179,7 +179,7 @@ func (d *DiscordClient) startThreadFromMatrix(
 		makeDiscordReferer(guildID, parentChannelID, ""),
 	)
 	if err != nil {
-		return "", err
+		return "", d.tryWrappingError(ctx, err)
 	}
 
 	if upsertErr := d.upsertThreadInfo(ctx, ch.ID, rootMessageID, parentChannelID); upsertErr != nil {

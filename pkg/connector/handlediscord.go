@@ -322,6 +322,20 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 	})
 }
 
+func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *discordgo.ChannelCreate) error {
+	log := zerolog.Ctx(ctx).With().Str("channel_id", ch.ID).Logger()
+
+	if ch.GuildID == "" {
+		log.Debug().Msg("Private channel was created, creating portal")
+		d.syncChannel(ctx, ch.Channel)
+	} else {
+		log.Debug().Msg("Guild channel was created")
+		// FIXME(skip): Sync guild channels. Same logic as syncGuild.
+	}
+
+	return nil
+}
+
 func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.ChannelUpdate) error {
 	if upd.BeforeUpdate == nil {
 		// Channel doesn't exist in the discordgo's state; don't bother bridging.
@@ -547,6 +561,10 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	case *discordgo.GuildRoleDelete:
 		if err := d.connector.DB.Role.DeleteByID(ctx, evt.GuildID, evt.RoleID); err != nil {
 			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", evt.RoleID).Msg("Failed to delete role from database")
+		}
+	case *discordgo.ChannelCreate:
+		if err := d.handleChannelCreate(ctx, evt); err != nil {
+			log.Err(err).Msg("Failed to handle channel create")
 		}
 	case *discordgo.ChannelUpdate:
 		bridged, _ := d.channelIsBridged(ctx, evt.ID)

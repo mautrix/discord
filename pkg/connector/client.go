@@ -621,21 +621,17 @@ func (d *DiscordClient) syncRemoteProfile(ctx context.Context) bool {
 func (d *DiscordClient) wrapReceived40002(ctx context.Context, err error) error {
 	zerolog.Ctx(ctx).Err(err).Msg("Received 40002 from Discord")
 
-	message := "You need to verify your account in the Discord app."
-
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateBadCredentials,
 		UserAction: status.UserActionOpenNative,
-		Error:      "dc-http-40002",
-		// The error message is normally "You need to verify your account in order to perform this action.".
-		Message: message,
+		Error:      DCHTTP40002,
 	})
 
 	return bridgev2.WrapErrorInStatus(err).
 		// Tell clients to not retry.
 		WithStatus(event.MessageStatusFail).
 		WithIsCertain(true).
-		WithMessage(message).
+		WithMessage(accountVerificationRequiredMessage).
 		WithSendNotice(true)
 }
 

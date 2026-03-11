@@ -38,6 +38,25 @@ import (
 	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
+const (
+	DCNotLoggedIn             status.BridgeStateErrorCode = "dc-not-logged-in"
+	DCWebsocketDisconnect4004 status.BridgeStateErrorCode = "dc-websocket-disconnect-4004"
+	DCUnknownWebsocketError   status.BridgeStateErrorCode = "dc-unknown-websocket-error"
+	DCHTTP40002               status.BridgeStateErrorCode = "dc-http-40002"
+)
+const accountVerificationRequiredMessage = "You need to verify your account in the Discord app."
+
+func init() {
+	status.BridgeStateHumanErrors.Update(status.BridgeStateErrorMap{
+		DCWebsocketDisconnect4004: "Please log in to your Discord account again.",
+		DCNotLoggedIn:             "Please log in to your Discord account.",
+		DCHTTP40002:               accountVerificationRequiredMessage,
+		// (For DCUnknownWebsocketError, provide a specific error message when
+		// sending state. If there were a generic message here, it would
+		// overwrite that.)
+	})
+}
+
 type DiscordEventMeta struct {
 	Type       bridgev2.RemoteEventType
 	LogContext func(c zerolog.Context) zerolog.Context

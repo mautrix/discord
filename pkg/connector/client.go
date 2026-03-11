@@ -267,7 +267,9 @@ func (d *DiscordClient) Disconnect() {
 		(*stopConnecting)()
 	}
 	d.UserLogin.Log.Info().Msg("Disconnecting session")
-	d.Session.Close()
+	if d.Session != nil {
+		d.Session.Close()
+	}
 }
 
 func (d *DiscordClient) IsLoggedIn() bool {

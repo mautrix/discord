@@ -93,6 +93,15 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
 	meta := d.UserLogin.Metadata.(*discordid.UserLoginMetadata)
+	if meta.Token == "" {
+		log.Debug().Msg("No token is present in the login, sending a bad credentials state and refusing to connect")
+		d.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateBadCredentials,
+			Error:      DCNotLoggedIn,
+			UserAction: status.UserActionRelogin,
+		})
+		return
+	}
 
 	if meta.HeartbeatSession.IsExpired() {
 		log.Info().Msg("Heartbeat session expired, creating a new one")

@@ -28,7 +28,10 @@ import (
 
 var _ router.Router = (*DiscordClient)(nil)
 
-func (d *DiscordClient) uncertainRoute(_ context.Context, channelID string) *router.Route {
+func (d *DiscordClient) uncertainRoute(ctx context.Context, channelID string) *router.Route {
+	log := zerolog.Ctx(ctx)
+	log.Warn().Str("channel_id", channelID).Msg("Creating an uncertain route")
+
 	return &router.Route{
 		// It's generally bad to call into discordid for PortalKey
 		// construction since the helpers on DiscordClient ensure receiver

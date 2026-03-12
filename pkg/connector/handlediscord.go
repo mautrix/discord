@@ -31,6 +31,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
+	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/util/variationselector"
 
@@ -449,6 +450,54 @@ func (d *DiscordClient) handleThreadDelete(ctx context.Context, thread *discordg
 	return d.connector.DB.Thread.DeleteByThreadChannelID(ctx, string(d.UserLogin.ID), thread.ID)
 }
 
+func (d *DiscordClient) queueIndividualMembershipChange(ctx context.Context, portalKey networkid.PortalKey, user *discordgo.User, membership event.Membership) {
+	log := zerolog.Ctx(ctx)
+	ts := time.Now()
+
+	userID := discordid.MakeUserID(user.ID)
+	info := d.getUserInfo(ctx, user)
+
+	log.Debug().
+		Stringer("portal_key", portalKey).
+		Str("moving_user_id", user.ID).
+		Str("membership", string(membership)).
+		Msg("Queueing chat info change in response to group DM membership change")
+
+	d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventChatInfoChange,
+			PortalKey: portalKey,
+			Timestamp: ts,
+		},
+		ChatInfoChange: &bridgev2.ChatInfoChange{
+			MemberChanges: &bridgev2.ChatMemberList{
+				MemberMap: bridgev2.ChatMemberMap{
+					userID: bridgev2.ChatMember{
+						// TODO: Can't effectively send MemberSender here to
+						// attribute e.g. someone getting kicked from a group
+						// DM because that information isn't in the gateway
+						// payload. Might need to wait for the corresponding
+						// system message.
+						EventSender: d.makeEventSender(user),
+						Membership:  membership,
+						UserInfo:    info,
+					},
+				},
+			},
+		},
+	})
+}
+
+func (d *DiscordClient) handleRecipientAdd(ctx context.Context, evt *discordgo.ChannelRecipientAdd, route *router.Route) error {
+	d.queueIndividualMembershipChange(ctx, route.PortalKey, evt.User, event.MembershipJoin)
+	return nil
+}
+
+func (d *DiscordClient) handleRecipientRemove(ctx context.Context, evt *discordgo.ChannelRecipientRemove, route *router.Route) error {
+	d.queueIndividualMembershipChange(ctx, route.PortalKey, evt.User, event.MembershipLeave)
+	return nil
+}
+
 func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck) {
 	d.readStatesLock.Lock()
 	defer d.readStatesLock.Unlock()
@@ -623,6 +672,22 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		}
 		if err := d.handleChannelDelete(ctx, evt); err != nil {
 			log.Err(err).Msg("Failed to handle channel delete")
+		}
+	case *discordgo.ChannelRecipientAdd:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		if err := d.handleRecipientAdd(ctx, evt, route); err != nil {
+			log.Err(err).Msg("Failed to handle channel recipient add")
+		}
+	case *discordgo.ChannelRecipientRemove:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		if err := d.handleRecipientRemove(ctx, evt, route); err != nil {
+			log.Err(err).Msg("Failed to handle channel recipient remove")
 		}
 	case *discordgo.ThreadCreate:
 		err := d.handleThreadUpdate(ctx, evt.Channel)

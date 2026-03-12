@@ -87,11 +87,15 @@ func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 		return nil, nil
 	}
 
+	return d.getUserInfo(ctx, discordUser), nil
+}
+
+func (d *DiscordClient) getUserInfo(ctx context.Context, user *discordgo.User) *bridgev2.UserInfo {
 	return &bridgev2.UserInfo{
 		// FIXME clear this for webhooks (stash in ghost metadata)
-		Identifiers: []string{fmt.Sprintf("discord:%s", discordUser.String())},
-		Name:        ptr.Ptr(discordUser.DisplayName()),
-		Avatar:      d.makeUserAvatar(discordUser),
-		IsBot:       &discordUser.Bot,
-	}, nil
+		Identifiers: []string{fmt.Sprintf("discord:%s", user.String())},
+		Name:        ptr.Ptr(user.DisplayName()),
+		Avatar:      d.makeUserAvatar(user),
+		IsBot:       &user.Bot,
+	}
 }

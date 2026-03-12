@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"maps"
 	"net/http"
 	"slices"
@@ -32,9 +33,12 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
+
+	"go.mau.fi/util/exmaps"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -323,7 +327,69 @@ func (cl *DiscordClient) BeginSyncing(ctx context.Context) {
 	go cl.syncGuilds(ctx)
 }
 
+func (d *DiscordClient) existingPortals(ctx context.Context) iter.Seq[*bridgev2.Portal] {
+	log := zerolog.Ctx(ctx)
+
+	ups, err := d.connector.Bridge.DB.UserPortal.GetAllForLogin(ctx, d.UserLogin.UserLogin)
+	if err != nil {
+		log.Err(err).Msg("Failed to fetch all user portals, proceeding without diffing")
+		// Return a dummy iterator that is empty.
+		return func(yield func(*bridgev2.Portal) bool) {}
+	}
+
+	return func(yield func(*bridgev2.Portal) bool) {
+		seen := make(exmaps.Set[networkid.PortalKey])
+
+		for _, up := range ups {
+			portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, up.Portal)
+			if err != nil {
+				log.Err(err).Msg("Failed to fetch portal corresponding to user portal, proceeding")
+				continue
+			}
+			if portal == nil {
+				// ?
+				continue
+			}
+
+			// Depending on how split portals are configured,
+			// GetExistingPortalByKey can target the same portal from distinct
+			// user portal rows.
+			if seen.Has(portal.PortalKey) {
+				continue
+			}
+			seen.Add(portal.PortalKey)
+
+			if !yield(portal) {
+				return
+			}
+		}
+	}
+}
+
 func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
+	log := zerolog.Ctx(ctx)
+
+	// Detect pre-existing private channel portals that we can't find in
+	// discordgo state and queue them for deletion. This handles channels that
+	// were deleted while the bridge was offline.
+	for portal := range d.existingPortals(ctx) {
+		if !portalIsPrivate(portal) {
+			continue
+		}
+		channelID := discordid.ParseChannelPortalID(portal.ID)
+
+		// We could check State.PrivateChannels directly, but that would be
+		// a linear search.
+		if d.channelWithID(ctx, channelID) == nil {
+			log.Info().
+				Str("deleting_channel_id", channelID).
+				Str("deleting_portal_room_type", string(portal.RoomType)).
+				Stringer("deleting_portal_key", portal.PortalKey).
+				Msg("Deleting portal corresponding to a private channel that isn't in state")
+			d.queueChatDelete(portal.PortalKey, "")
+		}
+	}
+
 	dms := slices.Clone(d.Session.State.PrivateChannels)
 	// Only sync the top n private channels with recent activity.
 	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
@@ -333,12 +399,9 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 	})
 
 	// TODO(skip): This is startup_private_channel_create_limit. Support this in the config.
-	maxDms := 10
-	if maxDms > len(dms) {
-		maxDms = len(dms)
-	}
+	maxDms := min(10, len(dms))
 	for _, dm := range dms[:maxDms] {
-		zerolog.Ctx(ctx).Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
+		log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
 		d.syncChannel(ctx, dm)
 	}
 }

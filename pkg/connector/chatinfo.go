@@ -50,6 +50,10 @@ func (d *DiscordClient) getGuildSpaceInfo(_ctx context.Context, guild *discordgo
 	}, nil
 }
 
+func portalIsPrivate(p *bridgev2.Portal) bool {
+	return p.RoomType == database.RoomTypeDM || p.RoomType == database.RoomTypeGroupDM
+}
+
 func channelIsPrivate(ch *discordgo.Channel) bool {
 	return ch.Type == discordgo.ChannelTypeDM || ch.Type == discordgo.ChannelTypeGroupDM
 }

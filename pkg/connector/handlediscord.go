@@ -396,6 +396,45 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 	return nil
 }
 
+// handleChannelDelete handles a channel being deleted. This can be a guild
+// channel getting "actually" deleted or a private channel getting "closed".
+func (d *DiscordClient) handleChannelDelete(ctx context.Context, evt *discordgo.ChannelDelete) error {
+	portalKey := d.portalKeyForChannel(evt.Channel)
+	log := zerolog.Ctx(ctx).With().
+		Str("channel_id", evt.ID).
+		Str("guild_id", evt.GuildID).
+		Stringer("deleted_channel_portal_key", portalKey).Logger()
+
+	log.Debug().Msg("Handling channel deletion")
+	d.queueChatDelete(portalKey, evt.Channel.GuildID)
+
+	return nil
+}
+
+func (d *DiscordClient) queueChatDelete(portalKey networkid.PortalKey, deletedChannelGuildID string) {
+	ts := time.Now()
+
+	onlyForMe := true
+	if !d.connector.Bridge.Config.SplitPortals && deletedChannelGuildID != "" {
+		// When split portals are disabled and a guild channel was deleted,
+		// then it should be deleted for everyone.
+		onlyForMe = false
+	}
+
+	d.UserLogin.QueueRemoteEvent(&simplevent.ChatDelete{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventChatDelete,
+			PortalKey: portalKey,
+			Timestamp: ts,
+		},
+		OnlyForMe: onlyForMe,
+		// Do not pass Children: true as deleting a guild channel category
+		// merely detaches the parent_id from all child channels.
+		// CHANNEL_UPDATE events will be dispatched for all child channels,
+		// which should reparent them.
+	})
+}
+
 func (d *DiscordClient) handleThreadUpdate(ctx context.Context, thread *discordgo.Channel) error {
 	if thread == nil || !isThread(thread) {
 		return nil
@@ -575,7 +614,16 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err != nil {
 			log.Err(err).Msg("Failed to handle channel update")
 		}
-	// TODO: discordgo.ChannelDelete
+	case *discordgo.ChannelDelete:
+		// The route computed by channelIsBridged will always be uncertain
+		// because the channel has already disappeared from discordgo's state.
+		bridged, _ := d.channelIsBridged(ctx, evt.ID)
+		if !bridged {
+			return
+		}
+		if err := d.handleChannelDelete(ctx, evt); err != nil {
+			log.Err(err).Msg("Failed to handle channel delete")
+		}
 	case *discordgo.ThreadCreate:
 		err := d.handleThreadUpdate(ctx, evt.Channel)
 		if err != nil {

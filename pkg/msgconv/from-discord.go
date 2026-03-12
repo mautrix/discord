@@ -454,7 +454,7 @@ func (mc *MessageConverter) renderDiscordSticker(ctx context.Context, sticker *d
 	case discordgo.StickerFormatTypeAPNG:
 		mime = "image/apng"
 	case discordgo.StickerFormatTypeLottie:
-		mime = "application/json"
+		mime = "video/lottie+json"
 	case discordgo.StickerFormatTypeGIF:
 		mime = "image/gif"
 	default:

@@ -22,6 +22,28 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestEnsureCodeBlockNewlines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"Mid-line fence gets newline", "some text```js\ncode\n```", "some text\n```js\ncode\n```"},
+		{"Back-to-back fences split", "```code``````more```", "```code\n```\n```more\n```"},
+		{"Already on own line unchanged", "text\n```js\ncode\n```", "text\n```js\ncode\n```"},
+		{"Inline single backtick unchanged", "use `code` here", "use `code` here"},
+		{"Double backtick unchanged", "use ``code`` here", "use ``code`` here"},
+		{"Plain text unchanged", "no code blocks here", "no code blocks here"},
+		{"Multiple mid-line fences", "a```js\nx\n```b```py\ny\n```", "a\n```js\nx\n```b\n```py\ny\n```"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.expected, ensureCodeBlockNewlines(test.input))
+		})
+	}
+}
+
 func TestEscapeDiscordMarkdown(t *testing.T) {
 	type escapeTest struct {
 		name     string

@@ -19,12 +19,14 @@ package msgconv
 import (
 	"context"
 	"fmt"
+	"html"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
@@ -278,17 +280,45 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		return
 	}
 
-	ctx := context.TODO()
+	log := zerolog.DefaultContextLogger.With().Str("action", "render discord mention").Logger()
+	ctx := log.WithContext(context.TODO())
 
 	switch node := n.(type) {
 	case *astDiscordUserMention:
 		var mxid id.UserID
 		var name string
-		if ghost, _ := node.portal.Bridge.GetGhostByID(ctx, discordid.MakeUserID(strconv.FormatInt(node.id, 10))); ghost != nil {
+		discordUserID := strconv.FormatInt(node.id, 10)
+		bridge := node.portal.Bridge
+
+		if ghost, _ := bridge.GetGhostByID(ctx, discordid.MakeUserID(discordUserID)); ghost != nil {
+			// TODO: Provide some kind of config option for this in the future.
+			// msgconv being in its own package means we can't just reach into
+			// the config. For now, avoid.
+			//
+			// if ghost.Name == "" {
+			// 	ghost.UpdateInfoIfNecessary(ctx, node.source, bridgev2.RemoteEventUnknown)
+			// }
 			mxid = ghost.Intent.GetMXID()
 			name = ghost.Name
 		}
-		_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, mxid.URI().MatrixToURL(), name)
+		if discordUserID == discordid.ParseUserLoginID(node.source.ID) {
+			// Mentioning ourselves.
+			mxid = node.source.UserMXID
+		} else if ul := node.portal.Bridge.GetCachedUserLoginByID(discordid.MakeUserLoginID(discordUserID)); ul != nil {
+			// If the Discord user mentioned corresponds to someone else logged
+			// into the bridge, prefer their "real" MXID instead of the
+			// ghost's.
+			mxid = ul.UserMXID
+		}
+
+		if mxid != "" {
+			if name == "" {
+				name = fmt.Sprintf("@%d", node.id)
+			}
+			_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, mxid.URI().MatrixToURL(), html.EscapeString(name))
+		} else {
+			_, _ = fmt.Fprintf(w, "&lt;@%d&gt;", node.id)
+		}
 		return
 	case *astDiscordRoleMention:
 		meta, _ := node.portal.Metadata.(*discordid.PortalMetadata)

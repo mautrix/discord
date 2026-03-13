@@ -111,7 +111,14 @@ func (mc *MessageConverter) ToDiscord(
 	content := msg.Content
 
 	convertMatrix := func() {
-		req.Content, req.AllowedMentions = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
+		// TODO: Handle (silent) replies.
+		//
+		// NOTE: Real users should never send allowed_mentions (except for
+		// silent replies).
+		//
+		// Since we only support real users at the moment, always ignore the
+		// returned allowed mentions.
+		req.Content, _ = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
 		if content.MsgType == event.MsgEmote {
 			req.Content = fmt.Sprintf("_%s_", req.Content)
 		}
@@ -168,8 +175,6 @@ func (mc *MessageConverter) ToDiscord(
 
 		req.Attachments = append(req.Attachments, att)
 	}
-
-	// TODO: Handle (silent) replies and allowed mentions.
 
 	return &req, nil
 }

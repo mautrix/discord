@@ -38,7 +38,7 @@ func (dc *DiscordConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabiliti
 }
 
 func (wa *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
-	return 1, 2
+	return 1, 3
 }
 
 /*func supportedIfFFmpeg() event.CapabilitySupportLevel {
@@ -78,7 +78,7 @@ var discordCaps = &event.RoomFeatures{
 		event.FmtSyntaxHighlighting: event.CapLevelFullySupported,
 		event.FmtBlockquote:         event.CapLevelFullySupported,
 		event.FmtInlineLink:         event.CapLevelFullySupported,
-		event.FmtUserLink:           event.CapLevelUnsupported, // TODO: Support.
+		event.FmtUserLink:           event.CapLevelFullySupported,
 		event.FmtRoomLink:           event.CapLevelUnsupported, // TODO: Support.
 		event.FmtEventLink:          event.CapLevelUnsupported, // TODO: Support.
 		event.FmtAtRoomMention:      event.CapLevelUnsupported, // TODO: Support.

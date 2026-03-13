@@ -189,7 +189,7 @@ func (mc *MessageConverter) ConvertMatrixMessageContent(ctx context.Context, por
 		if content.Mentions != nil {
 			ctx.ReturnData[formatterContextInputAllowedMentionsKey] = content.Mentions.UserIDs
 		}
-		return variationselector.FullyQualify(matrixHTMLParser.Parse(content.FormattedBody, ctx)), allowedMentions
+		return variationselector.FullyQualify(mc.HTMLParser.Parse(content.FormattedBody, ctx)), allowedMentions
 	} else {
 		return variationselector.FullyQualify(escapeDiscordMarkdown(content.Body)), allowedMentions
 	}

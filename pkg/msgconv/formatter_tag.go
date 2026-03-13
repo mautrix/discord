@@ -332,7 +332,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 						Int64("role_id", node.id).
 						Msg("Failed to resolve role while rendering mention")
 				} else if role != nil {
-					_, _ = fmt.Fprintf(w, `<font color="#%06x"><strong>@%s</strong></font>`, role.Color, role.Name)
+					_, _ = fmt.Fprintf(w, `<font color="#%06x"><strong>@%s</strong></font>`, role.Color, html.EscapeString(role.Name))
 					return
 				}
 			}
@@ -348,7 +348,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			if err == nil && !r.Uncertain {
 				if portal, _ := node.portal.Bridge.GetExistingPortalByKey(ctx, r.PortalKey); portal != nil {
 					if portal.MXID != "" {
-						_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(portal.Bridge.Matrix.ServerName()).MatrixToURL(), portal.Name)
+						_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(portal.Bridge.Matrix.ServerName()).MatrixToURL(), html.EscapeString(portal.Name))
 					} else {
 						_, _ = w.WriteString(portal.Name)
 					}

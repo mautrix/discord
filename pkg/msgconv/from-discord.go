@@ -231,7 +231,8 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	case discordgo.MessageTypeCall:
 		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgEmote,
-			Body:    "started a call",
+			// TODO: Use ghost name instead?
+			Body: fmt.Sprintf("(%s started a call. Use the Discord app to answer.)", msg.Author.String()),
 		}}
 	case discordgo.MessageTypeGuildMemberJoin:
 		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{

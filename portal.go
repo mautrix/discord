@@ -617,6 +617,21 @@ func (portal *Portal) markMessageHandled(discordID string, authorID string, time
 	return msg
 }
 
+// NOTE: Maybe this function should be moved somewhere else in the codebase?
+func (portal *Portal) webhookIgnored(webhookID string) bool {
+	// Message is not a webhook
+	if webhookID == "" {
+		return false
+	}
+	// Checks if webhook ID is ignored in config.
+	for _, id := range portal.bridge.Config.Bridge.IgnoredWebhooks {
+		if id == "*" || id == webhookID {
+			return true
+		}
+	}
+	return false
+}
+
 func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Message, thread *Thread) {
 	switch msg.Type {
 	case discordgo.MessageTypeChannelNameChange, discordgo.MessageTypeChannelIconChange, discordgo.MessageTypeChannelPinnedMessage:
@@ -631,6 +646,11 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 		Str("action", "discord message create").
 		Logger()
 	ctx := log.WithContext(context.Background())
+
+	if portal.webhookIgnored(msg.WebhookID) {
+		log.Debug().Str("webhook_id", msg.WebhookID).Msg("Dropping message from ignored webhook")
+		return
+	}
 
 	portal.recentMessages.Push(msg.ID, msg)
 
@@ -814,6 +834,11 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 	ctx := log.WithContext(context.Background())
 	if portal.MXID == "" {
 		log.Warn().Msg("handle message called without a valid portal")
+		return
+	}
+
+	if portal.webhookIgnored(msg.WebhookID) {
+		log.Debug().Str("webhook_id", msg.WebhookID).Msg("Dropping edit for message from ignored webhook")
 		return
 	}
 

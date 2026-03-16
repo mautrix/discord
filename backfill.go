@@ -275,7 +275,7 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 			Int("message_type", int(msg.Type)).
 			Str("author_id", msg.Author.ID).
 			Logger()
-		parts := portal.convertDiscordMessage(log.WithContext(ctx), puppet, intent, msg)
+		parts := portal.convertDiscordMessage(log.WithContext(ctx), puppet, intent, msg, source)
 		for i, part := range parts {
 			if (replyTo != nil || threadRootEvent != "") && part.Content.RelatesTo == nil {
 				part.Content.RelatesTo = &event.RelatesTo{}

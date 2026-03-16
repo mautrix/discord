@@ -660,7 +660,7 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 	mentions := portal.convertDiscordMentions(msg, true)
 
 	ts, _ := discordgo.SnowflakeTimestamp(msg.ID)
-	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg)
+	parts := portal.convertDiscordMessage(ctx, puppet, intent, msg, user)
 	dbParts := make([]database.MessagePart, 0, len(parts))
 	eventIDs := zerolog.Dict()
 	for i, part := range parts {
@@ -924,7 +924,7 @@ func (portal *Portal) handleDiscordMessageUpdate(user *User, msg *discordgo.Mess
 		return
 	}
 	puppet.addWebhookMeta(converted, msg)
-	puppet.addMemberMeta(converted, msg)
+	puppet.addMemberMeta(converted, msg, user)
 	converted.Content.Mentions = portal.convertDiscordMentions(msg, false)
 	converted.Content.SetEdit(existing[0].MXID)
 	// Never actually mention new users of edits, only include mentions inside m.new_content
@@ -2541,13 +2541,20 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		if portal.OtherUserID != "" {
 			puppet := portal.bridge.GetPuppetByID(portal.OtherUserID)
 			changed = portal.UpdateAvatarFromPuppet(puppet) || changed
-			if rel, ok := source.relationships[portal.OtherUserID]; ok && rel.Nickname != "" {
-				portal.FriendNick = true
-				changed = portal.UpdateNameDirect(rel.Nickname, true) || changed
-			} else {
-				portal.FriendNick = false
-				changed = portal.UpdateNameDirect(puppet.Name, false) || changed
+			var nickname string
+			if rel, ok := source.relationships[portal.OtherUserID]; ok {
+				nickname = rel.Nickname
 			}
+			prevFriendNick := portal.FriendNick
+			portal.FriendNick = nickname != ""
+			if prevFriendNick != portal.FriendNick {
+				changed = true
+			}
+			changed = portal.UpdateNameDirect(portal.bridge.Config.Bridge.FormatChannelName(config.ChannelNameParams{
+				Name:           puppet.Name,
+				FriendNickname: nickname,
+				Type:           discordgo.ChannelTypeDM,
+			}), nickname != "") || changed
 		}
 		if portal.MXID != "" {
 			portal.syncParticipants(source, meta.Recipients)

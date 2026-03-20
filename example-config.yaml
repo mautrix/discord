@@ -171,6 +171,10 @@ bridge:
     # like the official client does? The other option is sending the media in the message send request as a form part
     # (which is always used by bots and webhooks).
     use_discord_cdn_upload: true
+    # Should the bridge forbid direct messages from users to other users who they aren't friends with? Discord generally
+    # considers this to be a "risky" action. Note that the bridge will conservatively reject all outgoing DMs from users
+    # until it has synced that user's relationships from Discord.
+    forbid_dming_strangers: true
     # Proxy for Discord connections
     proxy:
     # Should mxc uris copied from Discord be cached?

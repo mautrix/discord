@@ -56,6 +56,7 @@ type BridgeConfig struct {
 	PrefixWebhookMessages       bool `yaml:"prefix_webhook_messages"`
 	EnableWebhookAvatars        bool `yaml:"enable_webhook_avatars"`
 	UseDiscordCDNUpload         bool `yaml:"use_discord_cdn_upload"`
+	ForbidDMingStrangers        bool `yaml:"forbid_dming_strangers"`
 
 	Proxy string `yaml:"proxy"`
 

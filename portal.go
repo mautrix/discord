@@ -1244,7 +1244,7 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		errors.Is(err, errCantStartThread):
 		return event.MessageStatusUnsupported, event.MessageStatusFail, true, true, "", nil
 	case errors.Is(err, errDMingStranger):
-		return event.MessageStatusGenericError, event.MessageStatusFail, true, true, "You can't message users who aren't on your friends list. Use the Discord app to chat or add them as a friend to continue in Beeper.", nil
+		return event.MessageStatusGenericError, event.MessageStatusFail, true, true, "You can't message users who aren't on your friends list. Use the Discord app to chat or add them as a friend to continue.", nil
 	case errors.Is(err, errRelationshipsNotReady):
 		return event.MessageStatusGenericError, event.MessageStatusRetriable, true, true, "Still syncing your Discord friends list, please try again in a moment.", nil
 	case errors.Is(err, attachment.HashMismatch),

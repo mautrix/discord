@@ -68,6 +68,12 @@ type User struct {
 	nextDiscordUploadID atomic.Int32
 
 	relationships map[string]*discordgo.Relationship
+	// relationshipsReady should be protected by relationshipLock and is merely
+	// used to cover the brief moment in time where the readyHandler goroutine
+	// is being scheduled; during that time, the relationships map is unlocked
+	// and "available" but not logically "ready" just yet.
+	relationshipsReady bool
+	relationshipLock   sync.RWMutex
 }
 
 func (user *User) GetRemoteID() string {
@@ -497,6 +503,7 @@ func (user *User) Logout(isOverwriting bool) {
 	}
 
 	user.Session = nil
+	user.reconstructRelationships(nil)
 	user.DiscordToken = ""
 	user.ReadStateVersion = 0
 	if !isOverwriting {
@@ -509,6 +516,26 @@ func (user *User) Logout(isOverwriting bool) {
 	user.DiscordID = ""
 	user.Update()
 	user.log.Info().Msg("User logged out")
+}
+
+func (user *User) reconstructRelationships(relationships []*discordgo.Relationship) {
+	user.relationshipLock.Lock()
+	defer user.relationshipLock.Unlock()
+
+	clear(user.relationships)
+
+	if relationships == nil {
+		// Relationships are just being cleared out; we don't actually have
+		// them yet.
+		user.relationshipsReady = false
+	} else {
+		// We've received the authoritative list of relationships from the
+		// gateway.
+		for _, relationship := range relationships {
+			user.relationships[relationship.ID] = relationship
+		}
+		user.relationshipsReady = true
+	}
 }
 
 func (user *User) Connected() bool {
@@ -538,6 +565,9 @@ const BotIntents = discordgo.IntentGuilds |
 
 func (user *User) Connect() error {
 	user.Lock()
+	// Clear our in-memory relationship cache as it might've changed while
+	// offline; READY or RESUMED will repopulate it.
+	user.reconstructRelationships(nil)
 	defer user.Unlock()
 
 	if user.DiscordToken == "" {
@@ -758,9 +788,7 @@ func (user *User) readyHandler(r *discordgo.Ready) {
 	user.BridgeState.Send(status.BridgeState{StateEvent: status.StateBackfilling})
 	user.tryAutomaticDoublePuppeting()
 
-	for _, relationship := range r.Relationships {
-		user.relationships[relationship.ID] = relationship
-	}
+	user.reconstructRelationships(r.Relationships)
 
 	updateTS := time.Now()
 	portalsInSpace := make(map[string]bool)
@@ -843,17 +871,23 @@ func (user *User) addPrivateChannelToSpace(portal *Portal) bool {
 
 func (user *User) relationshipAddHandler(r *discordgo.RelationshipAdd) {
 	user.log.Debug().Interface("relationship", r.Relationship).Msg("Relationship added")
+	user.relationshipLock.Lock()
+	defer user.relationshipLock.Unlock()
 	user.relationships[r.ID] = r.Relationship
 	user.handleRelationshipChange(r.ID, r.Nickname)
 }
 
 func (user *User) relationshipUpdateHandler(r *discordgo.RelationshipUpdate) {
+	user.relationshipLock.Lock()
+	defer user.relationshipLock.Unlock()
 	user.log.Debug().Interface("relationship", r.Relationship).Msg("Relationship update")
 	user.relationships[r.ID] = r.Relationship
 	user.handleRelationshipChange(r.ID, r.Nickname)
 }
 
 func (user *User) relationshipRemoveHandler(r *discordgo.RelationshipRemove) {
+	user.relationshipLock.Lock()
+	defer user.relationshipLock.Unlock()
 	user.log.Debug().Str("other_user_id", r.ID).Msg("Relationship removed")
 	delete(user.relationships, r.ID)
 	user.handleRelationshipChange(r.ID, "")

@@ -2541,6 +2541,7 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		if portal.OtherUserID != "" {
 			puppet := portal.bridge.GetPuppetByID(portal.OtherUserID)
 			changed = portal.UpdateAvatarFromPuppet(puppet) || changed
+			source.relationshipLock.RLock()
 			if rel, ok := source.relationships[portal.OtherUserID]; ok && rel.Nickname != "" {
 				portal.FriendNick = true
 				changed = portal.UpdateNameDirect(rel.Nickname, true) || changed
@@ -2548,6 +2549,7 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 				portal.FriendNick = false
 				changed = portal.UpdateNameDirect(puppet.Name, false) || changed
 			}
+			source.relationshipLock.RUnlock()
 		}
 		if portal.MXID != "" {
 			portal.syncParticipants(source, meta.Recipients)

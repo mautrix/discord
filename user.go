@@ -730,6 +730,7 @@ func (user *User) Disconnect() error {
 	}
 
 	user.log.Info().Msg("Disconnecting session manually")
+	user.reconstructRelationships(nil)
 	if err := user.Session.Close(); err != nil {
 		return err
 	}

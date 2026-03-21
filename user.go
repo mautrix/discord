@@ -566,7 +566,7 @@ const BotIntents = discordgo.IntentGuilds |
 func (user *User) Connect() error {
 	user.Lock()
 	// Clear our in-memory relationship cache as it might've changed while
-	// offline; READY or RESUMED will repopulate it.
+	// offline; READY will repopulate it.
 	user.reconstructRelationships(nil)
 	defer user.Unlock()
 

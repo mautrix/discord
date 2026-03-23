@@ -1529,7 +1529,7 @@ func (portal *Portal) RefererOptIfUser(sess *discordgo.Session, threadID string)
 
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() {
-		if !sender.IsLoggedIn() {
+		if !sender.IsLoggedIn() || sender.Session == nil {
 			go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
 			return
 		}
@@ -1539,18 +1539,25 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		}
 
 		if portal.bridge.Config.Bridge.ForbidDMingStrangers {
-			sender.relationshipLock.RLock()
-			if !sender.relationshipsReady {
-				go portal.sendMessageMetrics(evt, errRelationshipsNotReady, "")
-				sender.relationshipLock.RUnlock()
-				return
+			recipient := portal.bridge.GetPuppetByID(portal.OtherUserID)
+			if recipient.Name == "" {
+				recipient.UpdateInfo(sender, nil, nil)
 			}
-			relationship, hasRelationship := sender.relationships[portal.OtherUserID]
-			sender.relationshipLock.RUnlock()
 
-			if !hasRelationship || relationship.Type != discordgo.RelationshipFriend {
-				go portal.sendMessageMetrics(evt, errDMingStranger, "")
-				return
+			if !recipient.IsBot {
+				sender.relationshipLock.RLock()
+				if !sender.relationshipsReady {
+					go portal.sendMessageMetrics(evt, errRelationshipsNotReady, "")
+					sender.relationshipLock.RUnlock()
+					return
+				}
+				relationship, hasRelationship := sender.relationships[portal.OtherUserID]
+				sender.relationshipLock.RUnlock()
+
+				if !hasRelationship || relationship.Type != discordgo.RelationshipFriend {
+					go portal.sendMessageMetrics(evt, errDMingStranger, "")
+					return
+				}
 			}
 		}
 	}

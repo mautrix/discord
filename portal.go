@@ -1529,7 +1529,7 @@ func (portal *Portal) RefererOptIfUser(sess *discordgo.Session, threadID string)
 
 func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 	if portal.IsPrivateChat() {
-		if !sender.IsLoggedIn() || sender.Session == nil {
+		if !sender.IsLoggedIn() {
 			go portal.sendMessageMetrics(evt, errUserNotLoggedIn, "Ignoring")
 			return
 		}
@@ -1540,9 +1540,6 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 
 		if portal.bridge.Config.Bridge.ForbidDMingStrangers {
 			recipient := portal.bridge.GetPuppetByID(portal.OtherUserID)
-			if recipient.Name == "" {
-				recipient.UpdateInfo(sender, nil, nil)
-			}
 
 			if !recipient.IsBot {
 				sender.relationshipLock.RLock()

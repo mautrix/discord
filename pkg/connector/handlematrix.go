@@ -181,7 +181,11 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 
 			dmRecip := d.userCache.Resolve(ctx, *dmRecipID)
 
-			if dmRecip != nil && !dmRecip.Bot && !friendsWithDMRecip {
+			// IsMessageRequest is Discord's own "is this a stranger?" signal — false means
+			// Discord has accepted the conversation, even when the two users aren't friends.
+			isAcceptedDM := destCh != nil && !destCh.IsMessageRequest
+
+			if dmRecip != nil && !dmRecip.Bot && !friendsWithDMRecip && !isAcceptedDM {
 				loggedRelType := "none"
 				if rel != nil {
 					loggedRelType = readableRelationshipType(rel.Type)

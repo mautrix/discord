@@ -52,7 +52,8 @@ type AuthMachine struct {
 }
 
 type AuthMachineState struct {
-	Fingerprint Fingerprint
+	Fingerprint    Fingerprint
+	InstallationID string
 }
 
 type CaptchaSolution struct {
@@ -260,6 +261,10 @@ func (am *AuthMachine) doHandlingCaptcha(ctx context.Context, req *http.Request)
 	if debugOptions != "" {
 		req.Header.Set(HeaderDebugOptions, debugOptions)
 	}
+	// Set X-Installation-ID if we have one.
+	if am.State.InstallationID != "" {
+		req.Header.Set(HeaderInstallationID, am.State.InstallationID)
+	}
 	// Set X-Fingerprint if we have one.
 	if !am.State.Fingerprint.IsZero() {
 		req.Header.Set(HeaderFingerprint, am.State.Fingerprint.HeaderValue())
@@ -310,10 +315,20 @@ func (am *AuthMachine) performApexExperiments(ctx context.Context) (any, error) 
 	}
 
 	// (Apex experiments don't get `X-Context-Properties`.)
-	_, _, err = am.doHandlingCaptcha(ctx, req)
+	_, body, err := am.doHandlingCaptcha(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request apex experiments: %w", err)
 	}
+
+	var apexExperiments struct {
+		InstallationID string `json:"installation"`
+	}
+	err = json.Unmarshal(body, &apexExperiments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode apex experiments: %w", err)
+	}
+
+	am.State.InstallationID = apexExperiments.InstallationID
 
 	return nil, nil
 }

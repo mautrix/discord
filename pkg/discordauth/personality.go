@@ -26,6 +26,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+const HeaderInstallationID = "x-installation-id"
 const HeaderDiscordLocale = "x-discord-locale"
 const HeaderDiscordTimezone = "x-discord-timezone"
 const HeaderSuperProperties = "x-super-properties"

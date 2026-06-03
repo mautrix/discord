@@ -10,7 +10,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"net/http/cookiejar"
 	"os"
 	"os/signal"
 	"regexp"
@@ -23,6 +22,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
+
+	"go.mau.fi/util/exhttp"
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
 )
@@ -61,14 +62,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(log.WithContext(context.Background()), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	jar, err := cookiejar.New(nil)
+	client, err := discordauth.NewDiscordAuthHTTPClient(exhttp.SensibleClientSettings)
 	if err != nil {
-		return fmt.Errorf("failed to create cookie jar: %w", err)
+		return fmt.Errorf("failed to create auth http client: %w", err)
 	}
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Jar:     jar,
-	}
+
 	captchaServer := newCaptchaServer(log.With().Str("component", "authtester captcha").Logger())
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

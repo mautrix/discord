@@ -106,8 +106,6 @@ var _ bridgev2.LoginProcessCookies = (*DiscordMachineLogin)(nil)
 var _ bridgev2.LoginProcessDisplayAndWait = (*DiscordMachineLogin)(nil)
 
 func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*DiscordMachineLogin, error) {
-	http := login.User.Bridge.GetHTTPClientSettings().Compile()
-
 	launchSig, err := discordgo.NewVanillaSignature()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate launch signature: %w", err)
@@ -140,6 +138,12 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 		},
 	}
 
+	http, err := discordauth.NewDiscordAuthHTTPClient(
+		login.User.Bridge.GetHTTPClientSettings(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create http client: %w", err)
+	}
 	ml := &DiscordMachineLogin{
 		DiscordGenericLogin: login,
 	}

@@ -225,6 +225,9 @@ func (d *DiscordMachineLogin) ContinueMFA(ctx context.Context, challenge *discor
 		}
 		log.Info().Msg("Received backup code from user, proceeding")
 
+		// Discord presents MFA backup codes to the user with dashes, but the
+		// backend doesn't actually accept them. Follow in the footsteps of the
+		// first party clients and remove them from the user input.
 		backupCode := strings.TrimSpace(strings.ReplaceAll(
 			input[InputDataFieldIDMFABackupCode],
 			"-",
@@ -259,7 +262,7 @@ func (d *DiscordMachineLogin) ContinueMFA(ctx context.Context, challenge *discor
 		}
 		log.Info().Msg("Received TOTP code from user, proceeding")
 
-		totpCode := input[InputDataFieldIDMFATOTPCode]
+		totpCode := strings.TrimSpace(input[InputDataFieldIDMFATOTPCode])
 		return &discordauth.MFAContinue{
 			Type: discordauth.AuthenticatorTOTP,
 			MFAContinuation: discordauth.MFAContinuation{

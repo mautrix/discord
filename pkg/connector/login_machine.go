@@ -131,10 +131,14 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 			LaunchSignature:   launchSig,
 			ClientAppState:    "focused",
 		},
+		// TODO(skip): These are different for different kinds of requests.
 		ExtraHeaders: map[string]string{
-			"Sec-Fetch-Dest": "empty",
-			"Sec-Fetch-Mode": "cors",
-			"Sec-Fetch-Site": "same-origin",
+			"sec-ch-ua":          discordgo.DroidBaseHeaders["Sec-Ch-Ua"],
+			"sec-ch-ua-mobile":   "?0",
+			"sec-ch-ua-platform": discordgo.DroidBaseHeaders["Sec-Ch-Ua-Platform"],
+			"sec-fetch-dest":     "empty",
+			"sec-fetch-mode":     "cors",
+			"sec-fetch-site":     "same-origin",
 		},
 	}
 

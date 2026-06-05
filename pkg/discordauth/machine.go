@@ -341,6 +341,12 @@ func (am *AuthMachine) performApexExperiments(ctx context.Context) (any, error) 
 func (am *AuthMachine) Prepare(ctx context.Context) error {
 	log := am.log.With().Str("action", "prepare discord auth machine").Logger()
 	ctx = log.WithContext(ctx)
+
+	if !am.State.Fingerprint.IsZero() {
+		log.Debug().Msg("Already prepared")
+		return nil
+	}
+
 	log.Info().Msg("Preparing Discord auth")
 
 	legacy, err := am.performLegacyExperiments(ctx)
@@ -355,7 +361,9 @@ func (am *AuthMachine) Prepare(ctx context.Context) error {
 
 	// (Apex experiments aren't fetched with the fingerprint, so only set it
 	// now.)
-	am.State.Fingerprint = legacy.Fingerprint
+	if !legacy.Fingerprint.IsZero() {
+		am.State.Fingerprint = legacy.Fingerprint
+	}
 	if am.LogFilters.Fingerprint {
 		log.Info().Str("fingerprint", am.State.Fingerprint.HeaderValue()).Msg("Loaded Discord fingerprint")
 	}

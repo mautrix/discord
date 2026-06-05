@@ -18,7 +18,6 @@ package connector
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -343,21 +342,12 @@ type ExtractionConfig struct {
 
 const CaptchaExtractionField = "captcha_token"
 
-// FIXME: This redirection stub is only necessary to work around some behavior in
-// Beeper Desktop where it only attaches the event listeners that dispatch the
-// injected JS snippets after the page loads completely. We can't run JavaScript
-// "upon load", which is what we really want here. To get around that, we can
-// load a small page that merely forces a redirection to the right origin.
-//
-// (The exact Discord URL we end up at here is mostly irrelevant, but it would
-// be nice to avoid loading the actual SPA.)
-const captchaRedirectionStub = `<!DOCTYPE html>
-<title>Loading</title>
-<meta http-equiv="refresh" content="1;url=https://discord.com/company-information">`
+// The CAPTCHA must be rendered on a discord.com origin for hCaptcha to accept
+// the sitekey. The exact Discord URL is mostly irrelevant, but it would be
+// nice to avoid loading the actual SPA.
+const captchaPageURL = "https://discord.com/company-information"
+
 const captchaExtractionJSTemplate = `new Promise((res0, rej0) => {
-  if (!window.location.hostname.endsWith('discord.com')) {
-    return
-  }
   if (window.__meow_captchaPromise) {
     window.__meow_captchaPromise.then(res0, rej0)
     return
@@ -433,14 +423,12 @@ func (d *DiscordMachineLogin) SolveCaptcha(ctx context.Context, cap *discordauth
 	}
 	log.Debug().Str("captcha_js", extractJS).Msg("Computed CAPTCHA solution extraction JS")
 
-	dataURL := "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte(captchaRedirectionStub))
-
 	input, err := d.promptUser(ctx, &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeCookies,
 		StepID:       LoginStepIDMachineCaptcha,
 		Instructions: "Discord is presenting a CAPTCHA challenge.",
 		CookiesParams: &bridgev2.LoginCookiesParams{
-			URL:       dataURL,
+			URL:       captchaPageURL,
 			ExtractJS: extractJS,
 			Fields: []bridgev2.LoginCookieField{{
 				ID:       CaptchaExtractionField,

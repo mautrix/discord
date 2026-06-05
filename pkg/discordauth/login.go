@@ -36,7 +36,8 @@ func NewCreds(emailOrPhone string, password string) *Creds {
 	}
 }
 
-// A LoginCompleted is returned from Discord when a log in flow concludes.
+// A LoginCompleted is returned from Discord when a log in flow terminates in
+// success. This includes the presence of any involved MFA flows.
 type LoginCompleted struct {
 	Token           Sensitive[string] `json:"token"`
 	UserID          string            `json:"user_id"`

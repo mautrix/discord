@@ -75,8 +75,8 @@ type APIError struct {
 
 // A FormError communicates detailed error information for certain JSON field.
 type FormError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    FormErrorCode `json:"code"`
+	Message string        `json:"message"`
 }
 
 type FormErrorCode string
@@ -91,9 +91,9 @@ const (
 	InvalidLogin FormErrorCode = "INVALID_LOGIN"
 )
 
-// FormFieldErrors returns the [FormError] values associated with the
-// given key that had been sent in the request. If the key present or
-// the errors array is empty for whatever reason, nil is returned.
+// FormFieldErrors returns the [FormError] values associated with the given key
+// that had been sent in the request. If the key isn't present or the errors
+// array is empty for whatever reason, nil is returned.
 //
 // NOTE/TODO: This function does not currently support accessing fields beyond
 // the first level.
@@ -115,7 +115,29 @@ func (err *APIError) FormFieldErrors(key string) ([]FormError, error) {
 	return leaf.Errors, nil
 }
 
+// FieldHasError reports whether a certain field has a given [FormErrorCode].
+// false is returned on error conditions.
+func (err *APIError) FieldHasError(key string, code FormErrorCode) bool {
+	errors, inspectionErr := err.FormFieldErrors(key)
+	if inspectionErr != nil {
+		return false
+	}
+	for _, error := range errors {
+		return error.Code == code
+	}
+	return false
+}
+
 var _ error = (*APIError)(nil)
+
+// IsUserInputError reports whether the error was ultimately due to user input
+// error. When this is true, it is appropriate to prompt the user for the same
+// value again.
+func (err APIError) IsUserInputError() bool {
+	isInvalidUsernamePhoneOrPassword := err.Code == InvalidFormBody &&
+		(err.FieldHasError("login", InvalidLogin) || err.FieldHasError("password", InvalidLogin))
+	return err.Code == MFAInvalidCode || isInvalidUsernamePhoneOrPassword
+}
 
 func (err APIError) Error() string {
 	msg := fmt.Sprintf("Discord API error %d: \"%s\"", err.Code, err.Message)

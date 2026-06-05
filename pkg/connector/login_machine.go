@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -155,7 +156,10 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 	return ml, nil
 }
 
-func (d *DiscordMachineLogin) ContinueMFA(ctx context.Context, challenge *discordauth.MFAChallenge) (*discordauth.MFAContinue, error) {
+func (d *DiscordMachineLogin) ContinueMFA(
+	ctx context.Context,
+	challenge *discordauth.MFAChallenge,
+) (*discordauth.MFAContinue, error) {
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "discord machine continue mfa").
 		Str("login_instance_id", challenge.LoginInstanceID).
@@ -185,10 +189,18 @@ func (d *DiscordMachineLogin) ContinueMFA(ctx context.Context, challenge *discor
 		return nil, fmt.Errorf("no supported MFA methods available (WebAuthn is unimplemented)")
 	}
 
+	instructions := "How do you want to verify it’s you?"
+	if challenge.PreviousError != nil {
+		instructions = "That code didn’t work. Choose how you’d like to verify and try again."
+		if challenge.BackupCodesAccepted {
+			instructions += " If your authenticator app isn’t working, you can use a backup code instead."
+		}
+	}
+
 	input, err := d.promptUser(ctx, &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
 		StepID:       LoginStepIDMachineMFAMethod,
-		Instructions: "How do you want to verify it’s you?",
+		Instructions: instructions,
 		UserInputParams: &bridgev2.LoginUserInputParams{
 			Fields: []bridgev2.LoginInputDataField{
 				{
@@ -461,10 +473,13 @@ func (d *DiscordMachineLogin) Cancel() {
 	}
 }
 
-func credsStep() *bridgev2.LoginStep {
+// initialCredsStep returns the very first login step needed to kick off the
+// authentication flow (email or phone number and password).
+func initialCredsStep(instructions string) *bridgev2.LoginStep {
 	return &bridgev2.LoginStep{
-		Type:   bridgev2.LoginStepTypeUserInput,
-		StepID: LoginStepIDMachineInitialCreds,
+		Type:         bridgev2.LoginStepTypeUserInput,
+		StepID:       LoginStepIDMachineInitialCreds,
+		Instructions: instructions,
 		UserInputParams: &bridgev2.LoginUserInputParams{
 			Fields: []bridgev2.LoginInputDataField{
 				{
@@ -494,7 +509,32 @@ func waitStep() *bridgev2.LoginStep {
 }
 
 func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
-	return credsStep(), nil
+	return initialCredsStep(""), nil
+}
+
+// initialCredsRejectionMessage reports whether err was caused by Discord
+// rejecting the submitted credentials (i.e. a bad username/phone or password),
+// and if so unwraps a human-readable reason suitable for re-prompting. It
+// deliberately only matches errors that carry login/password field errors.
+func initialCredsRejectionMessage(err error) (string, bool) {
+	// TODO(skip): This needs to go. Rewrite AuthMachine to be a proper state
+	// machine and obviate the connector from having to care about recognizing
+	// that it should prompt the user again.
+
+	var apiErr discordauth.APIError
+	if !errors.As(err, &apiErr) || !apiErr.IsUserInputError() {
+		return "", false
+	}
+
+	// Discord returns the same "Login or password is invalid." string under
+	// both the login and password keys; surface it verbatim when present.
+	for _, key := range []string{"login", "password"} {
+		if fieldErrs, err := apiErr.FormFieldErrors(key); err == nil && len(fieldErrs) > 0 {
+			return fieldErrs[0].Message, true
+		}
+	}
+
+	return "", false
 }
 
 func (d *DiscordMachineLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
@@ -654,6 +694,11 @@ func (d *DiscordMachineLogin) Wait(ctx context.Context) (*bridgev2.LoginStep, er
 	select {
 	case signal := <-d.signals:
 		if signal.err != nil {
+			if msg, ok := initialCredsRejectionMessage(signal.err); ok {
+				zerolog.Ctx(ctx).Warn().Err(signal.err).
+					Msg("Discord rejected initial credentials, prompting user with initial creds step again")
+				return initialCredsStep(msg), nil
+			}
 			return nil, signal.err
 		}
 

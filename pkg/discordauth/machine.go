@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -493,31 +494,58 @@ func (am *AuthMachine) tryHandlingMFA(ctx context.Context, loginRespBody []byte)
 	ctx = log.WithContext(ctx)
 
 	log.Info().Msg("Need to log in with MFA")
+
+	var prevErr error
+	for {
+		completed, err := am.attemptMFA(ctx, &required, prevErr)
+		if err == nil {
+			// Success.
+			return completed, nil
+		}
+
+		var apiErr APIError
+		if errors.As(err, &apiErr) && apiErr.IsUserInputError() {
+			log.Warn().Err(err).Msg("MFA submission rejected, prompting user again")
+			prevErr = apiErr
+			continue
+		}
+
+		// Failed for some other reason, bail.
+		return nil, err
+	}
+}
+
+func (am *AuthMachine) attemptMFA(
+	ctx context.Context,
+	required *LoginMFARequired,
+	prevErr error,
+) (*LoginCompleted, error) {
+	log := zerolog.Ctx(ctx)
 	cont, err := am.handler.ContinueMFA(ctx, &MFAChallenge{
-		LoginMFARequired: &required,
+		LoginMFARequired: required,
 		RequestSMS: func(ctx context.Context) (*SMSSendResponse, error) {
 			// Thread the MFAState through on behalf of the client.
 			return am.requestSMSCode(ctx, &required.MFAState)
 		},
+		PreviousError: prevErr,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to continue mfa flow: %w", err)
 	}
 	if cont == nil {
-		return nil, fmt.Errorf("no MFA continuation returned")
+		return nil, fmt.Errorf("handler didn't return a MFA continuation")
 	}
 
 	log.Info().Str("mfa_type", string(cont.Type)).Msg("Continuing with MFA flow")
-
 	contReq, err := am.POST(ctx, fmt.Sprintf("/auth/mfa/%s", cont.Type), cont.MFAContinuation)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct MFA continuation request: %w", err)
 	}
-
 	_, body, err := am.doHandlingCaptcha(ctx, contReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to complete MFA flow: %w", err)
 	}
+
 	var completed LoginCompleted
 	err = json.Unmarshal(body, &completed)
 	if err != nil {

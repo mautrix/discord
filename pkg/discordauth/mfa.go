@@ -44,6 +44,12 @@ type MFAChallenge struct {
 	// RequestSMS asks Discord to send a MFA code to the user's phone number.
 	// This will only work if the user has SMS MFA enabled.
 	RequestSMS func(context.Context) (*SMSSendResponse, error)
+
+	// PreviousError is present when a prior code submission in this challenge
+	// was rejected by Discord's backend. Handlers should surface this to the
+	// user interface as part of a retry, e.g. "that code was invalid, try
+	// again".
+	PreviousError error
 }
 
 // An [MFAContinue] combines an [AuthenticatorType] with an [MFAContinuation],

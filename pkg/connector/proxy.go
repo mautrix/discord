@@ -139,5 +139,15 @@ func (d *DiscordClient) refreshProxy(ctx context.Context, reason string) {
 		d.httpClient = settings.Compile()
 	}
 
-	log.Debug().Bool("proxying_media", d.connector.Config.ProxyMedia).Msg("Refreshed proxy")
+	proxyHost := "(none)"
+	if settings.ProxyAddress != "" {
+		if u, err := url.Parse(settings.ProxyAddress); err == nil {
+			proxyHost = u.Host
+		}
+	}
+
+	log.Debug().
+		Str("proxy_host", proxyHost).
+		Bool("proxying_media", d.connector.Config.ProxyMedia).
+		Msg("Refreshed proxy")
 }

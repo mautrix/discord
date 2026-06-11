@@ -22,6 +22,12 @@ type Client struct {
 
 	conn *websocket.Conn
 
+	// dialer dials the remote-auth websocket. httpClient is used for the single
+	// RemoteAuthLogin REST call once a ticket arrives. Both route through the
+	// proxy so the QR handshake egresses from the same IP as the session.
+	dialer     *websocket.Dialer
+	httpClient *http.Client
+
 	qrChan   chan string
 	doneChan chan struct{}
 
@@ -34,16 +40,26 @@ type Client struct {
 	privateKey *rsa.PrivateKey
 }
 
-// New creates a new Discord remote auth client. qrChan is a channel that will
-// receive the qrcode once it is available.
-func New() (*Client, error) {
+// New creates a new Discord remote auth client. dialer and httpClient route the
+// websocket and the RemoteAuthLogin REST call through a proxy; pass nil for
+// either to use the unproxied defaults.
+func New(dialer *websocket.Dialer, httpClient *http.Client) (*Client, error) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
 	}
 
+	if dialer == nil {
+		dialer = websocket.DefaultDialer
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
 	return &Client{
 		URL:        "wss://remote-auth-gateway.discord.gg/?v=2",
+		dialer:     dialer,
+		httpClient: httpClient,
 		privateKey: privateKey,
 	}, nil
 }
@@ -62,7 +78,7 @@ func (c *Client) Dial(ctx context.Context, qrChan chan string, doneChan chan str
 	c.qrChan = qrChan
 	c.doneChan = doneChan
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, c.URL, header)
+	conn, _, err := c.dialer.DialContext(ctx, c.URL, header)
 	if err != nil {
 		return err
 	}

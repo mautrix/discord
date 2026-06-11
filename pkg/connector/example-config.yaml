@@ -36,3 +36,14 @@ custom_emoji_reactions: true
 # Should we log when messages from unbridged guild channels are dropped? This
 # only includes metadata such as channel and message ID.
 log_when_dropping_messages: true
+
+# Static proxy address (HTTP or SOCKS5) for connecting to Discord.
+proxy:
+# HTTP endpoint to request a new proxy address from, for dynamically assigned
+# proxies. The endpoint must return a JSON body with a string field called
+# proxy_url. It is re-fetched on every (re)connect so each session egresses from
+# one consistent IP.
+get_proxy_from:
+# Should avatar, icon, and attachment downloads also go through the proxy? The
+# gateway websocket and REST API always use it (when proxying).
+proxy_media: false

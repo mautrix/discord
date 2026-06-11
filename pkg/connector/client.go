@@ -87,16 +87,18 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		// Session on the UserLogin will be nil.
 	} else {
 		var err error
-		session, err = NewDiscordSession(ctx, meta.Token)
+		session, err = NewDiscordSession(ctx, d, meta.Token, "connect")
 		if err != nil {
 			return err
 		}
 	}
 
 	cl := DiscordClient{
-		connector:     d,
-		UserLogin:     login,
-		Session:       session,
+		connector: d,
+		UserLogin: login,
+		Session:   session,
+		// This HTTP client is quickly overridden by a proxied version (when
+		// one is configured).
 		httpClient:    d.Bridge.GetHTTPClientSettings().Compile(),
 		userCache:     NewUserCache(session),
 		guildSettings: make(map[string]*discordgo.UserGuildSettings),
@@ -107,6 +109,9 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 
 	if session != nil {
 		session.RESTResponseHook = cl.tapDiscordRESTResponse
+		session.BeforeReconnect = func(*discordgo.Session) {
+			(login.Client.(*DiscordClient)).refreshProxy(ctx, "reconnect")
+		}
 	}
 
 	return nil
@@ -189,6 +194,8 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int) {
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnecting,
 	})
+
+	d.refreshProxy(ctx, "connect")
 
 	err := d.connect(ctx)
 	if err != nil {

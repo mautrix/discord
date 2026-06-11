@@ -215,6 +215,7 @@ func (p *serverPendingLogin) process(client *Client) error {
 	if err != nil {
 		return err
 	}
+	sess.Client = client.httpClient
 	encryptedToken, err := sess.RemoteAuthLogin(p.Ticket)
 	if err != nil {
 		return err

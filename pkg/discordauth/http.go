@@ -76,9 +76,9 @@ func NewDiscordAuthHTTPClient(settings exhttp.ClientSettings) (*http.Client, err
 	reqClient := req.C().ImpersonateChrome()
 
 	// By default, req infers the proxy from the environment. If a proxy is not
-	// specified via exhttp, we don't want one at all, so remove the proxy
-	// before we apply exhttp settings. `MakeTransportOverride` does not remove
-	// the proxy on its own.
+	// specified via exhttp, we don't want one at all, so remove the
+	// req-specified proxy before applying exhttp settings.
+	// `MakeTransportOverride` does not remove the proxy on its own.
 	reqClient.SetProxy(nil)
 
 	// Apply exhttp ClientSettings to the req Client. Note that we reuse req's

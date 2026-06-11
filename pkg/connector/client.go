@@ -87,7 +87,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		// Session on the UserLogin will be nil.
 	} else {
 		var err error
-		session, err = NewDiscordSession(ctx, d, meta.Token, "connect")
+		session, err = NewDiscordSession(ctx, meta.Token)
 		if err != nil {
 			return err
 		}
@@ -110,7 +110,10 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 	if session != nil {
 		session.RESTResponseHook = cl.tapDiscordRESTResponse
 		session.BeforeReconnect = func(*discordgo.Session) {
-			(login.Client.(*DiscordClient)).refreshProxy(ctx, "reconnect")
+			c := login.Client.(*DiscordClient)
+			if c.connector.proxyConfigured() {
+				c.updateProxy(c.connector.Bridge.BackgroundCtx, "reconnect")
+			}
 		}
 	}
 
@@ -195,7 +198,13 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int) {
 		StateEvent: status.StateConnecting,
 	})
 
-	d.refreshProxy(ctx, "connect")
+	if d.connector.proxyConfigured() && !d.updateProxy(ctx, "connect") {
+		d.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateUnknownError,
+			Error:      DCProxyResolveFail,
+		})
+		return
+	}
 
 	err := d.connect(ctx)
 	if err != nil {

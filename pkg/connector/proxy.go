@@ -22,20 +22,29 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
 )
 
+const proxyResolveTimeout = 30 * time.Second
+
 type respGetProxy struct {
 	ProxyURL string `json:"proxy_url"`
 }
 
-// getProxy returns the effective proxy URL to use for Discord traffic,
+// proxyConfigured reports whether any proxy (static or dynamic) is configured.
+func (d *DiscordConnector) proxyConfigured() bool {
+	return d.Config.GetProxyFrom != "" || d.Config.Proxy != ""
+}
+
+// getProxy returns the effective proxy URL to use for Discord traffic
 // according to the config.
-func (d *DiscordConnector) getProxy(reason string) (string, error) {
+func (d *DiscordConnector) getProxy(ctx context.Context, reason string) (string, error) {
 	if d.Config.GetProxyFrom == "" {
 		// Use the static proxy, if any.
 		return d.Config.Proxy, nil
@@ -50,7 +59,9 @@ func (d *DiscordConnector) getProxy(reason string) (string, error) {
 	q.Set("reason", reason)
 	parsed.RawQuery = q.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
+	ctx, cancel := context.WithTimeout(ctx, proxyResolveTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to prepare dynamic proxy request: %w", err)
 	}
@@ -70,16 +81,27 @@ func (d *DiscordConnector) getProxy(reason string) (string, error) {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	// Treat an empty proxy_url as a resolution failure.
+	if respData.ProxyURL == "" {
+		return "", fmt.Errorf("dynamic proxy endpoint returned an empty proxy_url")
+	}
+
 	return respData.ProxyURL, nil
 }
 
-// resolveHTTPClientSettings returns the HTTP client settings that are
-// currently at play. This includes any configured proxy (fetching a dynamic
-// proxy if configured to do so).
+// resolveHTTPClientSettings returns the HTTP client settings that are currently
+// at play. This includes any configured proxy (fetching a dynamic proxy if
+// configured to do so).
+//
+// It may perform a blocking HTTP request to the dynamic proxy endpoint, so it
+// should only be called at connection and login boundaries. Code that wants an
+// HTTP client per request should use the already-resolved session.Client or
+// DiscordClient.httpClient.
 func (d *DiscordConnector) resolveHTTPClientSettings(
-	resolutionReason string,
+	ctx context.Context,
+	reason string,
 ) (exhttp.ClientSettings, error) {
-	proxyURL, err := d.getProxy(resolutionReason)
+	proxyURL, err := d.getProxy(ctx, reason)
 	if err != nil {
 		return exhttp.ClientSettings{}, fmt.Errorf("failed to get proxy: %w", err)
 	}
@@ -92,16 +114,35 @@ func (d *DiscordConnector) resolveHTTPClientSettings(
 	return settings, nil
 }
 
-// resolveTransport returns an HTTP client and WebSocket dialer
-// configured to use any configured proxies.
+// resolveTransport returns an HTTP client and WebSocket dialer configured to use
+// any configured proxies.
 func (d *DiscordConnector) resolveTransport(
-	resolutionReason string,
+	ctx context.Context,
+	reason string,
 ) (*http.Client, *websocket.Dialer, error) {
-	settings, err := d.resolveHTTPClientSettings(resolutionReason)
+	settings, err := d.resolveHTTPClientSettings(ctx, reason)
 	if err != nil {
 		return nil, nil, err
 	}
 	return settings.Compile(), wsDialerFromSettings(settings), nil
+}
+
+// applyProxyToSession resolves the proxy once and points the session's REST
+// client and gateway dialer at it. Used to proxy a session that isn't yet owned
+// by a DiscordClient (e.g. the @me validation during login), so the caller can
+// fail the operation if the proxy can't be resolved.
+func (d *DiscordConnector) applyProxyToSession(
+	ctx context.Context,
+	session *discordgo.Session,
+	reason string,
+) error {
+	settings, err := d.resolveHTTPClientSettings(ctx, reason)
+	if err != nil {
+		return err
+	}
+	session.Client = settings.Compile()
+	session.Dialer = wsDialerFromSettings(settings)
+	return nil
 }
 
 func wsDialerFromSettings(cs exhttp.ClientSettings) *websocket.Dialer {
@@ -113,21 +154,21 @@ func wsDialerFromSettings(cs exhttp.ClientSettings) *websocket.Dialer {
 	return &dialer
 }
 
-// refreshProxy re-resolves the proxy for the given reason and applies it to
+// updateProxy re-resolves the proxy once for the given reason and applies it to
 // the session's REST client, gateway dialer, and (when proxy_media is enabled)
 // the media HTTP client.
 //
-// Upon failure, a warning is logged and the previously applied proxy settings
-// are kept.
-func (d *DiscordClient) refreshProxy(ctx context.Context, reason string) {
+// It returns whether the proxy was successfully updated. On failure, the
+// previously applied settings are kept.
+func (d *DiscordClient) updateProxy(ctx context.Context, reason string) bool {
 	log := zerolog.Ctx(ctx).With().
-		Str("action", "refresh proxy").
+		Str("action", "update proxy").
 		Str("reason", reason).Logger()
 
-	settings, err := d.connector.resolveHTTPClientSettings(reason)
+	settings, err := d.connector.resolveHTTPClientSettings(ctx, reason)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to refresh proxy, keeping previous settings")
-		return
+		log.Warn().Err(err).Msg("Failed to update proxy, keeping previous settings")
+		return false
 	}
 
 	if d.Session != nil {
@@ -139,15 +180,19 @@ func (d *DiscordClient) refreshProxy(ctx context.Context, reason string) {
 		d.httpClient = settings.Compile()
 	}
 
-	proxyHost := "(none)"
-	if settings.ProxyAddress != "" {
-		if u, err := url.Parse(settings.ProxyAddress); err == nil {
-			proxyHost = u.Host
-		}
-	}
-
 	log.Debug().
-		Str("proxy_host", proxyHost).
+		Str("proxy_host", proxyHostFromSettings(settings)).
 		Bool("proxying_media", d.connector.Config.ProxyMedia).
-		Msg("Refreshed proxy")
+		Msg("Updated proxy")
+	return true
+}
+
+func proxyHostFromSettings(settings exhttp.ClientSettings) string {
+	if settings.ProxyAddress == "" {
+		return "(none)"
+	}
+	if u, err := url.Parse(settings.ProxyAddress); err == nil {
+		return u.Host
+	}
+	return "(unparsable)"
 }

@@ -52,11 +52,18 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 	// TODO we don't need an entire discordgo session for this as we're just
 	// interested in /users/@me
 	log.Info().Msg("Creating initial session with provided token")
-	session, err := NewDiscordSession(ctx, dl.connector, token, "login")
+	session, err := NewDiscordSession(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
 	}
 	dl.Session = session
+
+	// Proxy the @me call so the IP presented to Discord is consistent.
+	if dl.connector.proxyConfigured() {
+		if err := dl.connector.applyProxyToSession(ctx, session, "login"); err != nil {
+			return nil, fmt.Errorf("couldn't resolve proxy for login: %w", err)
+		}
+	}
 
 	log.Info().Msg("Requesting @me with provided token")
 	self, err := session.User("@me")

@@ -25,23 +25,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func NewDiscordSession(ctx context.Context, d *DiscordConnector, token, proxyReason string) (*discordgo.Session, error) {
+func NewDiscordSession(ctx context.Context, token string) (*discordgo.Session, error) {
 	log := zerolog.Ctx(ctx)
 
 	session, err := discordgo.New(token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
 	}
-
-	// discordgo.New populates Client and Dialer with bare defaults, so apply
-	// the proxy afterwards. This routes the gateway websocket and REST API
-	// (including media fetched via session.Client) through one resolved proxy.
-	httpClient, dialer, err := d.resolveTransport(proxyReason)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't resolve proxy: %w", err)
-	}
-	session.Client = httpClient
-	session.Dialer = dialer
 
 	// Don't bother tracking things we don't care/support right now. Presences
 	// are especially expensive to track as they occur extremely frequently.

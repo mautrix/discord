@@ -146,7 +146,7 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 	// Resolve the proxy for login so the TLS-impersonating auth client egresses
 	// from the same IP the resulting session will use. New-IP detection happens
 	// at login, so this must not connect directly.
-	settings, err := login.connector.resolveHTTPClientSettings("login")
+	settings, err := login.connector.resolveHTTPClientSettings(ctx, "login")
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve proxy: %w", err)
 	}

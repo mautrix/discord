@@ -27,6 +27,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
+	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
 )
@@ -124,7 +125,11 @@ func (d *DiscordConnector) resolveTransport(
 	if err != nil {
 		return nil, nil, err
 	}
-	return settings.Compile(), wsDialerFromSettings(settings), nil
+	client, err := discordtransport.CompileTransport(settings, discordtransport.TransportOptions{CookieJar: true})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to compile transport: %w", err)
+	}
+	return client, discordtransport.WSDialer(settings), nil
 }
 
 // applyProxyToSession resolves the proxy once and points the session's REST
@@ -140,18 +145,7 @@ func (d *DiscordConnector) applyProxyToSession(
 	if err != nil {
 		return err
 	}
-	session.Client = settings.Compile()
-	session.Dialer = wsDialerFromSettings(settings)
-	return nil
-}
-
-func wsDialerFromSettings(cs exhttp.ClientSettings) *websocket.Dialer {
-	// Copy the default dialer so we retain its handshake timeout and buffer
-	// sizes, rather than starting from a zero-valued dialer.
-	dialer := *websocket.DefaultDialer
-	dialer.NetDialContext = cs.Dial
-	dialer.Proxy = cs.HTTPProxy
-	return &dialer
+	return discordtransport.ApplyToSession(session, settings)
 }
 
 // updateProxy re-resolves the proxy once for the given reason and applies it to
@@ -172,8 +166,10 @@ func (d *DiscordClient) updateProxy(ctx context.Context, reason string) bool {
 	}
 
 	if d.Session != nil {
-		d.Session.Client = settings.Compile()
-		d.Session.Dialer = wsDialerFromSettings(settings)
+		if err := discordtransport.ApplyToSession(d.Session, settings); err != nil {
+			log.Warn().Err(err).Msg("Failed to apply settings to session, keeping previous settings")
+			return false
+		}
 	}
 
 	if d.connector.Config.ProxyMedia {

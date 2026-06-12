@@ -26,6 +26,7 @@ import (
 	"go.mau.fi/util/exhttp"
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
+	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 )
 
 const fallbackClientBuildNumber = 497254
@@ -62,7 +63,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(log.WithContext(context.Background()), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	client, err := discordauth.NewDiscordAuthHTTPClient(exhttp.SensibleClientSettings)
+	client, err := discordtransport.CompileTransport(exhttp.SensibleClientSettings, discordtransport.TransportOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create auth http client: %w", err)
 	}

@@ -30,6 +30,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
+	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 )
 
 const LoginFlowIDMachine = "machine"
@@ -149,7 +150,9 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve proxy: %w", err)
 	}
-	http, err := discordauth.NewDiscordAuthHTTPClient(settings)
+	http, err := discordtransport.CompileTransport(settings, discordtransport.TransportOptions{
+		CookieJar: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}

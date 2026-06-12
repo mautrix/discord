@@ -27,9 +27,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
-	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
+
+	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 )
 
 const proxyResolveTimeout = 30 * time.Second

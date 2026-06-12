@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -215,8 +215,7 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int) {
 	if err != nil {
 		log.Err(err).Msg("Couldn't connect to Discord")
 
-		closeErr := &websocket.CloseError{}
-		if errors.As(err, &closeErr) && closeErr.Code == 4004 {
+		if websocket.CloseStatus(err) == 4004 {
 			// Effectively the same as *discordgo.InvalidAuth, but at connect
 			// time. (discordgo only dispatches the synthetic InvalidAuth event
 			// once you've already connected successfully.)

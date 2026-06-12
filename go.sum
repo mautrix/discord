@@ -4,8 +4,8 @@ github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7Oputl
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
 github.com/andybalholm/brotli v1.2.0 h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
 github.com/andybalholm/brotli v1.2.0/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
-github.com/beeper/discordgo v0.0.0-20260611065157-c1502211d044 h1:Bda/r6cwiJ+bcXcK3GPnyoeXbP0YzSKKPbG1SsBBtHo=
-github.com/beeper/discordgo v0.0.0-20260611065157-c1502211d044/go.mod h1:lioivnibvB8j1KcF5TVpLdRLKCKHtcl8A03GpxRCre4=
+github.com/beeper/discordgo v0.0.0-20260612183558-cca335381d69 h1:fdF5T8Qtxhqreto7Ggs8+FVfmO1m4E8VsJUOQ1pJDgM=
+github.com/beeper/discordgo v0.0.0-20260612183558-cca335381d69/go.mod h1:s8aRVTzFZnyujER0GEVscqvjH6RwlPIzeDjOtWsrReM=
 github.com/beeper/req/v3 v3.0.0-20260114152409-4c060b237f73 h1:stqCPKTpnUY5JFn6wShL4RoMnebtR+MNC9fcLvOCH1Y=
 github.com/beeper/req/v3 v3.0.0-20260114152409-4c060b237f73/go.mod h1:pH5qbsMNeaNpCOlozJoLRuLfSxEYGp9uWEG5j6zogNQ=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
@@ -22,8 +22,6 @@ github.com/google/go-querystring v1.1.0 h1:AnCroh3fv4ZBgVIf1Iwtovgjaw/GiKJo8M8yD
 github.com/google/go-querystring v1.1.0/go.mod h1:Kcdr2DB4koayq7X8pmAG4sNG59So17icRSOU623lUBU=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/gorilla/websocket v1.5.0 h1:PPwGk2jz7EePpoHN/+ClbZu8SPxiqlu12wZP/3sWmnc=
-github.com/gorilla/websocket v1.5.0/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/icholy/digest v1.1.0 h1:HfGg9Irj7i+IX1o1QAmPfIBNu/Q5A5Tu3n/MED9k9H4=
 github.com/icholy/digest v1.1.0/go.mod h1:QNrsSGQ5v7v9cReDI0+eyjsXGUoRSUZQHeQ5C4XLa0Y=
 github.com/klauspost/compress v1.18.2 h1:iiPHWW0YrcFgpBYhsA6D1+fqHssJscY/Tm/y2Uqnapk=

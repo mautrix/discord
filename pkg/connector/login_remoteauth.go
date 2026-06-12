@@ -43,11 +43,11 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 	log := zerolog.Ctx(ctx)
 
 	log.Debug().Msg("Creating new remoteauth client")
-	httpClient, dialer, err := dl.connector.resolveTransport(ctx, "login")
+	restClient, wsClient, err := dl.connector.resolveTransport(ctx, "login")
 	if err != nil {
 		return nil, fmt.Errorf("couldn't resolve proxy for remoteauth: %w", err)
 	}
-	client, err := remoteauth.New(dialer, httpClient)
+	client, err := remoteauth.New(wsClient, restClient)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create Discord remoteauth client: %w", err)
 	}

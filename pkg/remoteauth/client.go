@@ -9,11 +9,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+const handshakeTimeout = 45 * time.Second
 
 type Client struct {
 	sync.Mutex
@@ -21,12 +24,18 @@ type Client struct {
 	URL string
 
 	conn *websocket.Conn
+	// connCtx scopes reads/writes on the remote-auth websocket; cancelled on
+	// close. coder's Read/Write are context-based.
+	connCtx    context.Context
+	connCancel context.CancelFunc
 
-	// dialer dials the remote-auth websocket. httpClient is used for the single
-	// RemoteAuthLogin REST call once a ticket arrives. Both route through the
-	// proxy so the QR handshake egresses from the same IP as the session.
-	dialer     *websocket.Dialer
-	httpClient *http.Client
+	// wsHTTPClient should be used to perform the websocket handshake (it
+	// forces HTTP/1.1).
+	wsHTTPClient *http.Client
+
+	// restHTTPClient should be used to perform the single RemoteAuthLogin REST
+	// call once a ticket arrives (it can advertise HTTP/2).
+	restHTTPClient *http.Client
 
 	qrChan   chan string
 	doneChan chan struct{}
@@ -40,27 +49,27 @@ type Client struct {
 	privateKey *rsa.PrivateKey
 }
 
-// New creates a new Discord remote auth client. dialer and httpClient route the
-// websocket and the RemoteAuthLogin REST call through a proxy; pass nil for
-// either to use the unproxied defaults.
-func New(dialer *websocket.Dialer, httpClient *http.Client) (*Client, error) {
+// New creates a new Discord remote auth client from the respective HTTP
+// clients, which will be used as part of WebSocket and REST communications.
+// Specify nil to use the unproxied defaults.
+func New(wsHTTPClient, restHTTPClient *http.Client) (*Client, error) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
 	}
 
-	if dialer == nil {
-		dialer = websocket.DefaultDialer
+	if wsHTTPClient == nil {
+		wsHTTPClient = http.DefaultClient
 	}
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	if restHTTPClient == nil {
+		restHTTPClient = http.DefaultClient
 	}
 
 	return &Client{
-		URL:        "wss://remote-auth-gateway.discord.gg/?v=2",
-		dialer:     dialer,
-		httpClient: httpClient,
-		privateKey: privateKey,
+		URL:            "wss://remote-auth-gateway.discord.gg/?v=2",
+		wsHTTPClient:   wsHTTPClient,
+		restHTTPClient: restHTTPClient,
+		privateKey:     privateKey,
 	}, nil
 }
 
@@ -78,12 +87,20 @@ func (c *Client) Dial(ctx context.Context, qrChan chan string, doneChan chan str
 	c.qrChan = qrChan
 	c.doneChan = doneChan
 
-	conn, _, err := c.dialer.DialContext(ctx, c.URL, header)
+	dialCtx, cancelDial := context.WithTimeout(ctx, handshakeTimeout)
+	defer cancelDial()
+	conn, _, err := websocket.Dial(dialCtx, c.URL, &websocket.DialOptions{
+		HTTPClient: c.wsHTTPClient,
+		HTTPHeader: header,
+	})
 	if err != nil {
 		return err
 	}
+	// Remove the default 32 KiB read limit.
+	conn.SetReadLimit(-1)
 
 	c.conn = conn
+	c.connCtx, c.connCancel = context.WithCancel(context.Background())
 
 	go c.processMessages()
 
@@ -105,16 +122,15 @@ func (c *Client) close() error {
 		return nil
 	}
 
-	c.conn.WriteMessage(
-		websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-	)
-
 	c.closed = true
 
 	defer close(c.doneChan)
 
-	return c.conn.Close()
+	err := c.conn.Close(websocket.StatusNormalClosure, "")
+	if c.connCancel != nil {
+		c.connCancel()
+	}
+	return err
 }
 
 func (c *Client) write(p clientPacket) error {
@@ -126,7 +142,7 @@ func (c *Client) write(p clientPacket) error {
 		return err
 	}
 
-	return c.conn.WriteMessage(websocket.TextMessage, payload)
+	return c.conn.Write(c.connCtx, websocket.MessageText, payload)
 }
 
 func (c *Client) decrypt(payload string) ([]byte, error) {

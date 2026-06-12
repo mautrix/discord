@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -25,11 +25,11 @@ func (c *Client) processMessages() {
 
 	for {
 		c.Lock()
-		_, packet, err := c.conn.ReadMessage()
+		_, packet, err := c.conn.Read(c.connCtx)
 		c.Unlock()
 
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure) {
+			if code := websocket.CloseStatus(err); code != -1 && code != websocket.StatusNormalClosure {
 				c.Lock()
 				c.err = err
 				c.Unlock()
@@ -215,7 +215,7 @@ func (p *serverPendingLogin) process(client *Client) error {
 	if err != nil {
 		return err
 	}
-	sess.Client = client.httpClient
+	sess.Client = client.restHTTPClient
 	encryptedToken, err := sess.RemoteAuthLogin(p.Ticket)
 	if err != nil {
 		return err

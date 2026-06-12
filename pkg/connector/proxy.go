@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
@@ -116,21 +115,26 @@ func (d *DiscordConnector) resolveHTTPClientSettings(
 	return settings, nil
 }
 
-// resolveTransport returns an HTTP client and WebSocket dialer configured to use
-// any configured proxies.
+// resolveTransport returns the REST HTTP client and the gateway (WebSocket
+// upgrade) HTTP client, both configured to use any configured proxies. The
+// gateway client is pinned to HTTP/1.1; see [discordtransport.CompileGatewayClient].
 func (d *DiscordConnector) resolveTransport(
 	ctx context.Context,
 	reason string,
-) (*http.Client, *websocket.Dialer, error) {
+) (restClient, wsClient *http.Client, err error) {
 	settings, err := d.resolveHTTPClientSettings(ctx, reason)
 	if err != nil {
 		return nil, nil, err
 	}
-	client, err := discordtransport.CompileTransport(settings, discordtransport.TransportOptions{CookieJar: true})
+	restClient, err = discordtransport.CompileTransport(settings, discordtransport.TransportOptions{CookieJar: true})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to compile transport: %w", err)
+		return nil, nil, fmt.Errorf("failed to compile REST transport: %w", err)
 	}
-	return client, discordtransport.WSDialer(settings), nil
+	wsClient, err = discordtransport.CompileGatewayClient(settings, discordtransport.TransportOptions{CookieJar: true})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to compile gateway transport: %w", err)
+	}
+	return restClient, wsClient, nil
 }
 
 // applyProxyToSession resolves the proxy once and points the session's REST

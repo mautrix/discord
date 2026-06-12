@@ -142,9 +142,14 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 		},
 	}
 
-	http, err := discordauth.NewDiscordAuthHTTPClient(
-		login.User.Bridge.GetHTTPClientSettings(),
-	)
+	// Resolve the proxy for login so the TLS-impersonating auth client egresses
+	// from the same IP the resulting session will use. New-IP detection happens
+	// at login, so this must not connect directly.
+	settings, err := login.connector.resolveHTTPClientSettings(ctx, "login")
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve proxy: %w", err)
+	}
+	http, err := discordauth.NewDiscordAuthHTTPClient(settings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}

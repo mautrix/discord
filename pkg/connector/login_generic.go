@@ -58,6 +58,13 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 	}
 	dl.Session = session
 
+	// Proxy the @me call so the IP presented to Discord is consistent.
+	if dl.connector.proxyConfigured() {
+		if err := dl.connector.applyProxyToSession(ctx, session, "login"); err != nil {
+			return nil, fmt.Errorf("couldn't resolve proxy for login: %w", err)
+		}
+	}
+
 	log.Info().Msg("Requesting @me with provided token")
 	self, err := session.User("@me")
 	if err != nil {

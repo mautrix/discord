@@ -94,9 +94,11 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 	}
 
 	cl := DiscordClient{
-		connector:     d,
-		UserLogin:     login,
-		Session:       session,
+		connector: d,
+		UserLogin: login,
+		Session:   session,
+		// This HTTP client is quickly overridden by a proxied version (when
+		// one is configured).
 		httpClient:    d.Bridge.GetHTTPClientSettings().Compile(),
 		userCache:     NewUserCache(session),
 		guildSettings: make(map[string]*discordgo.UserGuildSettings),
@@ -107,6 +109,17 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 
 	if session != nil {
 		session.RESTResponseHook = cl.tapDiscordRESTResponse
+		session.BeforeReconnect = func(*discordgo.Session) {
+			c := login.Client.(*DiscordClient)
+			if c.connector.proxyConfigured() && !c.updateProxy(c.connector.Bridge.BackgroundCtx, "reconnect") {
+				// Failed to update the proxy. Continue reconnecting via the
+				// last good proxy, but report the failure.
+				c.UserLogin.BridgeState.Send(status.BridgeState{
+					StateEvent: status.StateTransientDisconnect,
+					Error:      DCProxyResolveFail,
+				})
+			}
+		}
 	}
 
 	return nil
@@ -189,6 +202,14 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int) {
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnecting,
 	})
+
+	if d.connector.proxyConfigured() && !d.updateProxy(ctx, "connect") {
+		d.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateUnknownError,
+			Error:      DCProxyResolveFail,
+		})
+		return
+	}
 
 	err := d.connect(ctx)
 	if err != nil {

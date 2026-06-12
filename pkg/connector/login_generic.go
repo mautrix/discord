@@ -52,7 +52,7 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 	// TODO we don't need an entire discordgo session for this as we're just
 	// interested in /users/@me
 	log.Info().Msg("Creating initial session with provided token")
-	session, err := NewDiscordSession(ctx, token)
+	session, err := NewDiscordSession(ctx, dl.connector.Bridge.GetHTTPClientSettings(), token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
 	}

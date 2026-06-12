@@ -87,7 +87,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		// Session on the UserLogin will be nil.
 	} else {
 		var err error
-		session, err = NewDiscordSession(ctx, meta.Token)
+		session, err = NewDiscordSession(ctx, d.Bridge.GetHTTPClientSettings(), meta.Token)
 		if err != nil {
 			return err
 		}

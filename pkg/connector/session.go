@@ -23,14 +23,22 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/exhttp"
+
+	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 )
 
-func NewDiscordSession(ctx context.Context, token string) (*discordgo.Session, error) {
+func NewDiscordSession(ctx context.Context, settings exhttp.ClientSettings, token string) (*discordgo.Session, error) {
 	log := zerolog.Ctx(ctx)
 
 	session, err := discordgo.New(token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
+	}
+
+	// Cloak sessions regardless of proxy.
+	if err := discordtransport.ApplyToSession(session, settings); err != nil {
+		return nil, fmt.Errorf("couldn't apply TLS cloak to Discord session: %w", err)
 	}
 
 	// Don't bother tracking things we don't care/support right now. Presences

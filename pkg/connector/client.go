@@ -111,8 +111,13 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		session.RESTResponseHook = cl.tapDiscordRESTResponse
 		session.BeforeReconnect = func(*discordgo.Session) {
 			c := login.Client.(*DiscordClient)
-			if c.connector.proxyConfigured() {
-				c.updateProxy(c.connector.Bridge.BackgroundCtx, "reconnect")
+			if c.connector.proxyConfigured() && !c.updateProxy(c.connector.Bridge.BackgroundCtx, "reconnect") {
+				// Failed to update the proxy. Continue reconnecting via the
+				// last good proxy, but report the failure.
+				c.UserLogin.BridgeState.Send(status.BridgeState{
+					StateEvent: status.StateTransientDisconnect,
+					Error:      DCProxyResolveFail,
+				})
 			}
 		}
 	}

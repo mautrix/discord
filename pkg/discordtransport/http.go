@@ -116,18 +116,30 @@ func forceHTTP1ChromeFingerprint(c *req.Client) {
 			hostname = addr[:i]
 		}
 
-		// NOTE: The ClientHelloID _must_ match what ImpersonateChrome uses.
+		// NOTE: The ClientHelloID here _must_ match what req's
+		// ImpersonateChrome uses.
 		spec, err := utls.UTLSIdToSpec(utls.HelloChrome_120)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to build Chrome uTLS spec: %w", err)
 		}
 
-		// Patch its ALPN extension to exclusively offer http/1.1.
+		// The actual changes we're making here:
+		exts := spec.Extensions[:0]
 		for _, ext := range spec.Extensions {
-			if alpn, ok := ext.(*utls.ALPNExtension); ok {
-				alpn.AlpnProtocols = []string{"http/1.1"}
+			switch e := ext.(type) {
+			// Drop the ALPS (application_settings) extension. Modern Chrome
+			// will stop offering h2 there when ALPN omits it. Match that
+			// behavior.
+			case *utls.ApplicationSettingsExtension:
+				continue
+
+			// Patch the ALPN extension to exclusively offer http/1.1.
+			case *utls.ALPNExtension:
+				e.AlpnProtocols = []string{"http/1.1"}
 			}
+			exts = append(exts, ext)
 		}
+		spec.Extensions = exts
 
 		tlsConfig := c.GetTLSClientConfig()
 		uconn := utls.UClient(plainConn, &utls.Config{

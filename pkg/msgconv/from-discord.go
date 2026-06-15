@@ -31,6 +31,7 @@ import (
 	"go.mau.fi/util/exmaps"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
@@ -137,16 +138,20 @@ func (mc *MessageConverter) ToMatrix(
 	// 	puppet.addMemberMeta(part, msg)
 	// }
 
-	sender := discordid.MakeUserID(msg.Author.ID)
-	var pmp event.BeeperPerMessageProfile
-	ghost, err := portal.Bridge.GetGhostByID(ctx, sender)
-	if err != nil {
-		log.Err(err).Msg("Failed to get ghost for per-message profile")
-	} else {
-		pmp.ID = string(ghost.Intent.GetMXID())
-		pmp.Displayname = ghost.Name
-		if ghost.AvatarMXC != "" {
-			pmp.AvatarURL = &ghost.AvatarMXC
+	var pmp *event.BeeperPerMessageProfile
+	if msg.Author != nil {
+		sender := discordid.MakeUserID(msg.Author.ID)
+		pmpVal := event.BeeperPerMessageProfile{}
+		ghost, err := portal.Bridge.GetGhostByID(ctx, sender)
+		if err != nil {
+			log.Err(err).Msg("Failed to get ghost for per-message profile")
+		} else {
+			pmpVal.ID = string(ghost.Intent.GetMXID())
+			pmpVal.Displayname = ghost.Name
+			if ghost.AvatarMXC != "" {
+				pmpVal.AvatarURL = &ghost.AvatarMXC
+			}
+			pmp = &pmpVal
 		}
 	}
 
@@ -158,7 +163,9 @@ func (mc *MessageConverter) ToMatrix(
 		// more messages). Adding per-message profiles to every part helps them
 		// present the right message authorship information even when a
 		// membership event isn't present.
-		part.Content.BeeperPerMessageProfile = &pmp
+		if pmp != nil {
+			part.Content.BeeperPerMessageProfile = pmp
+		}
 	}
 
 	converted := &bridgev2.ConvertedMessage{Parts: parts}
@@ -239,10 +246,13 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	log := zerolog.Ctx(ctx)
 	switch msg.Type {
 	case discordgo.MessageTypeCall:
+		callOptions := discordCallRenderOptions{
+			ShowActiveParticipants: portal.RoomType == database.RoomTypeGroupDM,
+			CurrentUserID:          discordid.ParseUserLoginID(source.ID),
+		}
 		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgEmote,
-			// TODO: Use ghost name instead?
-			Body: fmt.Sprintf("(%s started a call. Use the Discord app to answer.)", msg.Author.String()),
+			Body:    renderDiscordCallMessage(msg, callOptions),
 		}}
 	case discordgo.MessageTypeGuildMemberJoin:
 		// This is only used for backfilled user join notices (e.g. "Good to

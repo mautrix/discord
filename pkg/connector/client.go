@@ -69,6 +69,8 @@ type DiscordClient struct {
 	readStates     map[string]*discordgo.ReadState
 	readStatesLock sync.RWMutex
 
+	callState *discordCallState
+
 	relationshipLock sync.RWMutex
 	relationships    map[string]*discordgo.Relationship
 
@@ -103,6 +105,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		userCache:     NewUserCache(session),
 		guildSettings: make(map[string]*discordgo.UserGuildSettings),
 		readStates:    make(map[string]*discordgo.ReadState),
+		callState:     newDiscordCallState(),
 		relationships: make(map[string]*discordgo.Relationship),
 	}
 	login.Client = &cl

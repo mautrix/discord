@@ -849,15 +849,18 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Msg("Failed to persist thread info from message create")
 		}
 		d.userCache.UpdateWithMessage(evt.Message)
+		d.trackDiscordCallMessage(evt.Message)
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessage)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
 	case *discordgo.MessageUpdate:
+		fillMissingMessageUpdateFields(evt.Message, evt.BeforeUpdate)
 		ctx, log := messageCtx(ctx, evt.Message)
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
 			return
 		}
+		d.trackDiscordCallMessage(evt.Message)
 
 		if err := d.upsertThreadInfoFromMessage(ctx, evt.Message); err != nil {
 			log.Err(err).Str("message_id", evt.ID).Msg("Failed to persist thread info from message update")
@@ -931,6 +934,9 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	case *discordgo.RelationshipRemove:
 		d.handleRelationshipNickChange(ctx, evt.ID, "")
 	case *discordgo.PresenceUpdate:
+		return
+	case *discordgo.VoiceStateUpdate:
+		d.handleDiscordCallVoiceStateUpdate(ctx, evt)
 		return
 	case *discordgo.MessageAck:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)

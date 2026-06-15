@@ -116,15 +116,23 @@ func (d *DiscordConnector) resolveHTTPClientSettings(
 }
 
 // resolveTransport returns the REST HTTP client and the gateway (WebSocket
-// upgrade) HTTP client, both configured to use any configured proxies. The
-// gateway client is pinned to HTTP/1.1; see [discordtransport.CompileGatewayClient].
+// upgrade) HTTP client. When proxy is true, both are configured to use any
+// configured proxy. The gateway client is pinned to HTTP/1.1; see
+// [discordtransport.CompileGatewayClient].
 func (d *DiscordConnector) resolveTransport(
 	ctx context.Context,
 	reason string,
+	proxy bool,
 ) (restClient, wsClient *http.Client, err error) {
-	settings, err := d.resolveHTTPClientSettings(ctx, reason)
-	if err != nil {
-		return nil, nil, err
+	// NOTE(skip): This is grossly tangled. Think of a way to restructure this.
+	var settings exhttp.ClientSettings
+	if proxy {
+		settings, err = d.resolveHTTPClientSettings(ctx, reason)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		settings = d.Bridge.GetHTTPClientSettings()
 	}
 	restClient, err = discordtransport.CompileTransport(settings, discordtransport.TransportOptions{CookieJar: true})
 	if err != nil {

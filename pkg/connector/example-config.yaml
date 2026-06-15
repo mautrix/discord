@@ -47,3 +47,20 @@ get_proxy_from:
 # Should avatar, icon, and attachment downloads also go through the proxy? The
 # gateway websocket and REST API always use it (when proxying).
 proxy_media: false
+# When a proxy is configured, should the "machine" bridgev2 login flow
+# configure its HTTP client with the proxy?
+#
+# (The "machine" login flow is the reverse engineered native login flow, which
+# employs a state machine - hence the name. It does not use web views except
+# for CAPTCHA handling, which occurs dynamically and only when needed.)
+#
+# Disabling this setting alone will make the bridge connect to Discord directly
+# during login, despite the resulting session using the proxy. Leaving this
+# enabled is safest.
+proxy_login_machine: true
+# When a proxy is configured, should the "remoteauth" bridgev2 login flow
+# configure its HTTP client with the proxy?
+#
+# (The "remoteauth" login flow is the QR-code-based login process that connects
+# to a WebSocket gateway entirely dedicated to this login process.)
+proxy_login_remoteauth: true

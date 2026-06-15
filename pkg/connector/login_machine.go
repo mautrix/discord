@@ -27,6 +27,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix/bridgev2"
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
@@ -143,13 +144,18 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 		},
 	}
 
-	// Resolve the proxy for login so the TLS-impersonating auth client egresses
-	// from the same IP the resulting session will use. New-IP detection happens
-	// at login, so this must not connect directly.
-	settings, err := login.connector.resolveHTTPClientSettings(ctx, "login")
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve proxy: %w", err)
+	// Resolve the HTTP client settings (proxy) for use during login.
+	// NOTE(skip): This is grossly tangled. Think of a way to restructure this.
+	var settings exhttp.ClientSettings
+	if login.connector.Config.ProxyLoginMachine {
+		settings, err = login.connector.resolveHTTPClientSettings(ctx, "login")
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve proxy: %w", err)
+		}
+	} else {
+		settings = login.connector.Bridge.GetHTTPClientSettings()
 	}
+
 	http, err := discordtransport.CompileTransport(settings, discordtransport.TransportOptions{
 		CookieJar: true,
 	})

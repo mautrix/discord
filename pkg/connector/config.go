@@ -50,6 +50,12 @@ type Config struct {
 	// Discord. Ignored when GetProxyFrom is set.
 	Proxy string `yaml:"proxy"`
 
+	// ProxyLoginMachine and ProxyLoginRemoteAuth control whether the
+	// respective login flows route through the configured proxy. See
+	// example-config.yaml for the tradeoffs. Both default to true.
+	ProxyLoginMachine    bool `yaml:"proxy_login_machine"`
+	ProxyLoginRemoteAuth bool `yaml:"proxy_login_remoteauth"`
+
 	// GetProxyFrom is an HTTP endpoint that returns a JSON body with a string
 	// field called proxy_url, used to dynamically assign a proxy. It is
 	// re-fetched on every (re)connect so each session egresses from one IP.
@@ -130,6 +136,8 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Str, "proxy")
 	helper.Copy(up.Str, "get_proxy_from")
 	helper.Copy(up.Bool, "proxy_media")
+	helper.Copy(up.Bool, "proxy_login_machine")
+	helper.Copy(up.Bool, "proxy_login_remoteauth")
 }
 
 func (d *DiscordConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {

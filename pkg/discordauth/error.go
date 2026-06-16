@@ -139,6 +139,16 @@ func (err APIError) IsUserInputError() bool {
 	return err.Code == MFAInvalidCode || isInvalidUsernamePhoneOrPassword
 }
 
+// RequiresEmailVerification reports whether the error is due to a correct
+// login from an unfamiliar IP address.
+//
+// An email is automatically sent to the user containing a link to verify the
+// IP. After this is done, the login can be retried.
+func (err APIError) RequiresEmailVerification() bool {
+	return err.Code == InvalidFormBody &&
+		err.FieldHasError("login", AccountLoginVerificationEmail)
+}
+
 func (err APIError) Error() string {
 	msg := fmt.Sprintf("Discord API error %d: \"%s\"", err.Code, err.Message)
 

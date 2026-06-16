@@ -39,4 +39,10 @@ type ChallengeHandler interface {
 	// prompt the user accordingly. This is also how you may request an SMS
 	// code. Once you have a code, return it via MFAContinue.
 	ContinueMFA(context.Context, *MFAChallenge) (*MFAContinue, error)
+
+	// The login is valid and was accepted by Discord, but the login is
+	// occurring from an unfamiliar IP address. An email has been sent to the
+	// user and they must visit the enclosed link and authorize the IP address
+	// before the login may be retried.
+	WaitForEmailVerification(context.Context) error
 }

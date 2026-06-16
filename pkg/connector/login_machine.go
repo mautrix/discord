@@ -38,6 +38,7 @@ const LoginFlowIDMachine = "machine"
 const LoginStepIDMachineInitialCreds = "fi.mau.discord.creds"
 const LoginStepIDMachineWait = "fi.mau.discord.wait"
 const LoginStepIDMachineCaptcha = "fi.mau.discord.captcha"
+const LoginStepIDMachineEmailVerification = "fi.mau.discord.email_verification"
 const LoginStepIDMachineMFAMethod = "fi.mau.discord.mfa.method"
 const LoginStepIDMachineMFATOTP = "fi.mau.discord.mfa.totp"
 const LoginStepIDMachineMFABackup = "fi.mau.discord.mfa.backup"
@@ -48,6 +49,7 @@ const InputDataFieldIDMFAMethod = "mfa_method"
 const InputDataFieldIDMFABackupCode = "backup_code"
 const InputDataFieldIDMFASMSCode = "sms_code"
 const InputDataFieldIDMFATOTPCode = "totp_code"
+const InputDataFieldIDEmailVerification = "email_verification"
 
 type mfaOption string
 
@@ -167,6 +169,42 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 	}
 	ml.Machine = discordauth.NewAuthMachine(ctx, http, &personality, ml)
 	return ml, nil
+}
+
+func (d *DiscordMachineLogin) WaitForEmailVerification(ctx context.Context) error {
+	log := zerolog.Ctx(ctx).With().
+		Str("action", "discord machine wait for email verification").
+		Logger()
+	ctx = log.WithContext(ctx)
+	log.Info().Msg("Prompting user to verify the IP address via email")
+
+	// This isn't ideal by any means, but chat-command login and Beeper iOS
+	// cannot handle a user_input step with no inputs.
+	instructions := "Your login was correct, but Discord detected Beeper " +
+		"as a new login location. Check your email for a verification link, " +
+		"then choose the option below to continue."
+	_, err := d.promptUser(ctx, &bridgev2.LoginStep{
+		Type:         bridgev2.LoginStepTypeUserInput,
+		StepID:       LoginStepIDMachineEmailVerification,
+		Instructions: instructions,
+		UserInputParams: &bridgev2.LoginUserInputParams{
+			Fields: []bridgev2.LoginInputDataField{
+				{
+					Type: bridgev2.LoginInputFieldTypeSelect,
+					ID:   InputDataFieldIDEmailVerification,
+					Name: "Verification",
+					Options: []string{
+						"I’ve verified the login",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to wait for email verification: %w", err)
+	}
+
+	return nil
 }
 
 func (d *DiscordMachineLogin) ContinueMFA(

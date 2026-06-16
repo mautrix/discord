@@ -182,13 +182,30 @@ func (am *AuthMachine) captchaRetryLoop(ctx context.Context, req *http.Request) 
 			// (defer block above logs for us.)
 
 			var apiError APIError
-			err := json.Unmarshal(body, &apiError)
-
-			if err != nil || apiError.Code == 0 {
-				// Doesn't look like we got {"code": 00000, "message": "..."}
+			unmarshalErr := json.Unmarshal(body, &apiError)
+			if unmarshalErr != nil || apiError.Code == 0 {
+				// We got an error but couldn't unmarshal it into an APIError;
+				// perhaps some Cloudflare/load balancer thing. Return a
+				// generic error.
 				return nil, nil, HTTPError{body: body, resp: resp}
 			} else {
 				apiError.ResponseBody = body
+
+				if apiError.RequiresEmailVerification() {
+					if err := am.waitForEmailVerification(ctx); err != nil {
+						return nil, nil, fmt.Errorf("failed waiting for email verification: %w", err)
+					}
+
+					req, err = refreshReq(ctx, req)
+					if err != nil {
+						return nil, nil, fmt.Errorf("failed to refresh request: %w", err)
+					}
+					// Now that the user has authorized the IP address, retry
+					// the request. We could technically just prompt them for
+					// the login again, but doing it this way makes for a
+					// better user experience.
+					continue
+				}
 				return nil, nil, apiError
 			}
 		}
@@ -218,6 +235,17 @@ func (am *AuthMachine) captchaRetryLoop(ctx context.Context, req *http.Request) 
 		req.Header.Set(HeaderCaptchaKey, solution.Solution)
 		captcha.UpdateHeaders(&req.Header)
 	}
+}
+
+func (am *AuthMachine) waitForEmailVerification(ctx context.Context) error {
+	log := zerolog.Ctx(ctx).With().Str("action", "wait for email verification").Logger()
+	ctx = log.WithContext(ctx)
+
+	log.Info().Msg("Invoking email verification wait handler")
+	if err := am.handler.WaitForEmailVerification(ctx); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (am *AuthMachine) waitForCaptchaSolve(ctx context.Context, captcha *Captcha) (*CaptchaSolution, error) {
@@ -373,7 +401,6 @@ func (am *AuthMachine) Prepare(ctx context.Context) error {
 }
 
 // FIXME(skip): Load the HTML /login page before anything else so we can seed our cookies with Cloudflare stuff.
-// FIXME(skip): Handle IP verification.
 // FIXME(skip): Handle suspended user tokens.
 
 // Once you have called [AuthMachine.Prepare], Login kicks off the login

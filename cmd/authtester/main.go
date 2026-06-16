@@ -488,3 +488,14 @@ func (p *prompter) SolveCaptcha(ctx context.Context, captcha *discordauth.Captch
 
 	return &discordauth.CaptchaSolution{Solution: solution}, nil
 }
+
+func (p *prompter) WaitForEmailVerification(ctx context.Context) error {
+	fmt.Fprintln(p.out)
+	fmt.Fprintln(p.out, "Discord detected a login from a new location and emailed a")
+	fmt.Fprintln(p.out, "verification link. Open the email, click the link to authorize")
+	fmt.Fprintln(p.out, "this login, then continue.")
+
+	// The return value is irrelevant; we just block until the user confirms.
+	_, err := p.prompt("Press enter once you've verified")
+	return err
+}

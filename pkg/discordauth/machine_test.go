@@ -25,6 +25,10 @@ func (testChallengeHandler) ContinueMFA(context.Context, *MFAChallenge) (*MFACon
 	return nil, errors.New("unexpected MFA continuation in test")
 }
 
+func (testChallengeHandler) WaitForEmailVerification(context.Context) error {
+	return errors.New("unexpected email verification in test")
+}
+
 func newTestPersonality() *Personality {
 	return &Personality{
 		UserAgent:    "test-agent",

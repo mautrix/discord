@@ -65,7 +65,7 @@ func downloadDiscordAttachment(cli *http.Client, url string, maxSize int64) ([]b
 	}
 }
 
-func uploadDiscordAttachment(cli *http.Client, url string, data []byte) error {
+func uploadDiscordAttachment(cli *http.Client, url string, data []byte, contentType string) error {
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -73,7 +73,10 @@ func uploadDiscordAttachment(cli *http.Client, url string, data []byte) error {
 	for key, value := range discordgo.DroidBaseHeaders {
 		req.Header.Set(key, value)
 	}
-	req.Header.Set("Content-Type", "application/octet-stream")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Referer", "https://discord.com/")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
 	req.Header.Set("Sec-Fetch-Mode", "cors")

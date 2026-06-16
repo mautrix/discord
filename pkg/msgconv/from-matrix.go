@@ -165,6 +165,7 @@ func (mc *MessageConverter) ToDiscord(
 			flags := int(discordgo.MessageFlagsIsVoiceMessage)
 			req.Flags = &flags
 			att.ContentType = voiceMeta.ContentType
+			att.OriginalContentType = voiceMeta.ContentType
 			att.DurationSeconds = voiceMeta.DurationSeconds
 			att.Waveform = voiceMeta.Waveform
 		}
@@ -172,9 +173,10 @@ func (mc *MessageConverter) ToDiscord(
 		uploadID := mc.NextDiscordUploadID()
 		log.Debug().Str("upload_id", uploadID).Msg("Preparing attachment")
 		filePrep := &discordgo.FilePrepare{
-			Size: len(mediaData),
-			Name: att.Filename,
-			ID:   uploadID,
+			Size:                len(mediaData),
+			Name:                att.Filename,
+			ID:                  uploadID,
+			OriginalContentType: att.OriginalContentType,
 		}
 		prep, err := session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
 			Files: []*discordgo.FilePrepare{filePrep},
@@ -188,7 +190,7 @@ func (mc *MessageConverter) ToDiscord(
 		prepared := prep.Attachments[0]
 		att.UploadedFilename = prepared.UploadFilename
 
-		err = uploadDiscordAttachment(session.Client, prepared.UploadURL, mediaData, att.OriginalContentType)
+		err = uploadDiscordAttachment(session.Client, prepared.UploadURL, mediaData, att.ContentType)
 		if err != nil {
 			log.Err(err).Msg("Failed to reupload Discord attachment after preparing")
 			return nil, bridgev2.ErrMediaReuploadFailed

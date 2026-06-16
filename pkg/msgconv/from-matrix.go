@@ -55,7 +55,7 @@ func parseAllowedLinkPreviews(raw map[string]any) []string {
 	return allowedLinkPreviews
 }
 
-func uploadDiscordAttachment(cli *http.Client, url string, data []byte, contentType string) error {
+func uploadDiscordAttachment(cli *http.Client, url string, data []byte) error {
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -64,10 +64,7 @@ func uploadDiscordAttachment(cli *http.Client, url string, data []byte, contentT
 	for key, value := range discordgo.DroidBaseHeaders {
 		req.Header.Set(key, value)
 	}
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Referer", "https://discord.com/")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
 	req.Header.Set("Sec-Fetch-Mode", "cors")
@@ -165,6 +162,7 @@ func (mc *MessageConverter) ToDiscord(
 			flags := int(discordgo.MessageFlagsIsVoiceMessage)
 			req.Flags = &flags
 			att.ContentType = voiceMeta.ContentType
+			att.OriginalContentType = voiceMeta.ContentType
 			att.DurationSeconds = voiceMeta.DurationSeconds
 			att.Waveform = voiceMeta.Waveform
 		}
@@ -172,9 +170,10 @@ func (mc *MessageConverter) ToDiscord(
 		uploadID := mc.NextDiscordUploadID()
 		log.Debug().Str("upload_id", uploadID).Msg("Preparing attachment")
 		filePrep := &discordgo.FilePrepare{
-			Size: len(mediaData),
-			Name: att.Filename,
-			ID:   uploadID,
+			Size:                len(mediaData),
+			Name:                att.Filename,
+			ID:                  uploadID,
+			OriginalContentType: att.OriginalContentType,
 		}
 		prep, err := session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
 			Files: []*discordgo.FilePrepare{filePrep},
@@ -188,7 +187,7 @@ func (mc *MessageConverter) ToDiscord(
 		prepared := prep.Attachments[0]
 		att.UploadedFilename = prepared.UploadFilename
 
-		err = uploadDiscordAttachment(session.Client, prepared.UploadURL, mediaData, att.OriginalContentType)
+		err = uploadDiscordAttachment(session.Client, prepared.UploadURL, mediaData)
 		if err != nil {
 			log.Err(err).Msg("Failed to reupload Discord attachment after preparing")
 			return nil, bridgev2.ErrMediaReuploadFailed

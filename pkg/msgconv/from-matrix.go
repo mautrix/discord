@@ -158,11 +158,13 @@ func (mc *MessageConverter) ToDiscord(
 			ID:       "0",
 			Filename: filename,
 		}
+		if content.Info != nil {
+			att.OriginalContentType = content.Info.MimeType
+		}
 		if voiceMeta != nil {
 			flags := int(discordgo.MessageFlagsIsVoiceMessage)
 			req.Flags = &flags
 			att.ContentType = voiceMeta.ContentType
-			att.OriginalContentType = voiceMeta.ContentType
 			att.DurationSeconds = voiceMeta.DurationSeconds
 			att.Waveform = voiceMeta.Waveform
 		}

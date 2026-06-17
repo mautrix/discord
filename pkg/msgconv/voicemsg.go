@@ -17,10 +17,39 @@
 package msgconv
 
 import (
+	"mime"
 	"strings"
 
 	"maunium.net/go/mautrix/event"
 )
+
+// voiceAttachmentExtension returns a filename extension (including the leading
+// dot, à la filepath.Ext) appropriate for the given audio content type.
+func voiceAttachmentExtension(contentType string) string {
+	// (ParseMediaType strips any codec parameters
+	// (e.g. "audio/ogg; codecs=opus") and lowercases the media type.)
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.ToLower(strings.TrimSpace(contentType))
+	}
+
+	switch mediaType {
+	case "audio/mp4", "audio/x-m4a", "audio/m4a", "audio/aac":
+		return ".m4a"
+	case "audio/mpeg", "audio/mp3":
+		return ".mp3"
+	case "audio/wav", "audio/x-wav", "audio/wave":
+		return ".wav"
+	case "audio/webm":
+		return ".webm"
+	case "audio/flac", "audio/x-flac":
+		return ".flac"
+	default:
+		// Presume Ogg/Opus, since Discord voice messages are canonically of
+		// that codec and container.
+		return ".ogg"
+	}
+}
 
 type discordVoiceMetadata struct {
 	ContentType     string

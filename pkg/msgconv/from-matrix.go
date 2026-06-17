@@ -169,6 +169,10 @@ func (mc *MessageConverter) ToDiscord(
 			att.ContentType = voiceMeta.ContentType
 			att.DurationSeconds = voiceMeta.DurationSeconds
 			att.Waveform = voiceMeta.Waveform
+			// Enforce the presence of a filename extension, or else Discord
+			// gets angry and returns 50160 "Voice messages must have a single
+			// audio attachment".
+			att.Filename = "voice-message" + voiceAttachmentExtension(voiceMeta.ContentType)
 		}
 
 		uploadID := mc.NextDiscordUploadID()

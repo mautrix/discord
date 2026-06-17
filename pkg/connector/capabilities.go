@@ -27,6 +27,20 @@ import (
 )
 
 var DiscordGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
+	// Aggressive ghost info updates let us refresh ghost profiles during
+	// backfill and when handling incoming messages, edits, and reactions.
+	// Otherwise, mautrix skips updating ghosts that already have a name and
+	// avatar set[1].
+	//
+	// Also, generally, it is cheap for DiscordClient's GetUserInfo to be
+	// called as it should mostly hit the user cache. Otherwise, it asks
+	// Discord's REST API for the user, which the first-party client itself
+	// does fairly liberally. Regardless, no Matrix calls occur if the profile
+	// didn't actually change, as Mautrix diffs.
+	//
+	// [1]: https://github.com/mautrix/go/blob/2b8e6caf43bea108e7fccacfa793fe46069ce3a8/bridgev2/ghost.go#L295
+	AggressiveUpdateInfo: true,
+
 	Provisioning: bridgev2.ProvisioningCapabilities{
 		ResolveIdentifier: bridgev2.ResolveIdentifierCapabilities{},
 		GroupCreation:     map[string]bridgev2.GroupTypeCapabilities{},

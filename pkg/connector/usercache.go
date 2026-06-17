@@ -124,6 +124,45 @@ func (uc *UserCache) UpdateWithUserUpdate(update *discordgo.UserUpdate) {
 	uc.cache[update.ID] = update.User
 }
 
+// MergePartialUser merges the populated fields of a partial user (such as the
+// one embedded in a PRESENCE_UPDATE) into the cached full user, returning the
+// merged result. This is important to keep the cache coherent in the face of
+// partial updates.
+//
+// If there is no cached user to merge into, nil is returned.
+func (uc *UserCache) MergePartialUser(partial *discordgo.User) *discordgo.User {
+	if partial == nil || partial.ID == "" {
+		return nil
+	}
+
+	uc.lock.Lock()
+	defer uc.lock.Unlock()
+
+	existing := uc.cache[partial.ID]
+	if existing == nil {
+		return nil
+	}
+
+	// Copy before we mutate, as the pointer is shared.
+	// TODO: This doesn't distinguish between an empty field and an absent one.
+	merged := *existing
+	if partial.Username != "" {
+		merged.Username = partial.Username
+	}
+	if partial.GlobalName != "" {
+		merged.GlobalName = partial.GlobalName
+	}
+	if partial.Discriminator != "" {
+		merged.Discriminator = partial.Discriminator
+	}
+	if partial.Avatar != "" {
+		merged.Avatar = partial.Avatar
+	}
+
+	uc.cache[partial.ID] = &merged
+	return &merged
+}
+
 // Resolve looks up a user in the cache, requesting the user from the Discord
 // HTTP API if not present.
 //

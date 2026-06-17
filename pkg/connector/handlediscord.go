@@ -519,6 +519,53 @@ func (d *DiscordClient) handleGuildMemberJoinMessage(ctx context.Context, msg *d
 	d.queueIndividualMembershipChange(ctx, route.PortalKey, msg.Author, event.MembershipJoin, ts)
 }
 
+func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo.PresenceUpdate) {
+	// NOTE: This can potentially be a _very_ hot code path for users who can
+	// see a lot of other users (e.g. member of a large guild, member of many
+	// guilds).
+
+	user := evt.User
+	if user == nil || user.ID == "" {
+		return
+	}
+
+	// We only care about profile updates, so bail if it's just the
+	// status/activity that changed.
+	if user.Username == "" && user.GlobalName == "" && user.Discriminator == "" && user.Avatar == "" {
+		return
+	}
+
+	log := zerolog.Ctx(ctx).With().
+		Str("presence_update_guild_id", evt.GuildID).
+		Str("presence_update_user_id", user.ID).
+		Logger()
+	ctx = log.WithContext(ctx)
+
+	// Incorporate the user delta into the cache.
+	merged := d.userCache.MergePartialUser(user)
+	if merged == nil {
+		// The user wasn't cached in the first place, so this presence update
+		// is likely irrelevant to us.
+		log.Trace().Msg("Ignoring presence update for uncached user")
+		return
+	}
+
+	// Check if a ghost actually exists for this user; don't eagerly
+	// materialize ghosts just because we happen to be subscribed to their
+	// presence.
+	ghost, err := d.connector.Bridge.GetExistingGhostByID(ctx, discordid.MakeUserID(user.ID))
+	if err != nil {
+		log.Err(err).Msg("Failed to look up existing ghost for presence update")
+		return
+	}
+	if ghost == nil {
+		return
+	}
+
+	log.Debug().Msg("Dispatching ghost info update after profile change")
+	ghost.UpdateInfo(ctx, d.getUserInfo(ctx, merged))
+}
+
 func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck, bridged bool, route *router.Route) {
 	d.readStatesLock.Lock()
 	zerolog.Ctx(ctx).Trace().
@@ -931,7 +978,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	case *discordgo.RelationshipRemove:
 		d.handleRelationshipNickChange(ctx, evt.ID, "")
 	case *discordgo.PresenceUpdate:
-		return
+		d.handlePresenceUpdate(ctx, evt)
 	case *discordgo.MessageAck:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		d.handleMessageAck(ctx, evt, bridged, route)

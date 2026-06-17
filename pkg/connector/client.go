@@ -880,6 +880,44 @@ func (d *DiscordClient) syncRemoteProfile(ctx context.Context) bool {
 	// send a bridge state.
 }
 
+func (d *DiscordClient) resyncGhostsFromReady(ctx context.Context, ready *discordgo.Ready) {
+	log := zerolog.Ctx(ctx).With().
+		Str("action", "resync ghosts from ready").
+		Logger()
+	ctx = log.WithContext(ctx)
+
+	scanned := 0
+	resynced := 0
+	for _, user := range ready.Users {
+		if ctx.Err() != nil {
+			return
+		}
+		scanned++
+
+		// TODO: For now, do not actively materialize ghosts by calling e.g.
+		// GetGhostByID. Before we consider switching to that method, verify
+		// the breadth of the users returned in READY by inspecting a payload.
+		ghost, err := d.connector.Bridge.GetExistingGhostByID(ctx, discordid.MakeUserID(user.ID))
+		if err != nil {
+			log.Err(err).Str("user_id", user.ID).
+				Msg("Failed to look up existing ghost while resyncing from READY")
+			continue
+		}
+		if ghost == nil {
+			// We've never bridged this user, so don't materialize a ghost.
+			continue
+		}
+
+		ghost.UpdateInfo(ctx, d.getUserInfo(ctx, user))
+		resynced++
+	}
+
+	log.Debug().
+		Int("n_ghosts_scanned", scanned).
+		Int("n_ghosts_resynced", resynced).
+		Msg("Finished resyncing ghosts from READY")
+}
+
 func (d *DiscordClient) wrapReceived40002(ctx context.Context, err error) error {
 	log := zerolog.Ctx(ctx)
 	log.Err(err).Msg("Received 40002 from Discord")

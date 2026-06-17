@@ -750,6 +750,11 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		d.userCache.UpdateWithReady(evt)
 		d.syncRemoteProfile(ctx)
+
+		// Catch up on profile changes that might've occurred while we were
+		// offline.
+		go d.resyncGhostsFromReady(ctx, evt)
+
 		d.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateConnected,
 		})

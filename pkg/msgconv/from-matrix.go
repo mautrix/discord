@@ -64,6 +64,8 @@ func uploadDiscordAttachment(cli *http.Client, url string, data []byte) error {
 	for key, value := range discordgo.DroidBaseHeaders {
 		req.Header.Set(key, value)
 	}
+	// The first-party web client does not set a content type, so we shouldn't
+	// either.
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Referer", "https://discord.com/")
 	req.Header.Set("Sec-Fetch-Dest", "empty")

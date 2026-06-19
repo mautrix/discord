@@ -1,0 +1,145 @@
+# Discord connector config — placed under the network: key by the framework.
+
+# Template for the username of Discord users.
+# {{.}} is replaced with the Discord user ID.
+username_template: discord_{{.}}
+
+# Template for the displayname of Discord users.
+# Available variables:
+#   .ID            - Discord user ID (snowflake)
+#   .Username      - Legacy username / display-name on Discord
+#   .GlobalName    - New display name on Discord
+#   .Discriminator - The 4 digits after the legacy name
+#   .Bot           - Whether the user is a bot
+#   .System        - Whether the user is an official Discord system user
+#   .Webhook       - Whether the user is a webhook and not an application
+#   .Application   - Whether the user is a Discord application
+displayname_template: '{{if .Webhook}}Webhook{{else}}{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}{{end}}'
+
+# Template for the room name of bridged Discord channels.
+# Available variables:
+#   .Name       - Channel name, or user displayname (from displayname_template) in DMs
+#   .ParentName - Parent channel name (for threads / sub-channels)
+#   .GuildName  - Guild name
+#   .NSFW       - Whether the channel is NSFW
+#   .Type       - Numeric channel type (https://github.com/bwmarrin/discordgo#ChannelType)
+channel_name_template: '{{if or (eq .Type 3) (eq .Type 4)}}{{.Name}}{{else}}#{{.Name}}{{end}}'
+
+# Template for the Matrix space name of Discord guilds.
+# Available variables:
+#   .Name - Guild name
+guild_name_template: '{{.Name}}'
+
+# --- Behaviour toggles ---
+
+# Use space-restricted join rules instead of invite-only for guild rooms?
+restricted_rooms: false
+
+# Bridge custom emoji reactions as mxc:// URIs?
+# If false, the shortcode is used as a text fallback and the image is not bridged.
+custom_emoji_reactions: true
+
+# Bridge webhook avatars?
+enable_webhook_avatars: false
+
+# Should the bridge forbid DMs to users the account isn't friends with on Discord?
+# The bridge conservatively rejects all outgoing DMs until relationship data is synced.
+forbid_dming_strangers: true
+
+# Try to completely delete portal rooms (including kicking Matrix users) when a
+# Discord channel is deleted? If false, only ghost users are removed.
+delete_portal_on_channel_delete: false
+
+# Delete all portal rooms for a guild when you leave that guild on Discord?
+# Only applies when no other Matrix users on this bridge instance are in the guild.
+delete_guild_on_leave: true
+
+# Sync the m.direct account data event when double puppeting is enabled?
+# Not atomic and therefore prone to race conditions.
+sync_direct_chat_list: false
+
+# Cache mxc:// URIs copied from Discord to avoid re-uploading.
+# Can be `never`, `unencrypted` (only non-E2EE media), or `always`.
+cache_media: unencrypted
+
+# Set explicit name/avatar on private chat portal rooms?
+# true  → always set name+avatar on all DM rooms
+# false → never set name+avatar
+private_chat_portal_meta: false
+
+# Whether to federate created rooms.
+federate_rooms: true
+
+# Number of Matrix events to buffer per portal before dropping.
+portal_message_buffer: 128
+
+# Upload media to the Discord CDN before sending (like the official client) when
+# using a user token? Bots and webhooks always use the form-part upload path.
+use_discord_cdn_upload: true
+
+# Prefix relayed webhook messages with the sender's profile info?
+# Uses the fallback mode of MSC4144; clients that support MSC4144 show the real
+# sender profile and suppress the prefix.
+prefix_webhook_messages: true
+
+# Proxy URL for outgoing Discord connections (gateway + REST). Leave empty to disable.
+proxy: ""
+
+# Publicly accessible base URL used for avatar URLs in relay mode.
+# Only the /mautrix-discord/avatar/{server}/{id}/{hash} path is called on this address.
+# No trailing slash. Leave empty to disable relay avatars.
+public_address: ""
+
+# HMAC key used to sign avatar proxy URLs. "generate" generates a random key on startup.
+# Do not change once deployed — existing relay avatar URLs will break.
+avatar_proxy_key: generate
+
+# --- Backfill limits ---
+backfill:
+    # Limits for initial backfill (creating a portal for the first time).
+    # 0 disables; no unlimited option — high values can take a long time.
+    initial:
+        dm: 0
+        channel: 0
+        thread: 0
+    # Limits for missed-message backfill (on bridge startup).
+    # 0 disables; -1 fetches all messages since the last bridged message.
+    missed:
+        dm: 0
+        channel: 0
+        thread: 0
+    # Maximum guild member count for which missed backfill is enabled.
+    # -1 disables the limit. Acts as a heuristic to skip very active guilds.
+    max_guild_members: -1
+
+# --- Animated sticker conversion ---
+animated_sticker:
+    # Output format for Lottie / animated stickers from Discord.
+    # disable - send as-is (Lottie JSON)
+    # png     - convert to static PNG (fastest)
+    # gif     - convert to animated GIF
+    # webm    - convert to WebM (requires ffmpeg with vp9+webm)
+    # webp    - convert to animated WebP (requires ffmpeg with webp codec)
+    target: webp
+    # Converter arguments. All converters accept width and height.
+    args:
+        width: 320
+        height: 320
+        fps: 25  # used by webm, webp, and gif (2/5/10/20/25 recommended)
+
+# --- Direct media (custom mxc:// URIs instead of re-uploading) ---
+# See https://docs.mau.fi/bridges/go/discord/direct-media.html for details.
+direct_media:
+    # Enable direct media?
+    enabled: false
+    # Matrix server name for the custom mxc:// URIs. This domain must serve the
+    # Matrix federation API (or be delegated to the bridge via .well-known).
+    server_name: discord-media.example.com
+    # Optional custom .well-known response. Defaults to <server_name>:443.
+    well_known_response: ""
+    # Allow the bridge to proxy media (true) or only issue 307 redirects (false)?
+    allow_proxy: true
+    # Matrix server signing key (Synapse .signing.key format). Also used to sign
+    # mxc:// URIs so only the bridge can generate them.
+    # Do not change once deployed — all previously served URLs will break.
+    server_key: generate

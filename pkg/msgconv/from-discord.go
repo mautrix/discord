@@ -137,28 +137,34 @@ func (mc *MessageConverter) ToMatrix(
 	// 	puppet.addMemberMeta(part, msg)
 	// }
 
-	sender := discordid.MakeUserID(msg.Author.ID)
-	var pmp event.BeeperPerMessageProfile
-	ghost, err := portal.Bridge.GetGhostByID(ctx, sender)
-	if err != nil {
-		log.Err(err).Msg("Failed to get ghost for per-message profile")
-	} else {
-		pmp.ID = string(ghost.Intent.GetMXID())
-		pmp.Displayname = ghost.Name
-		if ghost.AvatarMXC != "" {
-			pmp.AvatarURL = &ghost.AvatarMXC
+	var pmp *event.BeeperPerMessageProfile
+	if mc.PerMessageProfiles {
+		sender := discordid.MakeUserID(msg.Author.ID)
+		var profile event.BeeperPerMessageProfile
+		ghost, err := portal.Bridge.GetGhostByID(ctx, sender)
+		if err != nil {
+			log.Err(err).Msg("Failed to get ghost for per-message profile")
+		} else {
+			profile.ID = string(ghost.Intent.GetMXID())
+			profile.Displayname = ghost.Name
+			// Hacks on top of hacks: suppress mautrix's textual "<name>: "
+			// body fallback, since the ghost already says who sent the
+			// message.
+			profile.HasFallback = true
+			if ghost.AvatarMXC != "" {
+				profile.AvatarURL = &ghost.AvatarMXC
+			}
 		}
+		pmp = &profile
 	}
 
-	// Assign incrementing part IDs.
+	// Naively assign incrementing part IDs.
+	// TODO(skip): Don't.
 	for i, part := range parts {
 		part.ID = networkid.PartID(strconv.Itoa(i))
-
-		// Beeper clients support backfilling backwards (scrolling up to load
-		// more messages). Adding per-message profiles to every part helps them
-		// present the right message authorship information even when a
-		// membership event isn't present.
-		part.Content.BeeperPerMessageProfile = &pmp
+		if pmp != nil {
+			part.Content.BeeperPerMessageProfile = pmp
+		}
 	}
 
 	converted := &bridgev2.ConvertedMessage{Parts: parts}

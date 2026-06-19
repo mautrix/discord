@@ -33,6 +33,12 @@ channel_name_template: "{{if and .IsGuildChannel (not .IsCategory)}}#{{end}}{{.N
 # If false, they are bridged as :shortcode: instead.
 custom_emoji_reactions: true
 
+# Should a per-message profile (sender display name and avatar) be
+# _unconditionally_ attached to every bridged Discord message part? This can
+# help some clients display message authorship properly (specifically, during
+# user-triggered backfill that involves yet-to-be-seen Discord users).
+per_message_profiles_on_every_message_hack: false
+
 # Should we log when messages from unbridged guild channels are dropped? This
 # only includes metadata such as channel and message ID.
 log_when_dropping_messages: true

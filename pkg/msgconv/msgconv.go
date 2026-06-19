@@ -36,6 +36,12 @@ type MessageConverter struct {
 	Bridge      *bridgev2.Bridge
 	DirectMedia bool
 
+	// PerMessageProfiles mirrors the
+	// per_message_profiles_on_every_message_hack config option. When set, a
+	// per-message profile is unconditionally attached to every converted
+	// message part.
+	PerMessageProfiles bool
+
 	CacheDirectMediaAttachment func(info *discordid.MediaInfo, discordURL string)
 
 	HTMLParser *format.HTMLParser

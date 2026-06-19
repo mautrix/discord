@@ -42,6 +42,8 @@ type Config struct {
 	CustomEmojiReactions *bool  `yaml:"custom_emoji_reactions"`
 	GuildAvatarsInRooms  *bool  `yaml:"guild_avatars_in_rooms"`
 
+	PerMessageProfiles *bool `yaml:"per_message_profiles_on_every_message_hack"`
+
 	ForbidDMingStrangers *bool `yaml:"forbid_dming_strangers"`
 
 	LogWhenDroppingMessages bool `yaml:"log_when_dropping_messages"`
@@ -126,12 +128,17 @@ func (c Config) GuildAvatarsInRoomsEnabled() bool {
 	return c.GuildAvatarsInRooms != nil && *c.GuildAvatarsInRooms
 }
 
+func (c Config) PerMessageProfilesEnabled() bool {
+	return c.PerMessageProfiles != nil && *c.PerMessageProfiles
+}
+
 func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.List, "guilds", "bridging_guild_ids")
 	helper.Copy(up.Bool, "guilds", "guild_avatars_in_rooms")
 	helper.Copy(up.Bool, "forbid_dming_strangers")
 	helper.Copy(up.Str, "channel_name_template")
 	helper.Copy(up.Bool, "custom_emoji_reactions")
+	helper.Copy(up.Bool, "per_message_profiles_on_every_message_hack")
 	helper.Copy(up.Bool, "log_when_dropping_messages")
 	helper.Copy(up.Str, "proxy")
 	helper.Copy(up.Str, "get_proxy_from")

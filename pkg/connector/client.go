@@ -254,7 +254,7 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int) {
 
 func (d *DiscordClient) handleDiscordEventSync(event any) {
 	// Dispatch event handlers that maintain important state synchronously, or
-	// else we might end up relying on goroutine scheduling.
+	// else we might end up inadvertently relying on goroutine scheduling.
 	d.handleDiscordStateEvent(event)
 	go d.handleDiscordEvent(event)
 }

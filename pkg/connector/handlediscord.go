@@ -651,6 +651,10 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			Msg("Received supplemental READY")
 	case *discordgo.Ready:
 		d.rebuildRelationships()
+
+		// NOTE: This can potentially block for a while if the user cache is
+		// internally performing an HTTP request (the lock is held across it).
+		d.userCache.UpdateWithReady(evt)
 	case *discordgo.RelationshipAdd:
 		d.upsertRelationship(evt.Relationship)
 	case *discordgo.RelationshipUpdate:
@@ -748,11 +752,9 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			Int("n_users", len(evt.Users)).
 			Msg("Received READY dispatch from discordgo")
 
-		d.userCache.UpdateWithReady(evt)
-		d.syncRemoteProfile(ctx)
-
 		// Catch up on profile changes that might've occurred while we were
 		// offline.
+		d.syncRemoteProfile(ctx)
 		go d.resyncGhostsFromReady(ctx, evt)
 
 		d.UserLogin.BridgeState.Send(status.BridgeState{

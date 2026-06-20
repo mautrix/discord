@@ -650,11 +650,21 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			Int("n_lazy_private_channels", len(evt.LazyPrivateChannels)).
 			Msg("Received supplemental READY")
 	case *discordgo.Ready:
+		wasSeen := d.seenReady.Swap(true)
 		d.rebuildRelationships()
 
 		// NOTE: This can potentially block for a while if the user cache is
 		// internally performing an HTTP request (the lock is held across it).
 		d.userCache.UpdateWithReady(evt)
+
+		// A READY after the first one means the gateway handed us a fresh
+		// session instead of resuming (our resume was refused or the session
+		// was invalidated), so Discord didn't replay the events we missed
+		// while offline.
+		if wasSeen {
+			log.Info().Msg("Reconnected without resuming, re-syncing chats and spaces")
+			d.beginResyncingChatsAndSpaces(ctx)
+		}
 	case *discordgo.RelationshipAdd:
 		d.upsertRelationship(evt.Relationship)
 	case *discordgo.RelationshipUpdate:

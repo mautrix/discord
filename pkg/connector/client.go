@@ -54,6 +54,10 @@ type DiscordClient struct {
 	stopConnecting  atomic.Pointer[context.CancelFunc]
 	hasBegunSyncing bool
 
+	// seenReady is used to discern the initial READY payload from ones
+	// received during reconnections (where resumption is not possible).
+	seenReady atomic.Bool
+
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
 
@@ -256,6 +260,7 @@ func (d *DiscordClient) handleDiscordEventSync(event any) {
 	// Dispatch event handlers that maintain important state synchronously, or
 	// else we might end up inadvertently relying on goroutine scheduling.
 	d.handleDiscordStateEvent(event)
+
 	go d.handleDiscordEvent(event)
 }
 
@@ -265,6 +270,8 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 
 	d.Session.EventHandler = d.handleDiscordEventSync
 
+	// NOTE: Open() blocks until we have processed READY or we have resumed
+	// successfully.
 	err := d.Session.Open()
 	if err != nil {
 		log.Err(err).Msg("Failed to connect to Discord")
@@ -369,6 +376,35 @@ func (d *DiscordClient) BeginSyncing(ctx context.Context) {
 	d.hasBegunSyncing = true
 
 	d.syncRemoteProfile(ctx)
+	d.beginResyncingChatsAndSpaces(ctx)
+}
+
+// beginResyncingChatsAndSpaces reconciles guild spaces against the latest gateway state
+// and pokes background resync and backfill for all private channels and
+// bridged guilds.
+//
+// This should be called on every (re)connection where we may have missed
+// gateway events.
+func (d *DiscordClient) beginResyncingChatsAndSpaces(ctx context.Context) {
+	// Build the set of IDs for all guilds the user is definitively a member
+	// of. This includes guilds that are currently unavailable. Also note that
+	// we pointedly don't do this in the goroutines we're about to spawn, in
+	// order to avoid races.
+	//
+	// The READY payload is the only authoritative source on which guilds the
+	// user is a member of, as guilds are evicted from discordgo's in-memory
+	// state when they are "deleted", even if only due to unavailability (i.e.
+	// a Discord service outage).
+	//
+	// In other words, a guild's absence from discordgo State is not enough to
+	// determine if the user is a member of that guild or not.
+	guildIDs := make(exmaps.Set[string])
+	d.Session.State.RLock()
+	for _, guild := range d.Session.State.Guilds {
+		guildIDs.Add(guild.ID)
+	}
+	d.Session.State.RUnlock()
+
 	go d.syncPrivateChannels(ctx)
 	go d.syncGuilds(ctx)
 }

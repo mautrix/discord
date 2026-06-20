@@ -312,6 +312,10 @@ func (d *DiscordClient) applyReadyPayload(
 			Msg("Applying read states from READY")
 
 		d.readStatesLock.Lock()
+		if !readState.Partial {
+			clear(d.readStates)
+		}
+
 		for _, state := range readState.Entries {
 			d.readStates[state.ID] = state
 		}

@@ -270,8 +270,9 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 
 	d.Session.EventHandler = d.handleDiscordEventSync
 
-	// NOTE: Open() blocks until we have processed READY or we have resumed
-	// successfully.
+	// Open() blocks until we have processed READY or we have resumed
+	// successfully. This will also internally dispatch event handlers (so our
+	// READY/etc. handlers will have completed once this method finishes).
 	err := d.Session.Open()
 	if err != nil {
 		log.Err(err).Msg("Failed to connect to Discord")
@@ -285,14 +286,31 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 	user := d.Session.State.User
 	log.Info().Str("user_id", user.ID).Str("user_username", user.Username).Msg("Connected to Discord")
 
-	// Populate the user cache with the users from the READY payload.
-	ready := d.Session.State.Ready
-	log.Debug().Int("n_users", len(ready.Users)).Msg("Inserting users from READY into cache")
-	d.userCache.UpdateWithReady(&ready)
+	d.BeginSyncing(ctx)
+
+	return nil
+}
+
+func (d *DiscordClient) applyReadyPayload(
+	ctx context.Context,
+	ready *discordgo.Ready,
+) {
+	log := zerolog.Ctx(ctx)
+
+	d.rebuildRelationships()
+
+	log.Debug().Int("n_users", len(ready.Users)).
+		Msg("Inserting users from READY into cache")
+	// NOTE: This can potentially block for a while if the user cache is
+	// concurrently resolving a user and internally performing an HTTP request
+	// (the lock is held across it).
+	d.userCache.UpdateWithReady(ready)
 
 	readState := ready.ReadState
-	// Populate the read state mapping.
 	if readState != nil {
+		log.Debug().Int("n_read_states", len(readState.Entries)).
+			Msg("Applying read states from READY")
+
 		d.readStatesLock.Lock()
 		for _, state := range readState.Entries {
 			d.readStates[state.ID] = state
@@ -302,12 +320,11 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 
 	settings := ready.UserGuildSettings
 	if settings != nil {
+		log.Debug().Int("n_guild_settings", len(settings.Entries)).
+			Msg("Applying guild settings from READY")
+
 		d.bulkApplyGuildSettings(settings)
 	}
-
-	d.BeginSyncing(ctx)
-
-	return nil
 }
 
 func (d *DiscordClient) bulkApplyGuildSettings(sl *discordgo.UserGuildSettingsList) {

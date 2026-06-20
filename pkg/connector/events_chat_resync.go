@@ -29,8 +29,9 @@ import (
 )
 
 type DiscordChatResync struct {
-	Client  *DiscordClient
-	channel *discordgo.Channel
+	Client       *DiscordClient
+	channel      *discordgo.Channel
+	createPortal bool
 }
 
 var (
@@ -40,7 +41,10 @@ var (
 )
 
 func (d *DiscordChatResync) AddLogContext(c zerolog.Context) zerolog.Context {
-	c = c.Str("channel_id", d.channel.ID).Int("channel_type", int(d.channel.Type))
+	c = c.
+		Str("resyncing_channel_id", d.channel.ID).
+		Int("resyncing_channel_type", int(d.channel.Type)).
+		Bool("resyncing_can_create_portal", d.createPortal)
 	return c
 }
 
@@ -63,7 +67,7 @@ func (d *DiscordChatResync) GetChatInfo(ctx context.Context, portal *bridgev2.Po
 }
 
 func (d *DiscordChatResync) ShouldCreatePortal() bool {
-	return true
+	return d.createPortal
 }
 
 // compareMessageIDs compares two Discord message IDs.

@@ -475,9 +475,10 @@ func (d *DiscordClient) existingPortals(ctx context.Context) iter.Seq[*bridgev2.
 func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
-	// Detect pre-existing private channel portals that we can't find in
-	// discordgo state and queue them for deletion. This handles channels that
-	// were deleted while the bridge was offline.
+	resyncedExistingPrivateChannels := make(exmaps.Set[string])
+
+	// Queue resyncs for all private channel portals that are already bridged,
+	// while queueing deletion for those that are not found in discordgo state.
 	for portal := range d.existingPortals(ctx) {
 		if !portalIsPrivate(portal) {
 			continue
@@ -486,13 +487,24 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 
 		// We could check State.PrivateChannels directly, but that would be
 		// a linear search.
-		if d.channelWithID(ctx, channelID) == nil {
+		channel := d.channelWithID(ctx, channelID)
+		if channel == nil {
 			log.Info().
 				Str("deleting_channel_id", channelID).
 				Str("deleting_portal_room_type", string(portal.RoomType)).
 				Stringer("deleting_portal_key", portal.PortalKey).
 				Msg("Deleting portal corresponding to a private channel that isn't in state")
 			d.queueChatDelete(portal.PortalKey, "")
+			continue
+		}
+
+		if portal.MXID != "" {
+			log.Debug().
+				Str("channel_id", channelID).
+				Stringer("portal_key", portal.PortalKey).
+				Msg("Resyncing existing private channel portal")
+			resyncedExistingPrivateChannels.Add(channelID)
+			d.queueExistingChannelResync(ctx, channel)
 		}
 	}
 
@@ -500,22 +512,29 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 	dms := slices.Clone(d.Session.State.PrivateChannels)
 	d.Session.State.RUnlock()
 
-	// Only sync the top n private channels with recent activity.
+	// Only queue portal-creating resyncs for the top n private channels with
+	// recent activity (that haven't already been synced above).
 	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
 		ats, _ := discordgo.SnowflakeTimestamp(a.LastMessageID)
 		bts, _ := discordgo.SnowflakeTimestamp(b.LastMessageID)
 		return bts.Compare(ats)
 	})
-
-	// TODO(skip): This is startup_private_channel_create_limit. Support this in the config.
+	// TODO(skip): This is startup_private_channel_create_limit. Support this
+	// in the config.
 	maxDms := min(10, len(dms))
+	recentDmsSynced := 0
 	for _, dm := range dms[:maxDms] {
+		if resyncedExistingPrivateChannels.Has(dm.ID) {
+			continue
+		}
 		log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
 		d.queueChannelResync(ctx, dm)
+		recentDmsSynced++
 	}
 
 	log.Info().
-		Int("dms_synced", maxDms).
+		Int("existing_private_portals_synced", len(resyncedExistingPrivateChannels)).
+		Int("recent_dms_synced", recentDmsSynced).
 		Int("dms_total", len(dms)).
 		Msg("Synced private channels")
 }
@@ -856,8 +875,17 @@ func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSend
 
 func (d *DiscordClient) queueChannelResync(_ context.Context, ch *discordgo.Channel) {
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
-		Client:  d,
-		channel: ch,
+		Client:       d,
+		channel:      ch,
+		createPortal: true,
+	})
+}
+
+func (d *DiscordClient) queueExistingChannelResync(_ context.Context, ch *discordgo.Channel) {
+	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
+		Client:       d,
+		channel:      ch,
+		createPortal: false,
 	})
 }
 

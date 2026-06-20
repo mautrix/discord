@@ -335,12 +335,14 @@ func (d *DiscordClient) bulkApplyGuildSettings(sl *discordgo.UserGuildSettingsLi
 	d.guildSettingsLock.Lock()
 	defer d.guildSettingsLock.Unlock()
 
-	if sl.Partial {
-		// Not sure what the implications of this are but just log a warning
-		// for now.
-		d.UserLogin.Log.Warn().
-			Int("settings_entries", len(sl.Entries)).
-			Msg("Bulk applying partial guild settings")
+	d.UserLogin.Log.Warn().
+		Int("n_settings_entries", len(sl.Entries)).
+		Int("settings_version", sl.Version).
+		Bool("settings_is_partial", sl.Partial).
+		Msg("Bulk applying partial guild settings")
+
+	if !sl.Partial {
+		clear(d.guildSettings)
 	}
 
 	for _, setting := range sl.Entries {

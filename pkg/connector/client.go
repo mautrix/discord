@@ -405,6 +405,7 @@ func (d *DiscordClient) beginResyncingChatsAndSpaces(ctx context.Context) {
 	}
 	d.Session.State.RUnlock()
 
+	go d.reconcileGuildSpaces(ctx, guildIDs)
 	go d.syncPrivateChannels(ctx)
 	go d.syncGuilds(ctx)
 }
@@ -414,7 +415,7 @@ func (d *DiscordClient) existingPortals(ctx context.Context) iter.Seq[*bridgev2.
 
 	ups, err := d.connector.Bridge.DB.UserPortal.GetAllForLogin(ctx, d.UserLogin.UserLogin)
 	if err != nil {
-		log.Err(err).Msg("Failed to fetch all user portals, proceeding without diffing")
+		log.Err(err).Msg("Failed to fetch all user portals, returning empty iterator")
 		// Return a dummy iterator that is empty.
 		return func(yield func(*bridgev2.Portal) bool) {}
 	}
@@ -597,22 +598,6 @@ func (d *DiscordClient) syncGuilds(ctx context.Context) {
 	}
 }
 
-// deleteGuildPortalSpace queues a remote event that deletes a guild space
-// (including children).
-func (d *DiscordClient) deleteGuildPortalSpace(ctx context.Context, guildID string) {
-	log := zerolog.Ctx(ctx)
-	log.Info().Msg("Unbridging guild by deleting the entire space")
-
-	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.ChatDelete{
-		EventMeta: simplevent.EventMeta{
-			Type:      bridgev2.RemoteEventChatDelete,
-			PortalKey: d.guildPortalKey(guildID),
-		},
-		OnlyForMe: true,
-		Children:  true,
-	})
-}
-
 // ensurePortal synchronously guarantees the existence of a portal's Matrix
 // room with up-to-date chat info.
 //
@@ -642,6 +627,74 @@ func (d *DiscordClient) ensurePortal(ctx context.Context, key networkid.PortalKe
 	return nil
 }
 
+// queueGuildDeletion should be called to evict a guild from the bridge, e.g.
+// whenever it is determined that the user has left a Discord guild that is
+// currently bridged.
+//
+// The following occurs:
+//
+//   - An attempt is made to delete all of the roles associated with the given
+//     guild. This will proceed even upon error.
+//   - A Matrix event is queued to delete the guild space and all of its contained
+//     rooms.
+func (d *DiscordClient) queueGuildDeletion(
+	ctx context.Context,
+	guildID string,
+) {
+	log := zerolog.Ctx(ctx).With().
+		Str("guild_id", guildID).
+		Str("action", "queue guild deletion").
+		Logger()
+
+	// TODO: This is deleting roles globally. Other logins might still be in
+	// the guild.
+	if err := d.connector.DB.Role.DeleteByGuildID(ctx, guildID); err != nil {
+		// Best effort.
+		log.Err(err).Msg("Failed to delete guild roles from database, proceeding to delete guild space anyways")
+	}
+
+	log.Info().Msg("Queueing event to recursively delete the guild space")
+	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.ChatDelete{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventChatDelete,
+			PortalKey: d.guildPortalKey(guildID),
+		},
+		OnlyForMe: true,
+		Children:  true,
+	})
+}
+
+// reconcileGuildSpaces examines all existing guild spaces and deletes those
+// that do not appear in the provided set of guild IDs.
+func (d *DiscordClient) reconcileGuildSpaces(
+	ctx context.Context,
+	guildIDs exmaps.Set[string],
+) {
+	log := zerolog.Ctx(ctx).With().
+		Str("action", "reconcile guilds").
+		Logger()
+	ctx = log.WithContext(ctx)
+
+	for portal := range d.existingPortals(ctx) {
+		guildID := discordid.ParseGuildPortalID(portal.ID)
+		if guildID == "" {
+			// Portal isn't a guild space.
+			continue
+		}
+		if guildIDs.Has(guildID) {
+			// Still a member of the guild.
+			continue
+		}
+		log := log.With().
+			Str("guild_id", guildID).
+			Logger()
+		ctx := log.WithContext(ctx)
+
+		log.Info().Msg("Guild no longer appears in READY payload (user has left), queueing deletion")
+		d.queueGuildDeletion(ctx, guildID)
+	}
+}
+
 func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 	log := zerolog.Ctx(ctx).With().
 		Str("guild_id", guildID).
@@ -651,8 +704,11 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 
 	guild, err := d.Session.State.Guild(guildID)
 	if errors.Is(err, discordgo.ErrStateNotFound) || guild == nil {
-		log.Err(err).Msg("Couldn't find guild, user isn't a member?")
-		// TODO likely left/kicked/banned from guild; nuke the portals
+		// This isn't problematic per se, because we can get here if a guild is
+		// unavailable due to an outage; when that happens, the guild is
+		// removed from the state entirely (via GUILD_DELETE).
+		log.Warn().Err(err).
+			Msg("Cannot sync guild that is not present in state")
 		return errors.New("couldn't find guild in state")
 	}
 

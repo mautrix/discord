@@ -1004,12 +1004,10 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	case *discordgo.GuildDelete:
 		if evt.Unavailable {
 			log.Warn().Str("guild_id", evt.ID).Msg("Guild became unavailable")
-			// For now, leave the portals alone if the guild only went away due to an outage.
+			// Leave the portals alone if the guild only went away due to
+			// availability (a Discord outage).
 			return
 		}
-		if err := d.connector.DB.Role.DeleteByGuildID(ctx, evt.ID); err != nil {
-			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to delete guild roles from database")
-		}
-		d.deleteGuildPortalSpace(ctx, evt.ID)
+		d.queueGuildDeletion(ctx, evt.ID)
 	}
 }

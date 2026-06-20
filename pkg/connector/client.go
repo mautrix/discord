@@ -436,7 +436,10 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 		}
 	}
 
+	d.Session.State.RLock()
 	dms := slices.Clone(d.Session.State.PrivateChannels)
+	d.Session.State.RUnlock()
+
 	// Only sync the top n private channels with recent activity.
 	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
 		ats, _ := discordgo.SnowflakeTimestamp(a.LastMessageID)

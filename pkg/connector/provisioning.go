@@ -142,7 +142,11 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, log
 
 	var resp respGuildsList
 	resp.Guilds = []guildEntry{}
-	for _, guild := range client.Session.State.Guilds {
+
+	state := client.Session.State
+
+	state.RLock()
+	for _, guild := range state.Guilds {
 		portalKey := client.guildPortalKey(guild.ID)
 		portal, err := p.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
 		if err != nil {
@@ -192,6 +196,7 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, log
 			BridgingMode: "everything",
 		})
 	}
+	defer state.RUnlock()
 
 	exhttp.WriteJSONResponse(w, 200, resp)
 }

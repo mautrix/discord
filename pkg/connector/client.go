@@ -640,10 +640,16 @@ func (d *DiscordClient) syncGuilds(ctx context.Context) {
 	}
 }
 
-// ensurePortal synchronously guarantees the existence of a portal's Matrix
+// ensurePortal _synchronously_ guarantees the existence of a portal's Matrix
 // room with up-to-date chat info.
 //
+// This is especially useful in situations where the ordering of room creation
+// is important.
+//
 // If info is nil, then the chat info is fetched from the NetworkAPI.
+//
+// If the portal already has a room, then we merely ensure that the portal's
+// info is up-to-date.
 func (d *DiscordClient) ensurePortal(ctx context.Context, key networkid.PortalKey, info *bridgev2.ChatInfo) error {
 	portal, err := d.connector.Bridge.GetPortalByKey(ctx, key)
 	if err != nil {

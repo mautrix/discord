@@ -737,6 +737,32 @@ func (d *DiscordClient) reconcileGuildSpaces(
 	}
 }
 
+// shouldBridgeChannel reports whether a channel should be bridged. This
+// considers information such as the type of the channel, as well as the user's
+// effective permissions within the guild.
+func (d *DiscordClient) shouldBridgeChannel(
+	ctx context.Context,
+	ch *discordgo.Channel,
+) bool {
+	if ch == nil {
+		return false
+	}
+
+	// Only ever bridge guild text channels.
+	// TODO(skip): Consider bridging news channels (sparkling text channels)?
+	// TODO(skip): Consider bridging voice channels (make sure to check for the
+	// right permission bits)?
+	if ch.Type != discordgo.ChannelTypeGuildText {
+		return false
+	}
+
+	if !d.canSeeGuildChannel(ctx, ch) {
+		return false
+	}
+
+	return true
+}
+
 func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 	log := zerolog.Ctx(ctx).With().
 		Str("guild_id", guildID).
@@ -768,8 +794,7 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 	visibleCategoryIDs := make(exmaps.Set[string])
 	visibleChannels := make([]*discordgo.Channel, 0, len(guild.Channels))
 	for _, guildCh := range guild.Channels {
-		// Only bridge text channels that are visible.
-		if guildCh.Type != discordgo.ChannelTypeGuildText || !d.canSeeGuildChannel(ctx, guildCh) {
+		if !d.shouldBridgeChannel(ctx, guildCh) {
 			continue
 		}
 		visibleChannels = append(visibleChannels, guildCh)

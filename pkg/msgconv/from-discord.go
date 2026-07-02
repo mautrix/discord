@@ -29,7 +29,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
-	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -47,6 +46,11 @@ const (
 	contextKeyUserLogin
 	contextKeyDiscordClient
 )
+
+// videoEmbedPartIDPrefix is prepended to a video embed's URL to form its
+// [networkid.PartID]. Video embeds seemingly don't have a stable ID, so the
+// URL is used instead.
+const videoEmbedPartIDPrefix = "video_"
 
 // ToMatrix bridges a Discord message to Matrix.
 //
@@ -88,6 +92,7 @@ func (mc *MessageConverter) ToMatrix(
 		log := log.With().Str("attachment_id", att.ID).Logger()
 		mediaInfo := discordid.NewMediaInfoV1(source.ID, msg.ChannelID, msg.ID, att.ID)
 		if part := mc.renderDiscordAttachment(log.WithContext(ctx), att, &mediaInfo); part != nil {
+			part.ID = discordid.MakePartID(att.ID)
 			parts = append(parts, part)
 		}
 	}
@@ -99,6 +104,7 @@ func (mc *MessageConverter) ToMatrix(
 
 		log := log.With().Str("sticker_id", sticker.ID).Logger()
 		if part := mc.renderDiscordSticker(log.WithContext(ctx), sticker); part != nil {
+			part.ID = discordid.MakePartID(sticker.ID)
 			parts = append(parts, part)
 		}
 	}
@@ -120,6 +126,7 @@ func (mc *MessageConverter) ToMatrix(
 			Logger()
 		part := mc.renderDiscordVideoEmbed(log.WithContext(ctx), embed)
 		if part != nil {
+			part.ID = discordid.MakePartID(videoEmbedPartIDPrefix + embed.URL)
 			parts = append(parts, part)
 		}
 	}
@@ -158,11 +165,8 @@ func (mc *MessageConverter) ToMatrix(
 		pmp = &profile
 	}
 
-	// Naively assign incrementing part IDs.
-	// TODO(skip): Don't.
-	for i, part := range parts {
-		part.ID = networkid.PartID(strconv.Itoa(i))
-		if pmp != nil {
+	if pmp != nil {
+		for _, part := range parts {
 			part.Content.BeeperPerMessageProfile = pmp
 		}
 	}
@@ -217,9 +221,10 @@ func (mc *MessageConverter) addReplyToConvertedMessage(
 	targetMessageID := discordid.MakeMessageID(ref.MessageID)
 	converted.ReplyTo = &networkid.MessageOptionalPartID{
 		MessageID: targetMessageID,
-		// This needs to point to a valid part. Since we assign part ids
-		// counting upwards from zero, default to it.
-		PartID: ptr.Ptr(networkid.PartID("0")),
+		// Leave PartID unset so mautrix defaults to the first part (when
+		// sorted alphabetically; likely to be the part with "" ID, which is
+		// the message text). The database lookup below tries to refine this to
+		// the actual first stored part when the target is known.
 	}
 	if msg.ReferencedMessage != nil {
 		// ReferencedMessage will be nil if Discord's backend didn't feel like
@@ -819,10 +824,6 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	}
 
 	part := &bridgev2.ConvertedMessagePart{
-		// TODO: Do this eventually. Edits and replies currently make certain assumptions
-		// about how part IDs are formed to make this safe.
-		//
-		// ID:      discordid.MakePartID(att.ID),
 		Type:    event.EventMessage,
 		Content: content,
 		Extra:   extra,

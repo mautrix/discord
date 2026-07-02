@@ -26,6 +26,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/exmaps"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -98,13 +99,18 @@ func (m *DiscordMessage) ShouldCreatePortal() bool {
 	return m.Type == bridgev2.RemoteEventMessage
 }
 
-func (m *DiscordMessage) ConvertEdit(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message) (*bridgev2.ConvertedEdit, error) {
+func (m *DiscordMessage) ConvertEdit(
+	ctx context.Context,
+	portal *bridgev2.Portal,
+	intent bridgev2.MatrixAPI,
+	existingParts []*database.Message,
+) (*bridgev2.ConvertedEdit, error) {
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "convert discord edit").Logger()
 	ctx = log.WithContext(ctx)
 
-	// FIXME don't redundantly reupload attachments
-	convertedEdit := m.Client.connector.MsgConv.ToMatrix(
+	// FIXME(skip): This will always reupload attachments, super wasteful.
+	newlyConverted := m.Client.connector.MsgConv.ToMatrix(
 		ctx,
 		portal,
 		intent,
@@ -114,28 +120,105 @@ func (m *DiscordMessage) ConvertEdit(ctx context.Context, portal *bridgev2.Porta
 		m.ThreadRootID,
 	)
 
-	// TODO this is really gross and relies on how we assign incrementing numeric
-	// part ids. to return a semantically correct `ConvertedEdit` we should ditch
-	// this system
+	// Detect the legacy scheme of naively assigning incrementing part IDs
+	// without using stable identifiers, so we don't cause churn on previously
+	// bridged messages that are edited.
+	if isLegacyNumericParts(existingParts) {
+		return legacyConvertEdit(ctx, newlyConverted, existingParts)
+	}
+
+	beforePartsByID := make(map[networkid.PartID]*database.Message, len(existingParts))
+	for _, part := range existingParts {
+		beforePartsByID[part.PartID] = part
+	}
+	afterPartIDs := make(exmaps.Set[networkid.PartID], len(newlyConverted.Parts))
+	for _, part := range newlyConverted.Parts {
+		afterPartIDs.Add(part.ID)
+	}
+
+	edit := &bridgev2.ConvertedEdit{}
+
+	// If a part ID is no longer present after converting the edited version,
+	// then it was deleted.
+	for _, part := range existingParts {
+		if !afterPartIDs.Has(part.PartID) {
+			edit.DeletedParts = append(edit.DeletedParts, part)
+		}
+	}
+
+	var addedParts []*bridgev2.ConvertedMessagePart
+	for _, part := range newlyConverted.Parts {
+		dbPart, ok := beforePartsByID[part.ID]
+		if !ok {
+			// Part ID is new, so it's being added.
+			addedParts = append(addedParts, part)
+			continue
+		}
+
+		// TODO(skip): Stash the edited timestamp of messages so we can
+		// actually discern between link previews/embeds and the message text
+		// actually being edited. As is, this will always replace the message
+		// body.
+		if part.ID == "" {
+			edit.ModifiedParts = append(edit.ModifiedParts, part.ToEditPart(dbPart))
+		}
+	}
+	if len(addedParts) > 0 {
+		edit.AddedParts = &bridgev2.ConvertedMessage{
+			Parts:      addedParts,
+			ThreadRoot: newlyConverted.ThreadRoot,
+		}
+	}
+
+	return edit, nil
+}
+
+// isLegacyNumericParts reports whether the existing parts on a message were
+// assigned the old incrementing numeric part IDs.
+func isLegacyNumericParts(existingParts []*database.Message) bool {
+	if len(existingParts) == 0 {
+		return false
+	}
+
+	for _, part := range existingParts {
+		partIDString := string(part.PartID)
+		partID, err := strconv.Atoi(partIDString)
+		if err != nil {
+			return false
+		}
+		if partID < 0 || partID >= len(existingParts) {
+			// outside of range
+			return false
+		}
+		if strconv.Itoa(partID) != partIDString {
+			// round-trip
+			return false
+		}
+	}
+
+	return true
+}
+
+// legacyConvertEdit performs legacy message part edit handling, appropriate
+// for messages that were bridged before stable part IDs were assigned.
+func legacyConvertEdit(ctx context.Context, converted *bridgev2.ConvertedMessage, existing []*database.Message) (*bridgev2.ConvertedEdit, error) {
+	log := zerolog.Ctx(ctx)
 	slices.SortStableFunc(existing, func(a *database.Message, b *database.Message) int {
 		ai, _ := strconv.Atoi(string(a.PartID))
 		bi, _ := strconv.Atoi(string(b.PartID))
 		return ai - bi
 	})
 
-	if len(convertedEdit.Parts) != len(existing) {
-		// FIXME support # of parts changing; triggerable by removing individual
-		// attachments, etc.
-		//
-		// at the very least we can make this better by handling attachments,
-		// which are always(?) at the end
-		log.Warn().Int("n_parts_existing", len(existing)).Int("n_parts_after_edit", len(convertedEdit.Parts)).
-			Msg("Ignoring message edit that changed number of parts")
+	if len(converted.Parts) != len(existing) {
+		log.Warn().
+			Int("n_parts_existing", len(existing)).
+			Int("n_parts_after_edit", len(converted.Parts)).
+			Msg("Ignoring legacy message edit that changed number of parts")
 		return nil, bridgev2.ErrIgnoringRemoteEvent
 	}
 
 	parts := make([]*bridgev2.ConvertedEditPart, 0, len(existing))
-	for pi, part := range convertedEdit.Parts {
+	for pi, part := range converted.Parts {
 		parts = append(parts, part.ToEditPart(existing[pi]))
 	}
 

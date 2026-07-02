@@ -738,14 +738,24 @@ func (d *DiscordClient) reconcileGuildSpaces(
 }
 
 // shouldBridgeChannel reports whether a channel should be bridged. This
-// considers information such as the type of the channel, as well as the user's
-// effective permissions within the guild.
+// considers information such as the type of the channel, the user's effective
+// permissions within the guild, which guilds are bridged, etc.
 func (d *DiscordClient) shouldBridgeChannel(
 	ctx context.Context,
 	ch *discordgo.Channel,
 ) bool {
 	if ch == nil {
 		return false
+	}
+
+	// TODO(skip): This method is relatively hot, consider maintaining the set
+	// of bridged guild IDs in memory?
+	bridgedGuildIDs := d.bridgedGuildIDs()
+	if ch.GuildID != "" {
+		if _, ok := bridgedGuildIDs[ch.GuildID]; !ok {
+			// Only bridge guild channels that are part of bridged guilds.
+			return false
+		}
 	}
 
 	// Only ever bridge guild text channels.

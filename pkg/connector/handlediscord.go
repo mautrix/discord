@@ -415,15 +415,43 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 }
 
 func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *discordgo.ChannelCreate) error {
-	log := zerolog.Ctx(ctx).With().Str("channel_id", ch.ID).Logger()
+	log := zerolog.Ctx(ctx).With().
+		Str("guild_id", ch.GuildID).
+		Str("channel_id", ch.ID).
+		Str("channel_parent_id", ch.ParentID).
+		Str("channel_type", readableChannelType(ch.Type)).
+		Str("action", "handle channel create").Logger()
+	ctx = log.WithContext(ctx)
 
 	if ch.GuildID == "" {
 		log.Debug().Msg("Private channel was created, creating portal")
-		d.queueChannelResync(ctx, ch.Channel)
 	} else {
+		if !d.shouldBridgeChannel(ctx, ch.Channel) {
+			log.Debug().Msg("Ignoring creation of guild channel that should not be bridged")
+			return nil
+		}
+
 		log.Debug().Msg("Guild channel was created")
-		// FIXME(skip): Sync guild channels. Same logic as syncGuild.
+
+		// If the newly created channel is under a category, ensure that the
+		// corresponding parent space exists first, so m.bridge is correct.
+		if ch.ParentID != "" {
+			parentCh := d.channelWithID(ctx, ch.ParentID)
+			if parentCh == nil {
+				log.Error().Msg("Newly created guild channel has a parent channel, but it's not present in cache; dropping!")
+				return nil
+			}
+			log.Debug().Msg("Ensuring parent space for the newly created channel")
+			err := d.ensurePortal(ctx, d.portalKeyForChannel(parentCh), nil)
+			if err != nil {
+				log.Err(err).Msg("Failed to ensure category space, dropping!")
+				return nil
+			}
+		}
 	}
+
+	// This creates the portal.
+	d.queueChannelResync(ctx, ch.Channel)
 
 	return nil
 }

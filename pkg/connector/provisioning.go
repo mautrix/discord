@@ -268,7 +268,11 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 		return
 	}
 
-	go client.syncGuild(p.connector.Bridge.BackgroundCtx, guildID)
+	go func() {
+		if err := client.syncGuild(p.connector.Bridge.BackgroundCtx, guildID); err != nil {
+			p.log.Err(err).Msg("Failed to sync guild in response to manual guild provision")
+		}
+	}()
 
 	responseStatus := 201
 	if alreadyBridged {

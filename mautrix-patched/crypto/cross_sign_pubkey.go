@@ -1,0 +1,138 @@
+// Copyright (c) 2024 Tulir Asokan
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+package crypto
+
+import (
+	"context"
+	"fmt"
+
+	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/id"
+)
+
+type CrossSigningPublicKeysCache struct {
+	MasterKey      id.Ed25519
+	SelfSigningKey id.Ed25519
+	UserSigningKey id.Ed25519
+}
+
+func (mach *OlmMachine) GetOwnCrossSigningVerificationStatus(ctx context.Context) (masterKeyVerified, selfSigningKeyVerified, userSigningKeyVerified bool, err error) {
+	var pubkeys *CrossSigningPublicKeysCache
+	pubkeys, err = mach.GetOwnCrossSigningPublicKeys(ctx)
+	if err != nil || pubkeys == nil {
+		return
+	}
+	// If we have the private keys, it means we trust the public keys too
+	if mach.CrossSigningKeys != nil && *mach.CrossSigningKeys.PublicKeys() == *pubkeys {
+		return true, true, true, nil
+	}
+	masterKeyVerified, err = mach.CryptoStore.IsKeySignedBy(
+		ctx, mach.Client.UserID, pubkeys.MasterKey, mach.Client.UserID, mach.account.SigningKey(),
+	)
+	if err != nil {
+		err = fmt.Errorf("failed to check if master key is signed by current device key: %w", err)
+		return
+	}
+	selfSigningKeyVerified, err = mach.CryptoStore.IsKeySignedBy(
+		ctx, mach.Client.UserID, pubkeys.SelfSigningKey, mach.Client.UserID, pubkeys.MasterKey,
+	)
+	if err != nil {
+		err = fmt.Errorf("failed to check if self-signing key is signed by master key: %w", err)
+		return
+	}
+	userSigningKeyVerified, err = mach.CryptoStore.IsKeySignedBy(
+		ctx, mach.Client.UserID, pubkeys.UserSigningKey, mach.Client.UserID, pubkeys.MasterKey,
+	)
+	if err != nil {
+		err = fmt.Errorf("failed to check if user-signing key is signed by master key: %w", err)
+	}
+	return
+}
+
+func (mach *OlmMachine) GetOwnVerificationStatus(ctx context.Context) (hasKeys, isVerified bool, err error) {
+	var pubkeys *CrossSigningPublicKeysCache
+	pubkeys, err = mach.GetOwnCrossSigningPublicKeys(ctx)
+	if err != nil || pubkeys == nil {
+		return
+	}
+	hasKeys = true
+	isVerified, err = mach.CryptoStore.IsKeySignedBy(
+		ctx, mach.Client.UserID, mach.GetAccount().SigningKey(), mach.Client.UserID, pubkeys.SelfSigningKey,
+	)
+	if err != nil {
+		err = fmt.Errorf("failed to check if current device is signed by own self-signing key: %w", err)
+	}
+	return
+}
+
+func (mach *OlmMachine) GetOwnCrossSigningPublicKeys(ctx context.Context) (*CrossSigningPublicKeysCache, error) {
+	if mach.crossSigningPubkeys != nil {
+		return mach.crossSigningPubkeys, nil
+	}
+	if mach.CrossSigningKeys != nil {
+		mach.crossSigningPubkeys = mach.CrossSigningKeys.PublicKeys()
+		return mach.crossSigningPubkeys, nil
+	}
+	if mach.crossSigningPubkeysFetched {
+		return nil, nil
+	}
+	cspk, err := mach.GetCrossSigningPublicKeys(ctx, mach.Client.UserID)
+	if err != nil {
+		return nil, err
+	}
+	mach.crossSigningPubkeys = cspk
+	mach.crossSigningPubkeysFetched = true
+	return mach.crossSigningPubkeys, nil
+}
+
+func (mach *OlmMachine) GetCrossSigningPublicKeys(ctx context.Context, userID id.UserID) (*CrossSigningPublicKeysCache, error) {
+	dbKeys, err := mach.CryptoStore.GetCrossSigningKeys(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get keys from database: %w", err)
+	}
+	if len(dbKeys) > 0 {
+		masterKey, ok := dbKeys[id.XSUsageMaster]
+		if ok {
+			selfSigning := dbKeys[id.XSUsageSelfSigning]
+			userSigning := dbKeys[id.XSUsageUserSigning]
+			return &CrossSigningPublicKeysCache{
+				MasterKey:      masterKey.Key,
+				SelfSigningKey: selfSigning.Key,
+				UserSigningKey: userSigning.Key,
+			}, nil
+		}
+	}
+
+	keys, err := mach.Client.QueryKeys(ctx, &mautrix.ReqQueryKeys{
+		DeviceKeys: mautrix.DeviceKeysRequest{
+			userID: mautrix.DeviceIDList{},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query keys: %w", err)
+	}
+
+	var cspk CrossSigningPublicKeysCache
+
+	masterKeys, ok := keys.MasterKeys[userID]
+	if !ok {
+		return nil, nil
+	}
+	cspk.MasterKey = masterKeys.FirstKey()
+
+	selfSigningKeys, ok := keys.SelfSigningKeys[userID]
+	if !ok {
+		return nil, nil
+	}
+	cspk.SelfSigningKey = selfSigningKeys.FirstKey()
+
+	userSigningKeys, ok := keys.UserSigningKeys[userID]
+	if ok {
+		cspk.UserSigningKey = userSigningKeys.FirstKey()
+	}
+	return &cspk, nil
+}

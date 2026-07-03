@@ -1,0 +1,405 @@
+// Copyright (c) 2024 Tulir Asokan
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+package bridgev2
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+	"slices"
+	"strings"
+
+	"github.com/rs/zerolog"
+	"github.com/tidwall/sjson"
+	"go.mau.fi/util/exerrors"
+	"go.mau.fi/util/exmime"
+
+	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
+)
+
+type Ghost struct {
+	*database.Ghost
+	Bridge *Bridge
+	Log    zerolog.Logger
+	Intent MatrixAPI
+}
+
+func (br *Bridge) loadGhost(ctx context.Context, dbGhost *database.Ghost, queryErr error, id *networkid.UserID) (*Ghost, error) {
+	if queryErr != nil {
+		return nil, fmt.Errorf("failed to query db: %w", queryErr)
+	}
+	if dbGhost == nil {
+		if id == nil {
+			return nil, nil
+		}
+		dbGhost = &database.Ghost{
+			BridgeID: br.ID,
+			ID:       *id,
+		}
+		err := br.DB.Ghost.Insert(ctx, dbGhost)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert new ghost: %w", err)
+		}
+	}
+	ghost := &Ghost{
+		Ghost:  dbGhost,
+		Bridge: br,
+		Log:    br.Log.With().Str("ghost_id", string(dbGhost.ID)).Logger(),
+		Intent: br.Matrix.GhostIntent(dbGhost.ID),
+	}
+	br.ghostsByID[ghost.ID] = ghost
+	return ghost, nil
+}
+
+func (br *Bridge) unlockedGetGhostByID(ctx context.Context, id networkid.UserID, onlyIfExists bool) (*Ghost, error) {
+	cached, ok := br.ghostsByID[id]
+	if ok {
+		return cached, nil
+	}
+	idPtr := &id
+	if onlyIfExists {
+		idPtr = nil
+	}
+	db, err := br.DB.Ghost.GetByID(ctx, id)
+	return br.loadGhost(ctx, db, err, idPtr)
+}
+
+func (br *Bridge) IsGhostMXID(userID id.UserID) bool {
+	_, isGhost := br.Matrix.ParseGhostMXID(userID)
+	return isGhost
+}
+
+func (br *Bridge) GetGhostByMXID(ctx context.Context, mxid id.UserID) (*Ghost, error) {
+	ghostID, ok := br.Matrix.ParseGhostMXID(mxid)
+	if !ok {
+		return nil, nil
+	}
+	return br.GetGhostByID(ctx, ghostID)
+}
+
+func (br *Bridge) GetGhostByID(ctx context.Context, id networkid.UserID) (*Ghost, error) {
+	br.cacheLock.Lock()
+	defer br.cacheLock.Unlock()
+	ghost, err := br.unlockedGetGhostByID(ctx, id, false)
+	if err != nil {
+		return nil, err
+	} else if ghost == nil {
+		panic(fmt.Errorf("unlockedGetGhostByID(ctx, %q, false) returned nil", id))
+	}
+	return ghost, nil
+}
+
+func (br *Bridge) GetExistingGhostByID(ctx context.Context, id networkid.UserID) (*Ghost, error) {
+	br.cacheLock.Lock()
+	defer br.cacheLock.Unlock()
+	return br.unlockedGetGhostByID(ctx, id, true)
+}
+
+type Avatar struct {
+	ID     networkid.AvatarID
+	Get    func(ctx context.Context) ([]byte, error)
+	Remove bool
+
+	// For pre-uploaded avatars, the MXC URI and hash can be provided directly
+	MXC  id.ContentURIString
+	Hash [32]byte
+}
+
+func (a *Avatar) Reupload(ctx context.Context, intent MatrixAPI, currentHash [32]byte, currentMXC id.ContentURIString) (id.ContentURIString, [32]byte, error) {
+	if a.MXC != "" || a.Hash != [32]byte{} {
+		return a.MXC, a.Hash, nil
+	} else if a.Get == nil {
+		return "", [32]byte{}, fmt.Errorf("no Get function provided for avatar")
+	}
+	data, err := a.Get(ctx)
+	if err != nil {
+		return "", [32]byte{}, err
+	}
+	hash := sha256.Sum256(data)
+	if hash == currentHash && currentMXC != "" {
+		return currentMXC, hash, nil
+	}
+	mime := http.DetectContentType(data)
+	fileName := "avatar" + exmime.ExtensionFromMimetype(mime)
+	uri, _, err := intent.UploadMedia(ctx, "", data, fileName, mime)
+	if err != nil {
+		return "", hash, err
+	}
+	return uri, hash, nil
+}
+
+type UserInfo struct {
+	Identifiers  []string
+	Name         *string
+	Avatar       *Avatar
+	IsBot        *bool
+	ExtraProfile database.ExtraProfile
+
+	ExtraUpdates ExtraUpdater[*Ghost]
+}
+
+func (ghost *Ghost) prepareName(name string) bool {
+	if ghost.Name == name && ghost.NameSet {
+		return false
+	}
+	ghost.Name = name
+	ghost.NameSet = false
+	return true
+}
+
+func (ghost *Ghost) UpdateName(ctx context.Context, name string) bool {
+	if !ghost.prepareName(name) {
+		return false
+	}
+	if err := ghost.Intent.SetDisplayName(ctx, name); err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to set display name")
+	} else {
+		ghost.NameSet = true
+	}
+	return true
+}
+
+func (ghost *Ghost) prepareAvatar(ctx context.Context, avatar *Avatar) (changed, mxcChanged bool) {
+	if ghost.AvatarID == avatar.ID && (avatar.Remove || ghost.AvatarMXC != "") && ghost.AvatarSet {
+		return false, false
+	}
+	ghost.AvatarID = avatar.ID
+	if !avatar.Remove {
+		newMXC, newHash, err := avatar.Reupload(ctx, ghost.Intent, ghost.AvatarHash, ghost.AvatarMXC)
+		if err != nil {
+			ghost.AvatarSet = false
+			zerolog.Ctx(ctx).Err(err).Msg("Failed to reupload avatar")
+			return true, false
+		} else if newHash == ghost.AvatarHash && ghost.AvatarMXC != "" && ghost.AvatarSet {
+			return true, false
+		}
+		ghost.AvatarHash = newHash
+		ghost.AvatarMXC = newMXC
+	} else {
+		ghost.AvatarMXC = ""
+	}
+	ghost.AvatarSet = false
+	return true, true
+}
+
+func (ghost *Ghost) UpdateAvatar(ctx context.Context, avatar *Avatar) bool {
+	changed, mxcChanged := ghost.prepareAvatar(ctx, avatar)
+	if !changed {
+		return false
+	}
+	if mxcChanged {
+		if err := ghost.Intent.SetAvatarURL(ctx, ghost.AvatarMXC); err != nil {
+			zerolog.Ctx(ctx).Err(err).Msg("Failed to set avatar URL")
+		} else {
+			ghost.AvatarSet = true
+		}
+	}
+	return true
+}
+
+func (ghost *Ghost) getExtraProfileMeta() any {
+	bridgeName := ghost.Bridge.Network.GetName()
+	baseExtra := &event.BeeperProfileExtra{
+		RemoteID:     string(ghost.ID),
+		Identifiers:  ghost.Identifiers,
+		Service:      bridgeName.BeeperBridgeType,
+		Network:      bridgeName.NetworkID,
+		IsBridgeBot:  false,
+		IsNetworkBot: ghost.IsBot,
+	}
+	if len(ghost.ExtraProfile) == 0 {
+		return baseExtra
+	}
+	mergedExtra := maps.Clone(ghost.ExtraProfile)
+	baseExtraMarshaled := exerrors.Must(json.Marshal(baseExtra))
+	exerrors.PanicIfNotNil(json.Unmarshal(baseExtraMarshaled, &mergedExtra))
+	return mergedExtra
+}
+
+func (ghost *Ghost) getFullProfile() json.RawMessage {
+	marshaled := exerrors.Must(json.Marshal(ghost.getExtraProfileMeta()))
+	if ghost.Name != "" {
+		marshaled = exerrors.Must(sjson.SetBytes(marshaled, "displayname", ghost.Name))
+	}
+	if ghost.AvatarMXC != "" {
+		marshaled = exerrors.Must(sjson.SetBytes(marshaled, "avatar_url", ghost.AvatarMXC))
+	}
+	return marshaled
+}
+
+func (ghost *Ghost) prepareContactInfo(identifiers []string, isBot *bool, extraProfile database.ExtraProfile) bool {
+	caps := ghost.Bridge.Matrix.GetCapabilities()
+	if !caps.ExtraProfileMeta && !caps.ReplaceEntireProfile {
+		ghost.ContactInfoSet = false
+		return false
+	}
+	if identifiers != nil {
+		slices.Sort(identifiers)
+		if !ghost.Bridge.Config.PhoneNumbersInProfile {
+			identifiers = slices.DeleteFunc(identifiers, func(id string) bool {
+				return strings.HasPrefix(id, "tel:")
+			})
+		}
+	}
+	changed := extraProfile.CopyTo(&ghost.ExtraProfile)
+	if identifiers != nil {
+		changed = changed || !slices.Equal(identifiers, ghost.Identifiers)
+		ghost.Identifiers = identifiers
+	}
+	if isBot != nil {
+		changed = changed || *isBot != ghost.IsBot
+		ghost.IsBot = *isBot
+	}
+	if ghost.ContactInfoSet && !changed {
+		return false
+	}
+	ghost.ContactInfoSet = false
+	return true
+}
+
+func (ghost *Ghost) UpdateContactInfo(ctx context.Context, identifiers []string, isBot *bool, extraProfile database.ExtraProfile) bool {
+	if !ghost.prepareContactInfo(identifiers, isBot, extraProfile) {
+		return false
+	}
+	if err := ghost.Intent.SetExtraProfileMeta(ctx, ghost.getExtraProfileMeta()); err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to set extra profile metadata")
+	} else {
+		ghost.ContactInfoSet = true
+	}
+	return true
+}
+
+func (br *Bridge) allowAggressiveUpdateForType(evtType RemoteEventType) bool {
+	if !br.Network.GetCapabilities().AggressiveUpdateInfo {
+		return false
+	}
+	switch evtType {
+	case RemoteEventUnknown, RemoteEventMessage, RemoteEventEdit, RemoteEventReaction:
+		return true
+	default:
+		return false
+	}
+}
+
+func (ghost *Ghost) UpdateInfoIfNecessary(ctx context.Context, source *UserLogin, evtType RemoteEventType) {
+	if ghost.Name != "" && ghost.NameSet && ghost.AvatarSet && !ghost.Bridge.allowAggressiveUpdateForType(evtType) {
+		return
+	}
+	info, err := source.Client.GetUserInfo(ctx, ghost)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Str("ghost_id", string(ghost.ID)).Msg("Failed to get info to update ghost")
+	} else if info != nil {
+		zerolog.Ctx(ctx).Debug().
+			Bool("has_name", ghost.Name != "").
+			Bool("name_set", ghost.NameSet).
+			Bool("has_avatar", ghost.AvatarMXC != "").
+			Bool("avatar_set", ghost.AvatarSet).
+			Msg("Updating ghost info in IfNecessary call")
+		ghost.UpdateInfo(ctx, info)
+	} else {
+		zerolog.Ctx(ctx).Trace().
+			Bool("has_name", ghost.Name != "").
+			Bool("name_set", ghost.NameSet).
+			Bool("has_avatar", ghost.AvatarMXC != "").
+			Bool("avatar_set", ghost.AvatarSet).
+			Msg("No ghost info received in IfNecessary call")
+	}
+}
+
+func (ghost *Ghost) updateDMPortals(ctx context.Context) {
+	if !ghost.Bridge.Config.PrivateChatPortalMeta {
+		return
+	}
+	dmPortals, err := ghost.Bridge.GetDMPortalsWith(ctx, ghost.ID)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to get DM portals to update info")
+		return
+	}
+	for _, portal := range dmPortals {
+		go portal.lockedUpdateInfoFromGhost(ctx, ghost)
+	}
+}
+
+func (ghost *Ghost) UpdateInfo(ctx context.Context, info *UserInfo) {
+	oldName := ghost.Name
+	oldAvatar := ghost.AvatarMXC
+
+	nameChanged := info.Name != nil && ghost.prepareName(*info.Name)
+
+	var avatarChanged, avatarMXCChanged bool
+	if info.Avatar != nil {
+		avatarChanged, avatarMXCChanged = ghost.prepareAvatar(ctx, info.Avatar)
+	} else if oldAvatar == "" && !ghost.AvatarSet {
+		// Special case: nil avatar means we're not expecting one ever, if we don't currently have
+		// one we flag it as set to avoid constantly refetching in UpdateInfoIfNecessary.
+		ghost.AvatarSet = true
+		avatarChanged = true
+	}
+
+	var contactInfoChanged bool
+	if info.Identifiers != nil || info.IsBot != nil || info.ExtraProfile != nil {
+		contactInfoChanged = ghost.prepareContactInfo(info.Identifiers, info.IsBot, info.ExtraProfile)
+	}
+
+	update := nameChanged || avatarChanged || contactInfoChanged
+	if info.ExtraUpdates != nil {
+		update = info.ExtraUpdates(ctx, ghost) || update
+	}
+	ghost.pushProfileChanges(ctx, nameChanged, avatarMXCChanged, contactInfoChanged)
+	if oldName != ghost.Name || oldAvatar != ghost.AvatarMXC {
+		ghost.updateDMPortals(ctx)
+	}
+	if update {
+		err := ghost.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
+		if err != nil {
+			zerolog.Ctx(ctx).Err(err).Msg("Failed to update ghost in database after updating info")
+		}
+	}
+}
+
+func (ghost *Ghost) pushProfileChanges(ctx context.Context, nameChanged, avatarChanged, contactInfoChanged bool) {
+	if !nameChanged && !avatarChanged && !contactInfoChanged {
+		return
+	}
+	if ghost.Bridge.Matrix.GetCapabilities().ReplaceEntireProfile {
+		if err := ghost.Intent.SetProfile(ctx, ghost.getFullProfile()); err != nil {
+			zerolog.Ctx(ctx).Err(err).Msg("Failed to set profile")
+		} else {
+			ghost.NameSet = true
+			ghost.AvatarSet = true
+			ghost.ContactInfoSet = true
+		}
+	} else {
+		if nameChanged {
+			if err := ghost.Intent.SetDisplayName(ctx, ghost.Name); err != nil {
+				zerolog.Ctx(ctx).Err(err).Msg("Failed to set display name")
+			} else {
+				ghost.NameSet = true
+			}
+		}
+		if avatarChanged {
+			if err := ghost.Intent.SetAvatarURL(ctx, ghost.AvatarMXC); err != nil {
+				zerolog.Ctx(ctx).Err(err).Msg("Failed to set avatar URL")
+			} else {
+				ghost.AvatarSet = true
+			}
+		}
+		if contactInfoChanged {
+			if err := ghost.Intent.SetExtraProfileMeta(ctx, ghost.getExtraProfileMeta()); err != nil {
+				zerolog.Ctx(ctx).Err(err).Msg("Failed to set extra profile metadata")
+			} else {
+				ghost.ContactInfoSet = true
+			}
+		}
+	}
+}

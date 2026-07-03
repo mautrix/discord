@@ -1,0 +1,131 @@
+// Copyright (c) 2020 Tulir Asokan
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+package ssss
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
+	"strings"
+
+	"go.mau.fi/util/random"
+
+	"maunium.net/go/mautrix/crypto/utils"
+)
+
+// Key represents a SSSS private key and related metadata.
+type Key struct {
+	ID       string       `json:"-"`
+	Key      []byte       `json:"-"`
+	Metadata *KeyMetadata `json:"-"`
+}
+
+// NewKey generates a new SSSS key, optionally based on the given passphrase.
+//
+// Errors are only returned if crypto/rand runs out of randomness.
+func NewKey(passphrase string) (*Key, error) {
+	if len(passphrase) > 0 {
+		// There's a passphrase. We need to generate a salt for it, set the metadata
+		// and then compute the key using the passphrase and the metadata.
+		passphraseMeta := NewPassphraseMetadata()
+		ssssKey, err := passphraseMeta.GetKey(passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get key from passphrase: %w", err)
+		}
+		return WrapKey(ssssKey, passphraseMeta)
+	}
+	// No passphrase, just generate a random key
+	return WrapKey(random.Bytes(32), nil)
+}
+
+func WrapKey(ssssKey []byte, passphraseMeta *PassphraseMetadata) (*Key, error) {
+	if len(ssssKey) != 32 {
+		return nil, fmt.Errorf("%w: must be 32 bytes", ErrInvalidRecoveryKey)
+	}
+	// We don't support any other algorithms currently.
+	keyData := KeyMetadata{
+		Algorithm:  AlgorithmAESHMACSHA2,
+		Passphrase: passphraseMeta,
+	}
+
+	// Generate a random ID for the key. It's what identifies the key in account data.
+	keyIDBytes := random.Bytes(24)
+
+	// We store a certain hash in the key metadata so that clients can check if the user entered the correct key.
+	ivBytes := random.Bytes(utils.AESCTRIVLength)
+	keyData.IV = base64.RawStdEncoding.EncodeToString(ivBytes)
+	macBytes, err := keyData.calculateHash(ssssKey)
+	if err != nil {
+		// This should never happen because we just generated the IV and key.
+		return nil, fmt.Errorf("failed to calculate hash: %w", err)
+	}
+	keyData.MAC = base64.RawStdEncoding.EncodeToString(macBytes)
+
+	return &Key{
+		Key:      ssssKey,
+		ID:       base64.RawStdEncoding.EncodeToString(keyIDBytes),
+		Metadata: &keyData,
+	}, nil
+}
+
+// RecoveryKey gets the recovery key for this SSSS key.
+func (key *Key) RecoveryKey() string {
+	return utils.EncodeBase58RecoveryKey(key.Key)
+}
+
+// Encrypt encrypts the given data with this key.
+func (key *Key) Encrypt(eventType string, data []byte) EncryptedKeyData {
+	aesKey, hmacKey := utils.DeriveKeysSHA256(key.Key, eventType)
+
+	iv := utils.GenA256CTRIV()
+	// For some reason, keys in secret storage are base64 encoded before encrypting.
+	// Even more confusingly, it's a part of each key type's spec rather than the secrets spec.
+	// Key backup (`m.megolm_backup.v1`): https://spec.matrix.org/v1.9/client-server-api/#recovery-key
+	// Cross-signing (master, etc): https://spec.matrix.org/v1.9/client-server-api/#cross-signing (the very last paragraph)
+	// It's also not clear whether unpadded base64 is the right option, but assuming it is because everything else is unpadded.
+	payload := make([]byte, base64.RawStdEncoding.EncodedLen(len(data)))
+	base64.RawStdEncoding.Encode(payload, data)
+	utils.XorA256CTR(payload, aesKey, iv)
+
+	return EncryptedKeyData{
+		Ciphertext: base64.RawStdEncoding.EncodeToString(payload),
+		IV:         base64.RawStdEncoding.EncodeToString(iv[:]),
+		MAC:        utils.HMACSHA256B64(payload, hmacKey),
+	}
+}
+
+// Decrypt decrypts the given encrypted data with this key.
+func (key *Key) Decrypt(eventType string, data EncryptedKeyData) ([]byte, error) {
+	var ivBytes [utils.AESCTRIVLength]byte
+	decodedIV, _ := base64.RawStdEncoding.DecodeString(strings.TrimRight(data.IV, "="))
+	copy(ivBytes[:], decodedIV)
+
+	payload, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(data.Ciphertext, "="))
+	if err != nil {
+		return nil, err
+	}
+
+	mac, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(data.MAC, "="))
+	if err != nil {
+		return nil, err
+	}
+
+	// derive the AES and HMAC keys for the requested event type using the SSSS key
+	aesKey, hmacKey := utils.DeriveKeysSHA256(key.Key, eventType)
+
+	// compare the stored MAC with the one we calculated from the ciphertext
+	h := hmac.New(sha256.New, hmacKey[:])
+	h.Write(payload)
+	if !hmac.Equal(h.Sum(nil), mac) {
+		return nil, ErrKeyDataMACMismatch
+	}
+
+	utils.XorA256CTR(payload, aesKey, ivBytes)
+	decryptedDecoded, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(string(payload), "="))
+	return decryptedDecoded, err
+}

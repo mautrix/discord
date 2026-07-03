@@ -1,0 +1,243 @@
+// Copyright (c) 2025 Tulir Asokan
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+package bridgev2
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"time"
+
+	"go.mau.fi/util/exhttp"
+
+	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/status"
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
+)
+
+type MatrixCapabilities struct {
+	AutoJoinInvites       bool
+	BatchSending          bool
+	ArbitraryMemberChange bool
+	ExtraProfileMeta      bool
+	ReplaceEntireProfile  bool
+}
+
+type BeeperStreamPublisher interface {
+	NewDescriptor(ctx context.Context, roomID id.RoomID, streamType string) (*event.BeeperStreamInfo, error)
+	Register(ctx context.Context, roomID id.RoomID, eventID id.EventID, descriptor *event.BeeperStreamInfo) error
+	Publish(ctx context.Context, roomID id.RoomID, eventID id.EventID, delta map[string]any) error
+	Unregister(roomID id.RoomID, eventID id.EventID)
+}
+
+type MatrixConnector interface {
+	Init(*Bridge)
+	Start(ctx context.Context) error
+	PreStop()
+	Stop()
+
+	GetCapabilities() *MatrixCapabilities
+
+	ParseGhostMXID(userID id.UserID) (networkid.UserID, bool)
+	GhostIntent(userID networkid.UserID) MatrixAPI
+	NewUserIntent(ctx context.Context, userID id.UserID, accessToken string) (MatrixAPI, string, error)
+	BotIntent() MatrixAPI
+
+	SendBridgeStatus(ctx context.Context, state *status.BridgeState) error
+	SendMessageStatus(ctx context.Context, status *MessageStatus, evt *MessageStatusEventInfo)
+
+	GenerateContentURI(ctx context.Context, mediaID networkid.MediaID) (id.ContentURIString, error)
+	ParseContentURI(ctx context.Context, contentURI id.ContentURIString) (networkid.MediaID, error)
+
+	GetPowerLevels(ctx context.Context, roomID id.RoomID) (*event.PowerLevelsEventContent, error)
+	GetMembers(ctx context.Context, roomID id.RoomID) (map[id.UserID]*event.MemberEventContent, error)
+	GetMemberInfo(ctx context.Context, roomID id.RoomID, userID id.UserID) (*event.MemberEventContent, error)
+
+	BatchSend(ctx context.Context, roomID id.RoomID, req *mautrix.ReqBeeperBatchSend, extras []*MatrixSendExtra) (*mautrix.RespBeeperBatchSend, error)
+	GenerateDeterministicRoomID(portalKey networkid.PortalKey) id.RoomID
+	GenerateDeterministicEventID(roomID id.RoomID, portalKey networkid.PortalKey, messageID networkid.MessageID, partID networkid.PartID) id.EventID
+	GenerateReactionEventID(roomID id.RoomID, targetMessage *database.Message, sender networkid.UserID, emojiID networkid.EmojiID) id.EventID
+
+	ServerName() string
+}
+
+type MatrixConnectorWithArbitraryRoomState interface {
+	MatrixConnector
+	GetStateEvent(ctx context.Context, roomID id.RoomID, eventType event.Type, stateKey string) (*event.Event, error)
+}
+
+type MatrixConnectorWithServer interface {
+	MatrixConnector
+	GetPublicAddress() string
+	GetRouter() *http.ServeMux
+}
+
+type IProvisioningAPI interface {
+	GetRouter() *http.ServeMux
+	GetUser(r *http.Request) *User
+}
+
+type MatrixConnectorWithProvisioning interface {
+	MatrixConnector
+	GetProvisioning() IProvisioningAPI
+}
+
+type MatrixConnectorWithPublicMedia interface {
+	MatrixConnector
+	GetPublicMediaAddress(contentURI id.ContentURIString) string
+	GetPublicMediaAddressForEvent(ctx context.Context, evt *event.MessageEventContent) (string, error)
+}
+
+type MatrixConnectorWithNameDisambiguation interface {
+	MatrixConnector
+	IsConfusableName(ctx context.Context, roomID id.RoomID, userID id.UserID, name string) ([]id.UserID, error)
+}
+
+type MatrixConnectorWithBridgeIdentifier interface {
+	MatrixConnector
+	GetUniqueBridgeID() string
+}
+
+type MatrixConnectorWithURLPreviews interface {
+	MatrixConnector
+	GetURLPreview(ctx context.Context, url string) (*event.LinkPreview, error)
+}
+
+type MatrixConnectorWithPostRoomBridgeHandling interface {
+	MatrixConnector
+	HandleNewlyBridgedRoom(ctx context.Context, roomID id.RoomID) error
+}
+
+type MatrixConnectorWithAnalytics interface {
+	MatrixConnector
+	TrackAnalytics(userID id.UserID, event string, properties map[string]any)
+}
+
+type MatrixConnectorWithBeeperStreams interface {
+	MatrixConnector
+	GetBeeperStreamPublisher() BeeperStreamPublisher
+}
+
+type DirectNotificationData struct {
+	Portal    *Portal
+	Sender    *Ghost
+	MessageID networkid.MessageID
+	Message   string
+
+	FormattedNotification string
+	FormattedTitle        string
+}
+
+type MatrixConnectorWithNotifications interface {
+	MatrixConnector
+	DisplayNotification(ctx context.Context, data *DirectNotificationData)
+}
+
+type MatrixConnectorWithHTTPSettings interface {
+	MatrixConnector
+	GetHTTPClientSettings() exhttp.ClientSettings
+}
+
+type MatrixSendExtra struct {
+	Timestamp    time.Time
+	MessageMeta  *database.Message
+	ReactionMeta *database.Reaction
+	StreamOrder  int64
+	PartIndex    int
+}
+
+// FileStreamResult is the result of a FileStreamCallback.
+type FileStreamResult struct {
+	// ReplacementFile is the path to a new file that replaces the original file provided to the callback.
+	// Providing a replacement file is only allowed if the requireFile flag was set for the UploadMediaStream call.
+	ReplacementFile string
+	// FileName is the name of the file to be specified when uploading to the server.
+	// This should be the same as the file name that will be included in the Matrix event (body or filename field).
+	// If the file gets encrypted, this field will be ignored.
+	FileName string
+	// MimeType is the type of field to be specified when uploading to the server.
+	// This should be the same as the mime type that will be included in the Matrix event (info -> mimetype field).
+	// If the file gets encrypted, this field will be replaced with application/octet-stream.
+	MimeType string
+}
+
+// FileStreamCallback is a callback function for file uploads that roundtrip via disk.
+//
+// The parameter is either a file or an in-memory buffer depending on the size of the file and whether the requireFile flag was set.
+//
+// The return value must be non-nil unless there's an error, and should always include FileName and MimeType.
+type FileStreamCallback func(file io.Writer) (*FileStreamResult, error)
+
+type CallbackError struct {
+	Type    string
+	Wrapped error
+}
+
+func (ce CallbackError) Error() string {
+	return fmt.Sprintf("%s callback failed: %s", ce.Type, ce.Wrapped.Error())
+}
+
+func (ce CallbackError) Unwrap() error {
+	return ce.Wrapped
+}
+
+type EnsureJoinedParams struct {
+	Via []string
+}
+
+type MatrixAPI interface {
+	GetMXID() id.UserID
+	IsDoublePuppet() bool
+
+	SendMessage(ctx context.Context, roomID id.RoomID, eventType event.Type, content *event.Content, extra *MatrixSendExtra) (*mautrix.RespSendEvent, error)
+	SendState(ctx context.Context, roomID id.RoomID, eventType event.Type, stateKey string, content *event.Content, ts time.Time) (*mautrix.RespSendEvent, error)
+	MarkRead(ctx context.Context, roomID id.RoomID, eventID id.EventID, ts time.Time) error
+	MarkUnread(ctx context.Context, roomID id.RoomID, unread bool) error
+	MarkTyping(ctx context.Context, roomID id.RoomID, typingType TypingType, timeout time.Duration) error
+	DownloadMedia(ctx context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error)
+	DownloadMediaToFile(ctx context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo, writable bool, callback func(*os.File) error) error
+	UploadMedia(ctx context.Context, roomID id.RoomID, data []byte, fileName, mimeType string) (url id.ContentURIString, file *event.EncryptedFileInfo, err error)
+	UploadMediaStream(ctx context.Context, roomID id.RoomID, size int64, requireFile bool, cb FileStreamCallback) (url id.ContentURIString, file *event.EncryptedFileInfo, err error)
+
+	SetDisplayName(ctx context.Context, name string) error
+	SetAvatarURL(ctx context.Context, avatarURL id.ContentURIString) error
+	SetExtraProfileMeta(ctx context.Context, data any) error
+	SetProfile(ctx context.Context, data any) error
+
+	CreateRoom(ctx context.Context, req *mautrix.ReqCreateRoom) (id.RoomID, error)
+	DeleteRoom(ctx context.Context, roomID id.RoomID, puppetsOnly bool) error
+	EnsureJoined(ctx context.Context, roomID id.RoomID, params ...EnsureJoinedParams) error
+	EnsureInvited(ctx context.Context, roomID id.RoomID, userID id.UserID) error
+
+	TagRoom(ctx context.Context, roomID id.RoomID, tag event.RoomTag, isTagged bool) error
+	MuteRoom(ctx context.Context, roomID id.RoomID, until time.Time) error
+
+	GetEvent(ctx context.Context, roomID id.RoomID, eventID id.EventID) (*event.Event, error)
+}
+
+type StreamOrderReadingMatrixAPI interface {
+	MatrixAPI
+	MarkStreamOrderRead(ctx context.Context, roomID id.RoomID, streamOrder int64, ts time.Time) error
+}
+
+type MarkAsDMMatrixAPI interface {
+	MatrixAPI
+	MarkAsDM(ctx context.Context, roomID id.RoomID, otherUser id.UserID) error
+}
+
+// MatrixAPIWithArbitraryRoomState is an extension of MatrixAPI that allows fetching arbitrary state events from a room.
+// This should only be used with double puppets when the bridge wants to ensure that the caller has access to the room.
+// For any other use case, use MatrixConnectorWithArbitraryRoomState instead, which uses the bridge bot.
+type MatrixAPIWithArbitraryRoomState interface {
+	MatrixAPI
+	GetStateEvent(ctx context.Context, roomID id.RoomID, eventType event.Type, stateKey string) (*event.Event, error)
+}

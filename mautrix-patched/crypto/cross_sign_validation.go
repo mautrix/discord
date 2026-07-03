@@ -1,0 +1,158 @@
+// Copyright (c) 2020 Nikos Filippakis
+// Copyright (c) 2024 Tulir Asokan
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+package crypto
+
+import (
+	"context"
+	"fmt"
+
+	"maunium.net/go/mautrix/id"
+)
+
+// ResolveTrust resolves the trust state of the device from cross-signing.
+//
+// Deprecated: This method doesn't take a context. Use [OlmMachine.ResolveTrustContext] instead.
+func (mach *OlmMachine) ResolveTrust(device *id.Device) id.TrustState {
+	state, _ := mach.ResolveTrustContext(context.Background(), device)
+	return state
+}
+
+// ResolveTrustContext resolves the trust state of the device from cross-signing.
+func (mach *OlmMachine) ResolveTrustContext(ctx context.Context, device *id.Device) (id.TrustState, error) {
+	if device.Trust == id.TrustStateVerified || device.Trust == id.TrustStateBlacklisted {
+		return device.Trust, nil
+	}
+	theirKeys, err := mach.CryptoStore.GetCrossSigningKeys(ctx, device.UserID)
+	if err != nil {
+		mach.machOrContextLog(ctx).Error().Err(err).
+			Str("user_id", device.UserID.String()).
+			Msg("Error retrieving cross-signing key of user from database")
+		return id.TrustStateUnset, err
+	}
+	theirMSK, ok := theirKeys[id.XSUsageMaster]
+	if !ok {
+		mach.machOrContextLog(ctx).Debug().
+			Str("user_id", device.UserID.String()).
+			Msg("Master key of user not found")
+		return id.TrustStateUnset, nil
+	}
+	if device.UserID == mach.Client.UserID {
+		ownKeys, err := mach.GetOwnCrossSigningPublicKeys(ctx)
+		if err != nil {
+			mach.machOrContextLog(ctx).Err(err).
+				Str("user_id", device.UserID.String()).
+				Msg("Error retrieving own cross-signing keys from database")
+			return id.TrustStateUnset, err
+		} else if ownKeys != nil && ownKeys.MasterKey != theirMSK.Key {
+			mach.machOrContextLog(ctx).Error().
+				Str("user_id", device.UserID.String()).
+				Stringer("new_master_key", theirMSK.Key).
+				Stringer("first_seen_master_key", theirMSK.First).
+				Stringer("cached_master_key", ownKeys.MasterKey).
+				Msg("Own master key has changed")
+			return id.TrustStateUnset, nil
+		}
+	}
+	theirSSK, ok := theirKeys[id.XSUsageSelfSigning]
+	if !ok {
+		mach.machOrContextLog(ctx).Error().
+			Str("user_id", device.UserID.String()).
+			Msg("Self-signing key of user not found")
+		return id.TrustStateUnset, nil
+	}
+	sskSigExists, err := mach.CryptoStore.IsKeySignedBy(ctx, device.UserID, theirSSK.Key, device.UserID, theirMSK.Key)
+	if err != nil {
+		mach.machOrContextLog(ctx).Error().Err(err).
+			Str("user_id", device.UserID.String()).
+			Msg("Error retrieving cross-signing signatures for master key of user from database")
+		return id.TrustStateUnset, err
+	}
+	if !sskSigExists {
+		mach.machOrContextLog(ctx).Error().
+			Str("user_id", device.UserID.String()).
+			Msg("Self-signing key of user is not signed by their master key")
+		return id.TrustStateUnset, nil
+	}
+	deviceSigExists, err := mach.CryptoStore.IsKeySignedBy(ctx, device.UserID, device.SigningKey, device.UserID, theirSSK.Key)
+	if err != nil {
+		mach.machOrContextLog(ctx).Error().Err(err).
+			Str("user_id", device.UserID.String()).
+			Str("device_key", device.SigningKey.String()).
+			Msg("Error retrieving cross-signing signatures for device from database")
+		return id.TrustStateUnset, err
+	}
+	if deviceSigExists {
+		if trusted, err := mach.IsUserTrusted(ctx, device.UserID); trusted {
+			return id.TrustStateCrossSignedVerified, err
+		} else if theirMSK.Key == theirMSK.First {
+			return id.TrustStateCrossSignedTOFU, nil
+		}
+		return id.TrustStateCrossSignedUntrusted, nil
+	}
+	return id.TrustStateUnset, nil
+}
+
+// IsDeviceTrusted returns whether a device has been determined to be trusted either through verification or cross-signing.
+//
+// Note: this will return false if resolving the trust state fails due to database errors.
+// Use [OlmMachine.ResolveTrustContext] if special error handling is required.
+func (mach *OlmMachine) IsDeviceTrusted(ctx context.Context, device *id.Device) bool {
+	trust, _ := mach.ResolveTrustContext(ctx, device)
+	switch trust {
+	case id.TrustStateVerified, id.TrustStateCrossSignedTOFU, id.TrustStateCrossSignedVerified:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsUserTrusted returns whether a user has been determined to be trusted by our user-signing key having signed their master key.
+// In the case the user ID is our own and we have successfully retrieved our cross-signing keys, we trust our own user.
+func (mach *OlmMachine) IsUserTrusted(ctx context.Context, userID id.UserID) (bool, error) {
+	csPubkeys, err := mach.GetOwnCrossSigningPublicKeys(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to get own cross-signing public keys: %w", err)
+	} else if csPubkeys == nil {
+		return false, nil
+	}
+	mkTrusted, selfSigningTrusted, userSigningTrusted, err := mach.GetOwnCrossSigningVerificationStatus(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if own cross-signing keys are trusted: %w", err)
+	} else if !mkTrusted || !userSigningTrusted {
+		mach.machOrContextLog(ctx).Warn().
+			Bool("mk_trusted", mkTrusted).
+			Bool("usk_trusted", userSigningTrusted).
+			Msg("Own cross-signing keys are not fully trusted, treating other users as untrusted")
+		return false, nil
+	}
+	if userID == mach.Client.UserID {
+		return selfSigningTrusted, nil
+	}
+	theirKeys, err := mach.CryptoStore.GetCrossSigningKeys(ctx, userID)
+	if err != nil {
+		mach.machOrContextLog(ctx).Error().Err(err).
+			Str("user_id", userID.String()).
+			Msg("Error retrieving cross-signing key of user from database")
+		return false, err
+	}
+	theirMskKey, ok := theirKeys[id.XSUsageMaster]
+	if !ok {
+		mach.machOrContextLog(ctx).Error().
+			Str("user_id", userID.String()).
+			Msg("Master key of user not found")
+		return false, nil
+	}
+	sigExists, err := mach.CryptoStore.IsKeySignedBy(ctx, userID, theirMskKey.Key, mach.Client.UserID, csPubkeys.UserSigningKey)
+	if err != nil {
+		mach.machOrContextLog(ctx).Error().Err(err).
+			Str("user_id", userID.String()).
+			Msg("Error retrieving cross-signing signatures for master key of user from database")
+		return false, err
+	}
+	return sigExists, nil
+}

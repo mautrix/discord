@@ -33,6 +33,9 @@ type PortalMetadata struct {
 	//
 	// This is omitted for guild space portals.
 	ChannelType *discordgo.ChannelType `json:"channel_type,omitempty"`
+
+	RelayWebhookID    string `json:"relay_webhook_id,omitempty"`
+	RelayWebhookToken string `json:"relay_webhook_token,omitempty"`
 }
 
 type UserLoginMetadata struct {

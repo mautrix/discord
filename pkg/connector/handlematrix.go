@@ -149,7 +149,28 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		d.lastSendAttemptMutex.Unlock()
 	}
 
-	sentMsg, err := d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, discordgo.WithContext(ctx))
+	var sentMsg *discordgo.Message
+	if msg.OrigSender != nil {
+		webhookID, webhookToken, err := d.getRelayWebhook(ctx, portal, parentChannelID, refererOpt)
+		if err != nil {
+			return nil, d.tryWrappingError(ctx, err)
+		}
+		username := msg.OrigSender.DisambiguatedName
+		if username == "" {
+			username = msg.OrigSender.UserID.String()
+		}
+		sentMsg, err = d.Session.WebhookThreadExecute(webhookID, webhookToken, true, threadChannelID, &discordgo.WebhookParams{
+			Content:         sendReq.Content,
+			Username:        username,
+			Embeds:          sendReq.Embeds,
+			Components:      sendReq.Components,
+			Attachments:     sendReq.Attachments,
+			AllowedMentions: sendReq.AllowedMentions,
+			Flags:           discordgo.MessageFlags(ptr.Val(sendReq.Flags)),
+		}, discordgo.WithContext(ctx))
+	} else {
+		sentMsg, err = d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, discordgo.WithContext(ctx))
+	}
 	if err != nil {
 		return nil, d.tryWrappingError(ctx, err)
 	}
@@ -166,6 +187,35 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	return &bridgev2.MatrixMessageResponse{
 		DB: dbMessage,
 	}, nil
+}
+
+func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Portal, channelID string, refererOpt discordgo.RequestOption) (id, token string, err error) {
+	meta := portal.Metadata.(*discordid.PortalMetadata)
+	if meta.RelayWebhookID != "" && meta.RelayWebhookToken != "" {
+		return meta.RelayWebhookID, meta.RelayWebhookToken, nil
+	}
+
+	webhooks, err := d.Session.ChannelWebhooks(channelID, refererOpt, discordgo.WithContext(ctx))
+	if err != nil {
+		return "", "", err
+	}
+	for _, webhook := range webhooks {
+		if webhook != nil && webhook.Name == "mautrix-discord" && webhook.Token != "" {
+			meta.RelayWebhookID = webhook.ID
+			meta.RelayWebhookToken = webhook.Token
+			_ = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal)
+			return webhook.ID, webhook.Token, nil
+		}
+	}
+
+	webhook, err := d.Session.WebhookCreate(channelID, "mautrix-discord", "", refererOpt, discordgo.WithContext(ctx))
+	if err != nil {
+		return "", "", err
+	}
+	meta.RelayWebhookID = webhook.ID
+	meta.RelayWebhookToken = webhook.Token
+	_ = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal)
+	return webhook.ID, webhook.Token, nil
 }
 
 var errCannotDMStranger = errors.New("can't direct message a stranger")

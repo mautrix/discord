@@ -4,7 +4,7 @@ RUN apk add --no-cache git ca-certificates build-base su-exec olm-dev
 
 COPY . /build
 WORKDIR /build
-RUN go build -o /usr/bin/mautrix-discord
+RUN ./build.sh -o /usr/bin/mautrix-discord
 
 FROM alpine:3.22
 

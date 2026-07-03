@@ -50,6 +50,7 @@ type contextKey int
 
 const (
 	contextKeyChannel contextKey = iota
+	relayWebhookName             = "mau bridge"
 )
 
 type SendAttempt struct {
@@ -200,7 +201,7 @@ func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Po
 		return "", "", err
 	}
 	for _, webhook := range webhooks {
-		if webhook != nil && webhook.Name == "mautrix-discord" && webhook.Token != "" {
+		if webhook != nil && webhook.Name == relayWebhookName && webhook.Token != "" {
 			meta.RelayWebhookID = webhook.ID
 			meta.RelayWebhookToken = webhook.Token
 			_ = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal)
@@ -208,7 +209,7 @@ func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Po
 		}
 	}
 
-	webhook, err := d.Session.WebhookCreate(channelID, "mautrix-discord", "", refererOpt, discordgo.WithContext(ctx))
+	webhook, err := d.Session.WebhookCreate(channelID, relayWebhookName, "", refererOpt, discordgo.WithContext(ctx))
 	if err != nil {
 		return "", "", err
 	}

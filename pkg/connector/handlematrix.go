@@ -331,6 +331,9 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
 	}
+	if msg.EditTarget == nil {
+		return fmt.Errorf("missing edit target")
+	}
 
 	log := zerolog.Ctx(ctx).With().Str("action", "matrix message edit").Logger()
 	ctx = log.WithContext(ctx)
@@ -358,6 +361,23 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 		}
 	}
 
+	if d.isRelayWebhookMessage(msg.Portal, msg.EditTarget) {
+		meta := msg.Portal.Metadata.(*discordid.PortalMetadata)
+		_, err := d.Session.WebhookMessageEdit(
+			meta.RelayWebhookID,
+			meta.RelayWebhookToken,
+			discordid.ParseMessageID(msg.EditTarget.ID),
+			&discordgo.WebhookEdit{
+				Content: &content,
+			},
+			discordgo.WithContext(ctx),
+		)
+		if err != nil {
+			return d.tryWrappingError(ctx, err)
+		}
+		return nil
+	}
+
 	_, err := d.Session.ChannelMessageEdit(
 		channelID,
 		discordid.ParseMessageID(msg.EditTarget.ID),
@@ -369,6 +389,14 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	}
 
 	return nil
+}
+
+func (d *DiscordClient) isRelayWebhookMessage(portal *bridgev2.Portal, msg *database.Message) bool {
+	if msg == nil {
+		return false
+	}
+	meta := portal.Metadata.(*discordid.PortalMetadata)
+	return meta.RelayWebhookID != "" && meta.RelayWebhookToken != "" && string(msg.SenderID) == meta.RelayWebhookID
 }
 
 func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
@@ -467,6 +495,9 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
 	}
+	if removal.TargetMessage == nil {
+		return fmt.Errorf("missing message remove target")
+	}
 
 	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
@@ -482,6 +513,15 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 		}
 	}
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
+	if d.isRelayWebhookMessage(removal.Portal, removal.TargetMessage) {
+		meta := removal.Portal.Metadata.(*discordid.PortalMetadata)
+		return d.tryWrappingError(ctx, d.Session.WebhookMessageDelete(
+			meta.RelayWebhookID,
+			meta.RelayWebhookToken,
+			messageID,
+			discordgo.WithContext(ctx),
+		))
+	}
 	return d.tryWrappingError(ctx, d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID)))
 }
 

@@ -156,13 +156,14 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		if err != nil {
 			return nil, d.tryWrappingError(ctx, err)
 		}
-		username := relayWebhookUsername(msg.OrigSender)
+		username, avatarURL := d.relayWebhookProfile(ctx, msg.OrigSender)
 		if username == "" {
 			username = msg.OrigSender.UserID.String()
 		}
 		sentMsg, err = d.Session.WebhookThreadExecute(webhookID, webhookToken, true, threadChannelID, &discordgo.WebhookParams{
 			Content:         sendReq.Content,
 			Username:        username,
+			AvatarURL:       avatarURL,
 			Embeds:          sendReq.Embeds,
 			Components:      sendReq.Components,
 			Attachments:     sendReq.Attachments,
@@ -219,6 +220,19 @@ func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Po
 	return webhook.ID, webhook.Token, nil
 }
 
+func (d *DiscordClient) relayWebhookProfile(ctx context.Context, sender *bridgev2.OrigSender) (username, avatarURL string) {
+	username = relayWebhookUsername(sender)
+	if ghostID, ok := d.UserLogin.Bridge.Matrix.ParseGhostMXID(sender.UserID); ok {
+		if user := d.userCache.Resolve(ctx, discordid.ParseUserID(ghostID)); user != nil {
+			return user.DisplayName(), user.AvatarURL("256")
+		}
+	}
+	if user := d.resolveRelayGhostByDisplayName(ctx, username); user != nil {
+		return user.DisplayName(), user.AvatarURL("256")
+	}
+	return username, ""
+}
+
 func relayWebhookUsername(sender *bridgev2.OrigSender) string {
 	if sender.PerMessageProfile.Displayname != "" {
 		return sender.PerMessageProfile.Displayname
@@ -227,6 +241,49 @@ func relayWebhookUsername(sender *bridgev2.OrigSender) string {
 		return sender.MemberEventContent.Displayname
 	}
 	return sender.DisambiguatedName
+}
+
+func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, displayName string) *discordgo.User {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		return nil
+	}
+
+	rows, err := d.UserLogin.Bridge.DB.Query(ctx, `
+		SELECT id FROM ghost
+		WHERE bridge_id=$1 AND (
+			name=$2 OR
+			name=$3 OR
+			name=$4
+		)
+		LIMIT 2
+	`, d.UserLogin.Bridge.DB.BridgeID, displayName, displayName+" (Discord)", displayName+" (bot) (Discord)")
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed to resolve relay sender against Discord ghosts")
+		return nil
+	}
+	defer rows.Close()
+
+	var matchedUserID string
+	for rows.Next() {
+		var userID string
+		if err = rows.Scan(&userID); err != nil {
+			zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed to scan relay ghost match")
+			return nil
+		}
+		if matchedUserID != "" && matchedUserID != userID {
+			return nil
+		}
+		matchedUserID = userID
+	}
+	if err = rows.Err(); err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed while resolving relay ghost match")
+		return nil
+	}
+	if matchedUserID == "" {
+		return nil
+	}
+	return d.userCache.Resolve(ctx, matchedUserID)
 }
 
 var errCannotDMStranger = errors.New("can't direct message a stranger")

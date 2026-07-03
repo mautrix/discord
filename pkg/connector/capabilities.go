@@ -168,6 +168,10 @@ var discordCaps = &event.RoomFeatures{
 	LocationMessage: event.CapLevelUnsupported,
 	MaxTextLength:   MaxTextLength,
 	Thread:          event.CapLevelPartialSupport,
+
+	// Relayed Matrix users are sent through Discord webhooks, so Discord can
+	// show the sender name per message instead of prefixing the content.
+	PerMessageProfileRelay: true,
 }
 
 func (d *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {

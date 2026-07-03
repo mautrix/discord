@@ -156,7 +156,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		if err != nil {
 			return nil, d.tryWrappingError(ctx, err)
 		}
-		username := msg.OrigSender.DisambiguatedName
+		username := relayWebhookUsername(msg.OrigSender)
 		if username == "" {
 			username = msg.OrigSender.UserID.String()
 		}
@@ -217,6 +217,16 @@ func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Po
 	meta.RelayWebhookToken = webhook.Token
 	_ = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal)
 	return webhook.ID, webhook.Token, nil
+}
+
+func relayWebhookUsername(sender *bridgev2.OrigSender) string {
+	if sender.PerMessageProfile.Displayname != "" {
+		return sender.PerMessageProfile.Displayname
+	}
+	if sender.MemberEventContent.Displayname != "" {
+		return sender.MemberEventContent.Displayname
+	}
+	return sender.DisambiguatedName
 }
 
 var errCannotDMStranger = errors.New("can't direct message a stranger")

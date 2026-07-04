@@ -17,13 +17,18 @@
 package connector
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
+	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -52,6 +57,8 @@ const (
 	contextKeyChannel contextKey = iota
 	relayWebhookName             = "mau bridge"
 )
+
+var discordWebhookUsernameWord = regexp.MustCompile(`(?i)discord`)
 
 type SendAttempt struct {
 	At                        time.Time
@@ -152,24 +159,34 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	var sentMsg *discordgo.Message
 	if msg.OrigSender != nil {
-		webhookID, webhookToken, err := d.getRelayWebhook(ctx, portal, parentChannelID, refererOpt)
-		if err != nil {
-			return nil, d.tryWrappingError(ctx, err)
+		if guildID == "" {
+			err = fmt.Errorf("Discord webhooks are not available in DMs/group DMs")
+			return nil, bridgev2.WrapErrorInStatus(err).
+				WithStatus(event.MessageStatusFail).
+				WithIsCertain(true).
+				WithMessage("Relay messages need Discord webhooks, which are only available in guild channels.").
+				WithSendNotice(true)
 		}
-		username, avatarURL := d.relayWebhookProfile(ctx, msg.OrigSender)
+		username, avatarURL := d.relayWebhookProfile(ctx, portal, msg.OrigSender)
 		if username == "" {
 			username = msg.OrigSender.UserID.String()
 		}
-		sentMsg, err = d.Session.WebhookThreadExecute(webhookID, webhookToken, true, threadChannelID, &discordgo.WebhookParams{
+		username = sanitizeRelayWebhookUsername(username, msg.OrigSender.UserID.String())
+		params := &discordgo.WebhookParams{
 			Content:         sendReq.Content,
 			Username:        username,
 			AvatarURL:       avatarURL,
 			Embeds:          sendReq.Embeds,
 			Components:      sendReq.Components,
+			Files:           sendReq.Files,
 			Attachments:     sendReq.Attachments,
 			AllowedMentions: sendReq.AllowedMentions,
-			Flags:           discordgo.MessageFlags(ptr.Val(sendReq.Flags)),
-		}, discordgo.WithContext(ctx))
+			Flags:           relayWebhookFlags(sendReq.Flags),
+		}
+		if sendReq.Reference != nil {
+			params.Embeds = prependReplyEmbed(params.Embeds, guildID, sendReq.Reference.ChannelID, sendReq.Reference.MessageID)
+		}
+		sentMsg, err = d.executeRelayWebhook(ctx, portal, parentChannelID, threadChannelID, params, refererOpt)
 	} else {
 		sentMsg, err = d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, discordgo.WithContext(ctx))
 	}
@@ -191,6 +208,54 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	}, nil
 }
 
+func relayWebhookFlags(flags *int) discordgo.MessageFlags {
+	if flags == nil {
+		return 0
+	}
+	return discordgo.MessageFlags(*flags) & discordgo.MessageFlagsSuppressEmbeds
+}
+
+func prependReplyEmbed(embeds []*discordgo.MessageEmbed, guildID, channelID, messageID string) []*discordgo.MessageEmbed {
+	if channelID == "" || messageID == "" {
+		return embeds
+	}
+	guildPart := guildID
+	if guildPart == "" {
+		guildPart = "@me"
+	}
+	replyEmbed := &discordgo.MessageEmbed{
+		Description: fmt.Sprintf("[Replying to message](https://discord.com/channels/%s/%s/%s)", guildPart, channelID, messageID),
+	}
+	return append([]*discordgo.MessageEmbed{replyEmbed}, embeds...)
+}
+
+func (d *DiscordClient) executeRelayWebhook(
+	ctx context.Context,
+	portal *bridgev2.Portal,
+	channelID string,
+	threadID string,
+	params *discordgo.WebhookParams,
+	refererOpt discordgo.RequestOption,
+) (*discordgo.Message, error) {
+	webhookID, webhookToken, err := d.getRelayWebhook(ctx, portal, channelID, refererOpt)
+	if err != nil {
+		return nil, d.tryWrappingError(ctx, err)
+	}
+	sentMsg, err := d.Session.WebhookThreadExecute(webhookID, webhookToken, true, threadID, params, discordgo.WithContext(ctx))
+	if err == nil || !isStaleWebhookError(err) {
+		return sentMsg, err
+	}
+	zerolog.Ctx(ctx).Warn().Err(err).Msg("Relay webhook failed, clearing cached credentials and retrying once")
+	if clearErr := d.clearRelayWebhook(ctx, portal); clearErr != nil {
+		zerolog.Ctx(ctx).Warn().Err(clearErr).Msg("Failed to clear stale relay webhook metadata")
+	}
+	webhookID, webhookToken, err = d.getRelayWebhook(ctx, portal, channelID, refererOpt)
+	if err != nil {
+		return nil, d.tryWrappingError(ctx, err)
+	}
+	return d.Session.WebhookThreadExecute(webhookID, webhookToken, true, threadID, params, discordgo.WithContext(ctx))
+}
+
 func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Portal, channelID string, refererOpt discordgo.RequestOption) (id, token string, err error) {
 	meta := portal.Metadata.(*discordid.PortalMetadata)
 	if meta.RelayWebhookID != "" && meta.RelayWebhookToken != "" {
@@ -205,7 +270,9 @@ func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Po
 		if webhook != nil && webhook.Name == relayWebhookName && webhook.Token != "" {
 			meta.RelayWebhookID = webhook.ID
 			meta.RelayWebhookToken = webhook.Token
-			_ = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal)
+			if err = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal); err != nil {
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to save relay webhook metadata")
+			}
 			return webhook.ID, webhook.Token, nil
 		}
 	}
@@ -216,12 +283,41 @@ func (d *DiscordClient) getRelayWebhook(ctx context.Context, portal *bridgev2.Po
 	}
 	meta.RelayWebhookID = webhook.ID
 	meta.RelayWebhookToken = webhook.Token
-	_ = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal)
+	if err = d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal); err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to save relay webhook metadata")
+	}
 	return webhook.ID, webhook.Token, nil
 }
 
-func (d *DiscordClient) relayWebhookProfile(ctx context.Context, sender *bridgev2.OrigSender) (username, avatarURL string) {
+func (d *DiscordClient) clearRelayWebhook(ctx context.Context, portal *bridgev2.Portal) error {
+	meta := portal.Metadata.(*discordid.PortalMetadata)
+	meta.RelayWebhookID = ""
+	meta.RelayWebhookToken = ""
+	return d.UserLogin.Bridge.DB.Portal.Update(ctx, portal.Portal)
+}
+
+func isStaleWebhookError(err error) bool {
+	var restErr *discordgo.RESTError
+	if !errors.As(err, &restErr) {
+		return false
+	}
+	if restErr.Response != nil && (restErr.Response.StatusCode == http.StatusUnauthorized || restErr.Response.StatusCode == http.StatusNotFound) {
+		return true
+	}
+	return restErr.Message != nil && (restErr.Message.Code == discordgo.ErrCodeUnknownWebhook || restErr.Message.Code == discordgo.ErrCodeInvalidWebhookTokenProvided)
+}
+
+func (d *DiscordClient) relayWebhookProfile(ctx context.Context, portal *bridgev2.Portal, sender *bridgev2.OrigSender) (username, avatarURL string) {
 	username = relayWebhookUsername(sender)
+	if sender.User != nil {
+		if login, _, err := portal.FindPreferredLogin(ctx, sender.User, false); err != nil {
+			zerolog.Ctx(ctx).Debug().Err(err).Stringer("sender_mxid", sender.UserID).Msg("No explicit Discord login for relayed sender in portal")
+		} else if login != nil {
+			if user := d.userCache.Resolve(ctx, discordid.ParseUserLoginID(login.ID)); user != nil {
+				return user.DisplayName(), user.AvatarURL("256")
+			}
+		}
+	}
 	if ghostID, ok := d.UserLogin.Bridge.Matrix.ParseGhostMXID(sender.UserID); ok {
 		if user := d.userCache.Resolve(ctx, discordid.ParseUserID(ghostID)); user != nil {
 			return user.DisplayName(), user.AvatarURL("256")
@@ -231,6 +327,29 @@ func (d *DiscordClient) relayWebhookProfile(ctx context.Context, sender *bridgev
 		return user.DisplayName(), user.AvatarURL("256")
 	}
 	return username, ""
+}
+
+func sanitizeRelayWebhookUsername(username, fallback string) string {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		username = strings.TrimSpace(fallback)
+	}
+	username = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, username)
+	username = strings.TrimSpace(discordWebhookUsernameWord.ReplaceAllString(username, "dscord"))
+	if username == "" {
+		username = "Matrix user"
+	}
+	const maxWebhookUsernameRunes = 80
+	if utf8.RuneCountInString(username) > maxWebhookUsernameRunes {
+		runes := []rune(username)
+		username = string(runes[:maxWebhookUsernameRunes])
+	}
+	return username
 }
 
 func relayWebhookUsername(sender *bridgev2.OrigSender) string {
@@ -250,13 +369,12 @@ func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, disp
 	}
 
 	rows, err := d.UserLogin.Bridge.DB.Query(ctx, `
-		SELECT id FROM ghost
+		SELECT id, avatar_id FROM ghost
 		WHERE bridge_id=$1 AND (
 			name=$2 OR
 			name=$3 OR
 			name=$4
 		)
-		LIMIT 2
 	`, d.UserLogin.Bridge.DB.BridgeID, displayName, displayName+" (Discord)", displayName+" (bot) (Discord)")
 	if err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed to resolve relay sender against Discord ghosts")
@@ -264,23 +382,32 @@ func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, disp
 	}
 	defer rows.Close()
 
-	var matchedUserID string
+	var matchedUserIDs []string
+	var realAvatarUserIDs []string
 	for rows.Next() {
-		var userID string
-		if err = rows.Scan(&userID); err != nil {
+		var userID, avatarID string
+		if err = rows.Scan(&userID, &avatarID); err != nil {
 			zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed to scan relay ghost match")
 			return nil
 		}
-		if matchedUserID != "" && matchedUserID != userID {
-			return nil
+		matchedUserIDs = append(matchedUserIDs, userID)
+		if !strings.Contains(avatarID, "cdn.discordapp.com/embed/avatars/") {
+			realAvatarUserIDs = append(realAvatarUserIDs, userID)
 		}
-		matchedUserID = userID
 	}
 	if err = rows.Err(); err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed while resolving relay ghost match")
 		return nil
 	}
-	if matchedUserID == "" {
+	var matchedUserID string
+	switch {
+	case len(realAvatarUserIDs) == 1:
+		matchedUserID = realAvatarUserIDs[0]
+	case len(realAvatarUserIDs) > 1:
+		return nil
+	case len(matchedUserIDs) == 1:
+		matchedUserID = matchedUserIDs[0]
+	default:
 		return nil
 	}
 	return d.userCache.Resolve(ctx, matchedUserID)
@@ -338,7 +465,7 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	log := zerolog.Ctx(ctx).With().Str("action", "matrix message edit").Logger()
 	ctx = log.WithContext(ctx)
 
-	content, _ := d.connector.MsgConv.ConvertMatrixMessageContent(
+	content, allowedMentions := d.connector.MsgConv.ConvertMatrixMessageContent(
 		ctx,
 		msg.Portal,
 		msg.Content,
@@ -363,14 +490,20 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 
 	if d.isRelayWebhookMessage(msg.Portal, msg.EditTarget) {
 		meta := msg.Portal.Metadata.(*discordid.PortalMetadata)
-		_, err := d.Session.WebhookMessageEdit(
+		edit := &discordgo.WebhookEdit{
+			Content:         &content,
+			AllowedMentions: allowedMentions,
+		}
+		if err := d.populateRelayWebhookEditMedia(ctx, edit, msg.Content); err != nil {
+			return err
+		}
+		_, err := d.webhookMessageEditThread(
+			ctx,
 			meta.RelayWebhookID,
 			meta.RelayWebhookToken,
 			discordid.ParseMessageID(msg.EditTarget.ID),
-			&discordgo.WebhookEdit{
-				Content: &content,
-			},
-			discordgo.WithContext(ctx),
+			threadChannelID,
+			edit,
 		)
 		if err != nil {
 			return d.tryWrappingError(ctx, err)
@@ -389,6 +522,75 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	}
 
 	return nil
+}
+
+func (d *DiscordClient) populateRelayWebhookEditMedia(ctx context.Context, edit *discordgo.WebhookEdit, content *event.MessageEventContent) error {
+	switch content.MsgType {
+	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
+	default:
+		return nil
+	}
+	mediaData, err := d.connector.MsgConv.Bridge.Bot.DownloadMedia(ctx, content.URL, content.File)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to download Matrix attachment for relay webhook edit")
+		return bridgev2.ErrMediaDownloadFailed
+	}
+	filename := content.Body
+	if content.FileName != "" {
+		filename = content.FileName
+	}
+	if filename == "" {
+		filename = "attachment"
+	}
+	contentType := ""
+	if content.Info != nil {
+		contentType = content.Info.MimeType
+	}
+	edit.Files = []*discordgo.File{{
+		Name:        filename,
+		ContentType: contentType,
+		Reader:      bytes.NewReader(mediaData),
+	}}
+	attachments := []*discordgo.MessageAttachment{}
+	edit.Attachments = &attachments
+	return nil
+}
+
+func (d *DiscordClient) webhookMessageEditThread(ctx context.Context, webhookID, token, messageID, threadID string, data *discordgo.WebhookEdit) (*discordgo.Message, error) {
+	uri := webhookMessageThreadURI(webhookID, token, messageID, threadID)
+	var response []byte
+	var err error
+	if len(data.Files) > 0 {
+		contentType, body, encodeErr := discordgo.MultipartBodyWithJSON(data, data.Files)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		response, err = d.Session.RequestRaw("PATCH", uri, contentType, body, uri, 0, discordgo.WithContext(ctx))
+	} else {
+		response, err = d.Session.RequestWithBucketID("PATCH", uri, data, discordgo.EndpointWebhookToken("", ""), discordgo.WithContext(ctx))
+	}
+	if err != nil {
+		return nil, err
+	}
+	var edited *discordgo.Message
+	err = discordgo.Unmarshal(response, &edited)
+	return edited, err
+}
+
+func (d *DiscordClient) webhookMessageDeleteThread(ctx context.Context, webhookID, token, messageID, threadID string) error {
+	uri := webhookMessageThreadURI(webhookID, token, messageID, threadID)
+	_, err := d.Session.RequestWithBucketID("DELETE", uri, nil, discordgo.EndpointWebhookToken("", ""), discordgo.WithContext(ctx))
+	return err
+}
+
+func webhookMessageThreadURI(webhookID, token, messageID, threadID string) string {
+	uri := discordgo.EndpointWebhookMessage(webhookID, token, messageID)
+	if threadID == "" {
+		return uri
+	}
+	v := url.Values{}
+	v.Set("thread_id", threadID)
+	return uri + "?" + v.Encode()
 }
 
 func (d *DiscordClient) isRelayWebhookMessage(portal *bridgev2.Portal, msg *database.Message) bool {
@@ -421,6 +623,10 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 		emojiID = variationselector.FullyQualify(emojiID)
 	}
 
+	// Relayed reactions have to use the relay login on Discord. Discord only
+	// allows one reaction per user/emoji, so multiple Matrix users reacting
+	// with the same emoji intentionally collapse into the relay user's one
+	// Discord reaction.
 	return bridgev2.MatrixReactionPreResponse{
 		SenderID: discordid.UserLoginIDToUserID(d.UserLogin.ID),
 		EmojiID:  discordid.MakeEmojiID(emojiID),
@@ -515,11 +721,12 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
 	if d.isRelayWebhookMessage(removal.Portal, removal.TargetMessage) {
 		meta := removal.Portal.Metadata.(*discordid.PortalMetadata)
-		return d.tryWrappingError(ctx, d.Session.WebhookMessageDelete(
+		return d.tryWrappingError(ctx, d.webhookMessageDeleteThread(
+			ctx,
 			meta.RelayWebhookID,
 			meta.RelayWebhookToken,
 			messageID,
-			discordgo.WithContext(ctx),
+			threadChannelID,
 		))
 	}
 	return d.tryWrappingError(ctx, d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID)))

@@ -120,9 +120,13 @@ func (mc *MessageConverter) ToDiscord(
 		//
 		// Since we only support real users at the moment, always ignore the
 		// returned allowed mentions.
-		req.Content, _ = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
+		var allowedMentions *discordgo.MessageAllowedMentions
+		req.Content, allowedMentions = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
 		if content.MsgType == event.MsgEmote {
 			req.Content = fmt.Sprintf("_%s_", req.Content)
+		}
+		if msg.OrigSender != nil {
+			req.AllowedMentions = allowedMentions
 		}
 	}
 
@@ -155,7 +159,6 @@ func (mc *MessageConverter) ToDiscord(
 			filename = "SPOILER_" + filename
 		}
 
-		// TODO: Support attachments for relay/webhook. (A branch was removed here.)
 		att := &discordgo.MessageAttachment{
 			ID:       "0",
 			Filename: filename,
@@ -164,8 +167,6 @@ func (mc *MessageConverter) ToDiscord(
 			att.OriginalContentType = content.Info.MimeType
 		}
 		if voiceMeta != nil {
-			flags := int(discordgo.MessageFlagsIsVoiceMessage)
-			req.Flags = &flags
 			att.ContentType = voiceMeta.ContentType
 			att.DurationSeconds = voiceMeta.DurationSeconds
 			att.Waveform = voiceMeta.Waveform
@@ -173,35 +174,47 @@ func (mc *MessageConverter) ToDiscord(
 			// gets angry and returns 50160 "Voice messages must have a single
 			// audio attachment".
 			att.Filename = "voice-message" + voiceAttachmentExtension(voiceMeta.ContentType)
+			if msg.OrigSender == nil {
+				flags := int(discordgo.MessageFlagsIsVoiceMessage)
+				req.Flags = &flags
+			}
 		}
 
-		uploadID := mc.NextDiscordUploadID()
-		log.Debug().Str("upload_id", uploadID).Msg("Preparing attachment")
-		filePrep := &discordgo.FilePrepare{
-			Size:                len(mediaData),
-			Name:                att.Filename,
-			ID:                  uploadID,
-			OriginalContentType: att.OriginalContentType,
+		if msg.OrigSender != nil {
+			req.Files = append(req.Files, &discordgo.File{
+				Name:        att.Filename,
+				ContentType: att.ContentType,
+				Reader:      bytes.NewReader(mediaData),
+			})
+		} else {
+			uploadID := mc.NextDiscordUploadID()
+			log.Debug().Str("upload_id", uploadID).Msg("Preparing attachment")
+			filePrep := &discordgo.FilePrepare{
+				Size:                len(mediaData),
+				Name:                att.Filename,
+				ID:                  uploadID,
+				OriginalContentType: att.OriginalContentType,
+			}
+			prep, err := session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
+				Files: []*discordgo.FilePrepare{filePrep},
+			}, refererOpt)
+
+			if err != nil {
+				log.Err(err).Msg("Failed to create attachment in preparation for attachment reupload")
+				return nil, bridgev2.ErrMediaReuploadFailed
+			}
+
+			prepared := prep.Attachments[0]
+			att.UploadedFilename = prepared.UploadFilename
+
+			err = uploadDiscordAttachment(session.Client, prepared.UploadURL, mediaData)
+			if err != nil {
+				log.Err(err).Msg("Failed to reupload Discord attachment after preparing")
+				return nil, bridgev2.ErrMediaReuploadFailed
+			}
+
+			req.Attachments = append(req.Attachments, att)
 		}
-		prep, err := session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
-			Files: []*discordgo.FilePrepare{filePrep},
-		}, refererOpt)
-
-		if err != nil {
-			log.Err(err).Msg("Failed to create attachment in preparation for attachment reupload")
-			return nil, bridgev2.ErrMediaReuploadFailed
-		}
-
-		prepared := prep.Attachments[0]
-		att.UploadedFilename = prepared.UploadFilename
-
-		err = uploadDiscordAttachment(session.Client, prepared.UploadURL, mediaData)
-		if err != nil {
-			log.Err(err).Msg("Failed to reupload Discord attachment after preparing")
-			return nil, bridgev2.ErrMediaReuploadFailed
-		}
-
-		req.Attachments = append(req.Attachments, att)
 	}
 
 	return &req, nil

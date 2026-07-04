@@ -308,24 +308,47 @@ func isStaleWebhookError(err error) bool {
 }
 
 func (d *DiscordClient) relayWebhookProfile(ctx context.Context, portal *bridgev2.Portal, sender *bridgev2.OrigSender) (username, avatarURL string) {
+	log := zerolog.Ctx(ctx)
 	username = relayWebhookUsername(sender)
 	if sender.User != nil {
 		if login, _, err := portal.FindPreferredLogin(ctx, sender.User, false); err != nil {
 			zerolog.Ctx(ctx).Debug().Err(err).Stringer("sender_mxid", sender.UserID).Msg("No explicit Discord login for relayed sender in portal")
 		} else if login != nil {
 			if user := d.userCache.Resolve(ctx, discordid.ParseUserLoginID(login.ID)); user != nil {
+				log.Debug().
+					Stringer("sender_mxid", sender.UserID).
+					Str("login_id", string(login.ID)).
+					Str("webhook_username", user.DisplayName()).
+					Bool("has_avatar_url", user.AvatarURL("256") != "").
+					Msg("Resolved relay webhook profile from explicit Discord login")
 				return user.DisplayName(), user.AvatarURL("256")
 			}
 		}
 	}
 	if ghostID, ok := d.UserLogin.Bridge.Matrix.ParseGhostMXID(sender.UserID); ok {
 		if user := d.userCache.Resolve(ctx, discordid.ParseUserID(ghostID)); user != nil {
+			log.Debug().
+				Stringer("sender_mxid", sender.UserID).
+				Str("ghost_id", string(ghostID)).
+				Str("webhook_username", user.DisplayName()).
+				Bool("has_avatar_url", user.AvatarURL("256") != "").
+				Msg("Resolved relay webhook profile from ghost MXID")
 			return user.DisplayName(), user.AvatarURL("256")
 		}
 	}
 	if profile := d.resolveRelayGhostByDisplayName(ctx, username); profile != nil {
+		log.Debug().
+			Stringer("sender_mxid", sender.UserID).
+			Str("display_name", username).
+			Str("webhook_username", profile.username).
+			Bool("has_avatar_url", profile.avatarURL != "").
+			Msg("Resolved relay webhook profile from matching Discord ghost display name")
 		return profile.username, profile.avatarURL
 	}
+	log.Debug().
+		Stringer("sender_mxid", sender.UserID).
+		Str("display_name", username).
+		Msg("Falling back to Matrix relay webhook profile")
 	return username, ""
 }
 
@@ -373,6 +396,25 @@ type relayWebhookGhostMatch struct {
 	avatarURL string
 }
 
+func chooseRelayWebhookGhostMatch(matches []relayWebhookGhostMatch) *relayWebhookGhostMatch {
+	var realAvatarMatches []relayWebhookGhostMatch
+	for _, match := range matches {
+		if !strings.Contains(match.avatarURL, "cdn.discordapp.com/embed/avatars/") {
+			realAvatarMatches = append(realAvatarMatches, match)
+		}
+	}
+	switch {
+	case len(realAvatarMatches) == 1:
+		return &realAvatarMatches[0]
+	case len(realAvatarMatches) > 1:
+		return nil
+	case len(matches) == 1:
+		return &matches[0]
+	default:
+		return nil
+	}
+}
+
 func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, displayName string) *relayWebhookProfileMatch {
 	displayName = strings.TrimSpace(displayName)
 	if displayName == "" {
@@ -394,7 +436,6 @@ func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, disp
 	defer rows.Close()
 
 	var matches []relayWebhookGhostMatch
-	var realAvatarMatches []relayWebhookGhostMatch
 	for rows.Next() {
 		var match relayWebhookGhostMatch
 		if err = rows.Scan(&match.userID, &match.name, &match.avatarURL); err != nil {
@@ -402,23 +443,17 @@ func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, disp
 			return nil
 		}
 		matches = append(matches, match)
-		if !strings.Contains(match.avatarURL, "cdn.discordapp.com/embed/avatars/") {
-			realAvatarMatches = append(realAvatarMatches, match)
-		}
 	}
 	if err = rows.Err(); err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed while resolving relay ghost match")
 		return nil
 	}
-	var matched relayWebhookGhostMatch
-	switch {
-	case len(realAvatarMatches) == 1:
-		matched = realAvatarMatches[0]
-	case len(realAvatarMatches) > 1:
-		return nil
-	case len(matches) == 1:
-		matched = matches[0]
-	default:
+	matched := chooseRelayWebhookGhostMatch(matches)
+	if matched == nil {
+		zerolog.Ctx(ctx).Debug().
+			Str("display_name", displayName).
+			Int("match_count", len(matches)).
+			Msg("Skipping relay webhook profile match due to ambiguous Discord ghost display names")
 		return nil
 	}
 	return &relayWebhookProfileMatch{

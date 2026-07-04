@@ -323,8 +323,8 @@ func (d *DiscordClient) relayWebhookProfile(ctx context.Context, portal *bridgev
 			return user.DisplayName(), user.AvatarURL("256")
 		}
 	}
-	if user := d.resolveRelayGhostByDisplayName(ctx, username); user != nil {
-		return user.DisplayName(), user.AvatarURL("256")
+	if profile := d.resolveRelayGhostByDisplayName(ctx, username); profile != nil {
+		return profile.username, profile.avatarURL
 	}
 	return username, ""
 }
@@ -362,14 +362,25 @@ func relayWebhookUsername(sender *bridgev2.OrigSender) string {
 	return sender.DisambiguatedName
 }
 
-func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, displayName string) *discordgo.User {
+type relayWebhookProfileMatch struct {
+	username  string
+	avatarURL string
+}
+
+type relayWebhookGhostMatch struct {
+	userID    string
+	name      string
+	avatarURL string
+}
+
+func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, displayName string) *relayWebhookProfileMatch {
 	displayName = strings.TrimSpace(displayName)
 	if displayName == "" {
 		return nil
 	}
 
 	rows, err := d.UserLogin.Bridge.DB.Query(ctx, `
-		SELECT id, avatar_id FROM ghost
+		SELECT id, name, avatar_id FROM ghost
 		WHERE bridge_id=$1 AND (
 			name=$2 OR
 			name=$3 OR
@@ -382,35 +393,38 @@ func (d *DiscordClient) resolveRelayGhostByDisplayName(ctx context.Context, disp
 	}
 	defer rows.Close()
 
-	var matchedUserIDs []string
-	var realAvatarUserIDs []string
+	var matches []relayWebhookGhostMatch
+	var realAvatarMatches []relayWebhookGhostMatch
 	for rows.Next() {
-		var userID, avatarID string
-		if err = rows.Scan(&userID, &avatarID); err != nil {
+		var match relayWebhookGhostMatch
+		if err = rows.Scan(&match.userID, &match.name, &match.avatarURL); err != nil {
 			zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed to scan relay ghost match")
 			return nil
 		}
-		matchedUserIDs = append(matchedUserIDs, userID)
-		if !strings.Contains(avatarID, "cdn.discordapp.com/embed/avatars/") {
-			realAvatarUserIDs = append(realAvatarUserIDs, userID)
+		matches = append(matches, match)
+		if !strings.Contains(match.avatarURL, "cdn.discordapp.com/embed/avatars/") {
+			realAvatarMatches = append(realAvatarMatches, match)
 		}
 	}
 	if err = rows.Err(); err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Str("display_name", displayName).Msg("Failed while resolving relay ghost match")
 		return nil
 	}
-	var matchedUserID string
+	var matched relayWebhookGhostMatch
 	switch {
-	case len(realAvatarUserIDs) == 1:
-		matchedUserID = realAvatarUserIDs[0]
-	case len(realAvatarUserIDs) > 1:
+	case len(realAvatarMatches) == 1:
+		matched = realAvatarMatches[0]
+	case len(realAvatarMatches) > 1:
 		return nil
-	case len(matchedUserIDs) == 1:
-		matchedUserID = matchedUserIDs[0]
+	case len(matches) == 1:
+		matched = matches[0]
 	default:
 		return nil
 	}
-	return d.userCache.Resolve(ctx, matchedUserID)
+	return &relayWebhookProfileMatch{
+		username:  matched.name,
+		avatarURL: matched.avatarURL,
+	}
 }
 
 var errCannotDMStranger = errors.New("can't direct message a stranger")

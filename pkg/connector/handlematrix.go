@@ -317,6 +317,7 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 	}
 
 	emojiID := reaction.Content.RelatesTo.Key
+	emojiDisplay := emojiID
 
 	// Figure out if this is a custom emoji or not.
 	if strings.HasPrefix(emojiID, "mxc://") {
@@ -329,17 +330,20 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 		}
 
 		emojiID = fmt.Sprintf("%s:%s", customEmoji.Name, customEmoji.ID)
+		emojiDisplay = fmt.Sprintf(":%s:", customEmoji.Name)
 	} else {
 		emojiID = variationselector.FullyQualify(emojiID)
+		emojiDisplay = emojiID
 	}
 
-	// Relayed reactions have to use the relay login on Discord. Discord only
-	// allows one reaction per user/emoji, so multiple Matrix users reacting
-	// with the same emoji intentionally collapse into the relay user's one
-	// Discord reaction.
+	senderID := discordid.UserLoginIDToUserID(d.UserLogin.ID)
+	if reaction.OrigSender != nil {
+		senderID = relayReactionSenderID(reaction.OrigSender)
+	}
 	return bridgev2.MatrixReactionPreResponse{
-		SenderID: discordid.UserLoginIDToUserID(d.UserLogin.ID),
+		SenderID: senderID,
 		EmojiID:  discordid.MakeEmojiID(emojiID),
+		Emoji:    emojiDisplay,
 	}, nil
 }
 
@@ -361,6 +365,33 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 			threadChannelID = thread.ThreadChannelID
 			channelID = threadChannelID
 		}
+	}
+
+	if reaction.OrigSender != nil {
+		username, avatarURL := d.relayWebhookProfile(ctx, portal, reaction.OrigSender)
+		if username == "" {
+			username = reaction.OrigSender.UserID.String()
+		}
+		username = sanitizeRelayWebhookUsername(username, reaction.OrigSender.UserID.String())
+		params := &discordgo.WebhookParams{
+			Content:         fmt.Sprintf("reacted %s", reaction.PreHandleResp.Emoji),
+			Username:        username,
+			AvatarURL:       avatarURL,
+			Embeds:          prependReplyEmbed(nil, meta.GuildID, channelID, discordid.ParseMessageID(reaction.TargetMessage.ID)),
+			AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
+		}
+		sent, err := d.executeRelayWebhook(ctx, portal, parentChannelID, threadChannelID, params, makeDiscordReferer(meta.GuildID, parentChannelID, threadChannelID))
+		if err != nil {
+			return nil, d.tryWrappingError(ctx, err)
+		}
+		return &database.Reaction{
+			SenderID: reaction.PreHandleResp.SenderID,
+			EmojiID:  reaction.PreHandleResp.EmojiID,
+			Emoji:    reaction.PreHandleResp.Emoji,
+			Metadata: &discordid.ReactionMetadata{
+				RelayWebhookMessageID: sent.ID,
+			},
+		}, nil
 	}
 
 	return nil, d.tryWrappingError(ctx, d.Session.MessageReactionAddUser(
@@ -395,6 +426,17 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 			threadChannelID = thread.ThreadChannelID
 			channelID = threadChannelID
 		}
+	}
+
+	if meta, _ := removing.Metadata.(*discordid.ReactionMetadata); meta != nil && meta.RelayWebhookMessageID != "" {
+		portalMeta := removal.Portal.Metadata.(*discordid.PortalMetadata)
+		return d.tryWrappingError(ctx, d.webhookMessageDeleteThread(
+			ctx,
+			portalMeta.RelayWebhookID,
+			portalMeta.RelayWebhookToken,
+			meta.RelayWebhookMessageID,
+			threadChannelID,
+		))
 	}
 
 	return d.tryWrappingError(ctx, d.Session.MessageReactionRemoveUser(

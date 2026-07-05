@@ -31,12 +31,14 @@ import (
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 const relayWebhookName = "mau bridge"
+const relayReactionSenderIDPrefix = "matrix:"
 
 var discordWebhookUsernameWord = regexp.MustCompile(`(?i)discord`)
 
@@ -215,6 +217,10 @@ func relayWebhookUsername(sender *bridgev2.OrigSender) string {
 		return sender.MemberEventContent.Displayname
 	}
 	return sender.DisambiguatedName
+}
+
+func relayReactionSenderID(sender *bridgev2.OrigSender) networkid.UserID {
+	return networkid.UserID(relayReactionSenderIDPrefix + sender.UserID.String())
 }
 
 type relayWebhookProfileMatch struct {

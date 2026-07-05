@@ -130,6 +130,41 @@ func TestWebhookMessageThreadURI(t *testing.T) {
 	}
 }
 
+func TestIsRelayWebhookDiscordMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  *discordgo.Message
+		want bool
+	}{
+		{
+			name: "webhook id match",
+			msg:  &discordgo.Message{WebhookID: "relay-webhook", Author: &discordgo.User{ID: "other"}},
+			want: true,
+		},
+		{
+			name: "author id match with webhook marker",
+			msg:  &discordgo.Message{WebhookID: "some-webhook", Author: &discordgo.User{ID: "relay-webhook"}},
+			want: true,
+		},
+		{
+			name: "author match without webhook marker",
+			msg:  &discordgo.Message{Author: &discordgo.User{ID: "relay-webhook"}},
+		},
+		{
+			name: "different webhook",
+			msg:  &discordgo.Message{WebhookID: "other", Author: &discordgo.User{ID: "other"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRelayWebhookDiscordMessage(tc.msg, "relay-webhook"); got != tc.want {
+				t.Fatalf("unexpected relay webhook classification: got %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsStaleWebhookError(t *testing.T) {
 	tests := []struct {
 		name string

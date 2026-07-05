@@ -724,6 +724,32 @@ func (d *DiscordClient) channelIsBridged(ctx context.Context, channelID string) 
 	return existingPortal != nil && existingPortal.MXID != "", route
 }
 
+func (d *DiscordClient) isOwnRelayWebhookMessage(ctx context.Context, msg *discordgo.Message, route *router.Route) bool {
+	if msg == nil || route == nil {
+		return false
+	}
+	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, route.PortalKey)
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to look up portal when checking relay webhook message")
+		return false
+	}
+	if portal == nil {
+		return false
+	}
+	meta := portal.Metadata.(*discordid.PortalMetadata)
+	return isRelayWebhookDiscordMessage(msg, meta.RelayWebhookID)
+}
+
+func isRelayWebhookDiscordMessage(msg *discordgo.Message, relayWebhookID string) bool {
+	if msg == nil || relayWebhookID == "" {
+		return false
+	}
+	if msg.WebhookID == relayWebhookID {
+		return true
+	}
+	return msg.WebhookID != "" && msg.Author != nil && msg.Author.ID == relayWebhookID
+}
+
 func (d *DiscordClient) handleUserGuildSettingsUpdate(ctx context.Context, evt *discordgo.UserGuildSettingsUpdate) {
 	log := zerolog.Ctx(ctx)
 	log.Debug().Msg("Handling user guild settings update")
@@ -1010,6 +1036,10 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			}
 			return
 		}
+		if d.isOwnRelayWebhookMessage(ctx, evt.Message, route) {
+			log.Debug().Msg("Dropping message from own relay webhook")
+			return
+		}
 
 		if evt.Message.Type == discordgo.MessageTypeGuildMemberJoin {
 			d.userCache.UpdateWithMessage(evt.Message)
@@ -1028,6 +1058,10 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		ctx, log := messageCtx(ctx, evt.Message)
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
+			return
+		}
+		if d.isOwnRelayWebhookMessage(ctx, evt.Message, route) {
+			log.Debug().Msg("Dropping message update from own relay webhook")
 			return
 		}
 

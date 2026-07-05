@@ -44,10 +44,6 @@ type UserLoginMetadata struct {
 	BridgedGuildIDs  map[string]bool            `json:"bridged_guild_ids,omitempty"`
 }
 
-type ReactionMetadata struct {
-	RelayWebhookMessageID string `json:"relay_webhook_message_id,omitempty"`
-}
-
 var _ database.MetaMerger = (*UserLoginMetadata)(nil)
 
 func (ulm *UserLoginMetadata) CopyFrom(incoming any) {

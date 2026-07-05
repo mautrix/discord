@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
-	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/id"
 )
 
 func TestChooseRelayWebhookGhostMatch(t *testing.T) {
@@ -100,15 +98,6 @@ func TestRelayWebhookFlagsOnlyAllowsSuppressEmbeds(t *testing.T) {
 	got := relayWebhookFlags(&flags)
 	if got != discordgo.MessageFlagsSuppressEmbeds {
 		t.Fatalf("unexpected flags: got %d, want %d", got, discordgo.MessageFlagsSuppressEmbeds)
-	}
-}
-
-func TestRelayReactionSenderIDUsesOriginalMatrixUser(t *testing.T) {
-	sender := &bridgev2.OrigSender{UserID: id.UserID("@keith:beeper.com")}
-	got := relayReactionSenderID(sender)
-	want := "matrix:@keith:beeper.com"
-	if string(got) != want {
-		t.Fatalf("unexpected relay reaction sender ID: got %q, want %q", got, want)
 	}
 }
 

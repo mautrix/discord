@@ -30,8 +30,5 @@ func (d *DiscordConnector) GetDBMetaTypes() database.MetaTypes {
 		UserLogin: func() any {
 			return &discordid.UserLoginMetadata{}
 		},
-		Reaction: func() any {
-			return &discordid.ReactionMetadata{}
-		},
 	}
 }

@@ -66,3 +66,112 @@ func TestDoAddsDebugOptionsHeader(t *testing.T) {
 		t.Fatalf("expected %s header to be set, got %q", HeaderDebugOptions, gotHeader.Get(HeaderDebugOptions))
 	}
 }
+
+const testCaptchaBody = `{` +
+	`"captcha_key":["captcha-required"],` +
+	`"captcha_service":"hcaptcha",` +
+	`"captcha_sitekey":"sk",` +
+	`"captcha_session_id":"sess",` +
+	`"captcha_rqdata":"rqd",` +
+	`"captcha_rqtoken":"rqt"` +
+	`}`
+
+const testLoginSuccessBody = `{"token":"test-token","user_id":"1234","user_settings":{"locale":"en-US"}}`
+
+// advanceToCaptchaPrompt drives the machine from its initial state through
+// credential submission, at which point the (canned) HTTP client is expected to
+// answer with a CAPTCHA challenge.
+func advanceToCaptchaPrompt(t *testing.T, am *AuthMachine) *Prompt {
+	t.Helper()
+	ctx := context.Background()
+
+	prompt, done, err := am.Advance(ctx, nil)
+	if err != nil {
+		t.Fatalf("initial advance errored: %v", err)
+	}
+	if done != nil {
+		t.Fatalf("unexpected completion on initial advance")
+	}
+	if prompt == nil || prompt.CredsPrompt == nil {
+		t.Fatalf("expected a credentials prompt, got %+v", prompt)
+	}
+
+	prompt, done, err = am.Advance(ctx, &Answer{Creds: NewCreds("user@example.com", "hunter2")})
+	if err != nil {
+		t.Fatalf("advance with credentials errored: %v", err)
+	}
+	if done != nil {
+		t.Fatalf("unexpected completion when a CAPTCHA was expected")
+	}
+	if prompt == nil || prompt.Captcha == nil {
+		t.Fatalf("expected a CAPTCHA prompt, got %+v", prompt)
+	}
+	return prompt
+}
+
+// TestAdvanceCaptchaChallengeYieldsPrompt ensures that a CAPTCHA challenge
+// returned mid-request surfaces as a Prompt rather than terminating the login
+// with an error.
+func TestAdvanceCaptchaChallengeYieldsPrompt(t *testing.T) {
+	client := testHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return newResponse(http.StatusBadRequest, testCaptchaBody), nil
+	})
+
+	am := NewAuthMachine(context.Background(), client, newTestPersonality())
+	am.Fingerprint = "test-fingerprint"
+
+	advanceToCaptchaPrompt(t, am)
+}
+
+// TestAdvanceCaptchaSolutionRetriesWithHeader ensures that answering a CAPTCHA
+// prompt retries the interrupted request with the solution and challenge state
+// threaded into the request headers.
+func TestAdvanceCaptchaSolutionRetriesWithHeader(t *testing.T) {
+	const solution = "solved-captcha-token"
+
+	var calls int
+	var retryHeader http.Header
+	client := testHTTPClient(func(req *http.Request) (*http.Response, error) {
+		calls++
+		switch calls {
+		case 1:
+			return newResponse(http.StatusBadRequest, testCaptchaBody), nil
+		case 2:
+			retryHeader = req.Header.Clone()
+			return newResponse(http.StatusOK, testLoginSuccessBody), nil
+		default:
+			t.Fatalf("unexpected HTTP call #%d", calls)
+			return nil, nil
+		}
+	})
+
+	am := NewAuthMachine(context.Background(), client, newTestPersonality())
+	am.Fingerprint = "test-fingerprint"
+
+	advanceToCaptchaPrompt(t, am)
+
+	prompt, done, err := am.Advance(context.Background(), &Answer{
+		Solution: &CaptchaSolution{Solution: solution},
+	})
+	if err != nil {
+		t.Fatalf("advance with CAPTCHA solution errored: %v", err)
+	}
+	if prompt != nil {
+		t.Fatalf("expected login to complete, got prompt %+v", prompt)
+	}
+	if done == nil {
+		t.Fatalf("expected a completed login")
+	}
+	if got := done.Token.UnwrapSensitive(); got != "test-token" {
+		t.Fatalf("unexpected token %q", got)
+	}
+	if calls != 2 {
+		t.Fatalf("expected exactly 2 HTTP calls, got %d", calls)
+	}
+	if got := retryHeader.Get(HeaderCaptchaKey); got != solution {
+		t.Fatalf("expected %s header %q on retry, got %q", HeaderCaptchaKey, solution, got)
+	}
+	if got := retryHeader.Get(HeaderCaptchaSessionID); got != "sess" {
+		t.Fatalf("expected %s header %q on retry, got %q", HeaderCaptchaSessionID, "sess", got)
+	}
+}

@@ -16,8 +16,6 @@
 
 package discordauth
 
-import "context"
-
 // An AuthenticatorType is what you append to "/auth/mfa/" to respond to an MFA
 // challenge with that MFA method.
 //
@@ -33,30 +31,11 @@ const (
 	AuthenticatorPassword AuthenticatorType = "password"
 )
 
-// MFAChallenge encapsulates the context regarding an in-progress MFA flow. Use
-// the data from this struct to inform how you will proceed with
-// authentication.
-//
-// This is received by a [ChallengeHandler].
-type MFAChallenge struct {
-	*LoginMFARequired
-
-	// RequestSMS asks Discord to send a MFA code to the user's phone number.
-	// This will only work if the user has SMS MFA enabled.
-	RequestSMS func(context.Context) (*SMSSendResponse, error)
-
-	// PreviousError is present when a prior code submission in this challenge
-	// was rejected by Discord's backend. Handlers should surface this to the
-	// user interface as part of a retry, e.g. "that code was invalid, try
-	// again".
-	PreviousError error
-}
-
 // An [MFAContinue] combines an [AuthenticatorType] with an [MFAContinuation],
 // which lets the [AuthMachine] know how to make the HTTP request to Discord.
 //
-// This is returned out of a [ChallengeHandler] when the client is ready to let
-// the library know how to proceed with the MFA log in flow.
+// This is sent back in an [Answer] when the client is ready to let the library
+// know how to proceed with the MFA log in flow.
 type MFAContinue struct {
 	Type AuthenticatorType
 	MFAContinuation

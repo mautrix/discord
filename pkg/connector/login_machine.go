@@ -19,10 +19,8 @@ package connector
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/google/uuid"
@@ -36,7 +34,6 @@ import (
 
 const LoginFlowIDMachine = "machine"
 const LoginStepIDMachineInitialCreds = "fi.mau.discord.creds"
-const LoginStepIDMachineWait = "fi.mau.discord.wait"
 const LoginStepIDMachineCaptcha = "fi.mau.discord.captcha"
 const LoginStepIDMachineEmailVerification = "fi.mau.discord.email_verification"
 const LoginStepIDMachineMFAMethod = "fi.mau.discord.mfa.method"
@@ -59,55 +56,15 @@ const (
 	mfaBackup mfaOption = "Enter a backup code"
 )
 
-// For simplicity, AuthMachine exposes a blocking, "straight-line" API:
-// Prepare/Login do not yield intermediate preemption flows. Instead, they
-// synchronously call back into our ChallengeHandler methods (e.g. ContinueMFA
-// or SolveCaptcha) whenever user input is needed. CAPTCHA handling makes this
-// especially awkward, as any request in the flow may be preempted by one or
-// more CAPTCHA challenges before the original request can complete. This is
-// documented in further detail in the discordauth package.
-//
-// Anyhow, bridgev2 is the opposite shape: login is step-based and
-// request-scoped, and each provisioning request must return a LoginStep before
-// its context is canceled. To bridge that mismatch, AuthMachine runs on a
-// long-lived background goroutine. That worker emits signals such as "prompt
-// the user", "login complete", or "login failed", and DiscordMachineLogin
-// translates them into bridgev2 steps. User replies are then forwarded back to
-// the worker so the synchronous AuthMachine flow can continue. Channels are
-// used to bridge the gap.
-//
-// In practice, this means returning a dummy DisplayAndWait step to hand
-// control back to bridgev2 as our Wait method drains the next signal.
-// CAPTCHA challenges reuse this plumbing via LoginStepTypeCookies, dispatching
-// through SubmitCookies.
-
 type DiscordMachineLogin struct {
 	*DiscordGenericLogin
 	Machine *discordauth.AuthMachine
 
-	machineCtx    context.Context
-	cancelMachine context.CancelFunc
-
-	currentlyPending   *pendingPrompt
-	currentlyPendingMu sync.Mutex
-
-	signals chan machineSignal
+	mfaChallenge *discordauth.LoginMFARequired
 }
 
-type machineSignal struct {
-	prompt *pendingPrompt
-	done   *discordauth.LoginCompleted
-	err    error
-}
-type pendingPrompt struct {
-	step  *bridgev2.LoginStep
-	reply chan map[string]string
-}
-
-var _ discordauth.ChallengeHandler = (*DiscordMachineLogin)(nil)
 var _ bridgev2.LoginProcessUserInput = (*DiscordMachineLogin)(nil)
 var _ bridgev2.LoginProcessCookies = (*DiscordMachineLogin)(nil)
-var _ bridgev2.LoginProcessDisplayAndWait = (*DiscordMachineLogin)(nil)
 
 func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*DiscordMachineLogin, error) {
 	launchSig, err := discordgo.NewVanillaSignature()
@@ -164,26 +121,49 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}
+
 	ml := &DiscordMachineLogin{
 		DiscordGenericLogin: login,
 	}
-	ml.Machine = discordauth.NewAuthMachine(ctx, http, &personality, ml)
+	ml.Machine = discordauth.NewAuthMachine(ctx, http, &personality)
 	return ml, nil
 }
 
-func (d *DiscordMachineLogin) WaitForEmailVerification(ctx context.Context) error {
-	log := zerolog.Ctx(ctx).With().
-		Str("action", "discord machine wait for email verification").
-		Logger()
-	ctx = log.WithContext(ctx)
-	log.Info().Msg("Prompting user to verify the IP address via email")
+func (d *DiscordMachineLogin) Cancel() {
+	d.DiscordGenericLogin.Cancel()
+}
 
+// initialCredsStep returns the very first login step needed to kick off the
+// authentication flow (email or phone number and password).
+func initialCredsStep(instructions string) *bridgev2.LoginStep {
+	return &bridgev2.LoginStep{
+		Type:         bridgev2.LoginStepTypeUserInput,
+		StepID:       LoginStepIDMachineInitialCreds,
+		Instructions: instructions,
+		UserInputParams: &bridgev2.LoginUserInputParams{
+			Fields: []bridgev2.LoginInputDataField{
+				{
+					Type: bridgev2.LoginInputFieldTypeUsername,
+					ID:   InputDataFieldIDUsernameOrPhone,
+					Name: "Email or phone number",
+				},
+				{
+					Type: bridgev2.LoginInputFieldTypePassword,
+					ID:   InputDataFieldIDPassword,
+					Name: "Password",
+				},
+			},
+		},
+	}
+}
+
+func emailVerificationStep() *bridgev2.LoginStep {
 	// This isn't ideal by any means, but chat-command login and Beeper iOS
 	// cannot handle a user_input step with no inputs.
 	instructions := "Your login was correct, but Discord detected Beeper " +
 		"as a new login location. Check your email for a verification link, " +
 		"then choose the option below to continue."
-	_, err := d.promptUser(ctx, &bridgev2.LoginStep{
+	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
 		StepID:       LoginStepIDMachineEmailVerification,
 		Instructions: instructions,
@@ -199,18 +179,15 @@ func (d *DiscordMachineLogin) WaitForEmailVerification(ctx context.Context) erro
 				},
 			},
 		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to wait for email verification: %w", err)
 	}
-
-	return nil
 }
 
-func (d *DiscordMachineLogin) ContinueMFA(
-	ctx context.Context,
-	challenge *discordauth.MFAChallenge,
-) (*discordauth.MFAContinue, error) {
+func (d *DiscordMachineLogin) mfaMethodStep(ctx context.Context, prompt *discordauth.MFAChallengePrompt) (*bridgev2.LoginStep, error) {
+	challenge := prompt.LoginMFARequired
+	if challenge == nil {
+		return nil, fmt.Errorf("auth machine returned an MFA prompt without a challenge")
+	}
+
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "discord machine continue mfa").
 		Str("login_instance_id", challenge.LoginInstanceID).
@@ -219,13 +196,9 @@ func (d *DiscordMachineLogin) ContinueMFA(
 		Bool("mfa_totp_enabled", challenge.TOTPEnabled).
 		Bool("mfa_backup_codes_accepted", challenge.BackupCodesAccepted).
 		Logger()
-	ctx = log.WithContext(ctx)
-
 	log.Info().Msg("Entering MFA login flow")
 
-	mfaOptions := make([]string, 0)
-	// (Reusing the identifier strings for each authenticator method from
-	// discordauth as the option enumeration values for the user prompt.)
+	mfaOptions := make([]string, 0, 3)
 	if challenge.SMSEnabled {
 		mfaOptions = append(mfaOptions, string(mfaSms))
 	}
@@ -235,20 +208,20 @@ func (d *DiscordMachineLogin) ContinueMFA(
 	if challenge.BackupCodesAccepted {
 		mfaOptions = append(mfaOptions, string(mfaBackup))
 	}
-
 	if len(mfaOptions) == 0 {
 		return nil, fmt.Errorf("no supported MFA methods available (WebAuthn is unimplemented)")
 	}
 
 	instructions := "How do you want to verify it’s you?"
-	if challenge.PreviousError != nil {
+	if prompt.Reason != "" {
 		instructions = "That code didn’t work. Choose how you’d like to verify and try again."
 		if challenge.BackupCodesAccepted {
 			instructions += " If your authenticator app isn’t working, you can use a backup code instead."
 		}
 	}
 
-	input, err := d.promptUser(ctx, &bridgev2.LoginStep{
+	d.mfaChallenge = challenge
+	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
 		StepID:       LoginStepIDMachineMFAMethod,
 		Instructions: instructions,
@@ -262,21 +235,13 @@ func (d *DiscordMachineLogin) ContinueMFA(
 				},
 			},
 		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to prompt for MFA method: %w", err)
-	}
+	}, nil
+}
 
-	selectedMethod := mfaOption(input[InputDataFieldIDMFAMethod])
-
-	log = log.With().Str("mfa_selected_method", string(selectedMethod)).Logger()
-	ctx = log.WithContext(ctx)
-
-	log.Info().Msg("User selected MFA method")
-
-	switch selectedMethod {
-	case mfaBackup:
-		input, err := d.promptUser(ctx, &bridgev2.LoginStep{
+func mfaCodeStep(authType discordauth.AuthenticatorType) (*bridgev2.LoginStep, error) {
+	switch authType {
+	case discordauth.AuthenticatorBackup:
+		return &bridgev2.LoginStep{
 			Type:         bridgev2.LoginStepTypeUserInput,
 			StepID:       LoginStepIDMachineMFABackup,
 			Instructions: "If your authenticator app is unavailable, you can sign in with a backup code. Backup codes are meant for emergencies only.",
@@ -290,29 +255,9 @@ func (d *DiscordMachineLogin) ContinueMFA(
 					},
 				},
 			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to prompt user for backup code: %w", err)
-		}
-		log.Info().Msg("Received backup code from user, proceeding")
-
-		// Discord presents MFA backup codes to the user with dashes, but the
-		// backend doesn't actually accept them. Follow in the footsteps of the
-		// first party clients and remove them from the user input.
-		backupCode := strings.TrimSpace(strings.ReplaceAll(
-			input[InputDataFieldIDMFABackupCode],
-			"-",
-			"",
-		))
-		return &discordauth.MFAContinue{
-			Type: discordauth.AuthenticatorBackup,
-			MFAContinuation: discordauth.MFAContinuation{
-				MFAState: challenge.MFAState,
-				Code:     backupCode,
-			},
 		}, nil
-	case mfaTotp:
-		input, err := d.promptUser(ctx, &bridgev2.LoginStep{
+	case discordauth.AuthenticatorTOTP:
+		return &bridgev2.LoginStep{
 			Type:         bridgev2.LoginStepTypeUserInput,
 			StepID:       LoginStepIDMachineMFATOTP,
 			Instructions: "Enter the code from your authenticator app.",
@@ -327,31 +272,9 @@ func (d *DiscordMachineLogin) ContinueMFA(
 					},
 				},
 			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to prompt user for TOTP code: %w", err)
-		}
-		log.Info().Msg("Received TOTP code from user, proceeding")
-
-		totpCode := strings.TrimSpace(input[InputDataFieldIDMFATOTPCode])
-		return &discordauth.MFAContinue{
-			Type: discordauth.AuthenticatorTOTP,
-			MFAContinuation: discordauth.MFAContinuation{
-				MFAState: challenge.MFAState,
-				Code:     totpCode,
-			},
 		}, nil
-	case mfaSms:
-		log.Info().Msg("Requesting SMS from Discord")
-		_, err := challenge.RequestSMS(ctx)
-
-		if err != nil {
-			log.Err(err).Msg("Failed to request SMS from Discord")
-			return nil, fmt.Errorf("failed to ask discord to send SMS: %w", err)
-		}
-		log.Info().Msg("Requested SMS from Discord")
-
-		input, err := d.promptUser(ctx, &bridgev2.LoginStep{
+	case discordauth.AuthenticatorSMS:
+		return &bridgev2.LoginStep{
 			Type:         bridgev2.LoginStepTypeUserInput,
 			StepID:       LoginStepIDMachineMFASMS,
 			Instructions: "Enter the code Discord just texted you.",
@@ -367,22 +290,9 @@ func (d *DiscordMachineLogin) ContinueMFA(
 					},
 				},
 			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to prompt user for SMS code: %w", err)
-		}
-		smsCode := strings.TrimSpace(input[InputDataFieldIDMFASMSCode])
-		log.Info().Msg("Received SMS code from user, proceeding")
-
-		return &discordauth.MFAContinue{
-			Type: discordauth.AuthenticatorSMS,
-			MFAContinuation: discordauth.MFAContinuation{
-				MFAState: challenge.MFAState,
-				Code:     smsCode,
-			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown mfa method %v", selectedMethod)
+		return nil, fmt.Errorf("unknown mfa authenticator type %q", authType)
 	}
 }
 
@@ -459,9 +369,8 @@ func captchaExtractionJS(cap *discordauth.Captcha) (string, error) {
 	return strings.Replace(captchaExtractionJSTemplate, "%__CONFIG_REPLACEME__%", string(stateJSON), 1), nil
 }
 
-func (d *DiscordMachineLogin) SolveCaptcha(ctx context.Context, cap *discordauth.Captcha) (*discordauth.CaptchaSolution, error) {
+func (d *DiscordMachineLogin) captchaStep(ctx context.Context, cap *discordauth.Captcha) (*bridgev2.LoginStep, error) {
 	log := cap.LogContext(zerolog.Ctx(ctx).With()).Logger()
-	ctx = log.WithContext(ctx)
 
 	log.Info().Msg("Encountered CAPTCHA challenge")
 
@@ -475,7 +384,7 @@ func (d *DiscordMachineLogin) SolveCaptcha(ctx context.Context, cap *discordauth
 	}
 	log.Debug().Str("captcha_js", extractJS).Msg("Computed CAPTCHA solution extraction JS")
 
-	input, err := d.promptUser(ctx, &bridgev2.LoginStep{
+	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeCookies,
 		StepID:       LoginStepIDMachineCaptcha,
 		Instructions: "Discord is presenting a CAPTCHA challenge.",
@@ -491,107 +400,70 @@ func (d *DiscordMachineLogin) SolveCaptcha(ctx context.Context, cap *discordauth
 				}},
 			}},
 		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to prompt user to solve captcha: %w", err)
+	}, nil
+}
+
+func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
+	if err := d.Machine.Prepare(ctx); err != nil {
+		return nil, fmt.Errorf("failed to prepare login: %w", err)
 	}
 
-	solutionToken := input[CaptchaExtractionField]
+	prompt, done, err := d.Machine.Advance(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start login: %w", err)
+	}
+	if done != nil {
+		return d.finalize(ctx, done)
+	}
+	return d.stepForPrompt(ctx, prompt)
+}
+
+func (d *DiscordMachineLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
+	solutionToken := cookies[CaptchaExtractionField]
 	if solutionToken == "" {
 		return nil, fmt.Errorf("extracted captcha solution is blank")
 	}
 
-	return &discordauth.CaptchaSolution{
-		Solution: solutionToken,
-	}, nil
-}
-
-func (d *DiscordMachineLogin) Cancel() {
-	d.DiscordGenericLogin.Cancel()
-	if d.cancelMachine != nil {
-		d.cancelMachine()
-	}
-}
-
-// initialCredsStep returns the very first login step needed to kick off the
-// authentication flow (email or phone number and password).
-func initialCredsStep(instructions string) *bridgev2.LoginStep {
-	return &bridgev2.LoginStep{
-		Type:         bridgev2.LoginStepTypeUserInput,
-		StepID:       LoginStepIDMachineInitialCreds,
-		Instructions: instructions,
-		UserInputParams: &bridgev2.LoginUserInputParams{
-			Fields: []bridgev2.LoginInputDataField{
-				{
-					Type: bridgev2.LoginInputFieldTypeUsername,
-					ID:   InputDataFieldIDUsernameOrPhone,
-					Name: "Email or phone number",
-				},
-				{
-					Type: bridgev2.LoginInputFieldTypePassword,
-					ID:   InputDataFieldIDPassword,
-					Name: "Password",
-				},
-			},
+	return d.answer(ctx, &discordauth.Answer{
+		Solution: &discordauth.CaptchaSolution{
+			Solution: solutionToken,
 		},
-	}
-}
-
-func waitStep() *bridgev2.LoginStep {
-	return &bridgev2.LoginStep{
-		Type:         bridgev2.LoginStepTypeDisplayAndWait,
-		StepID:       LoginStepIDMachineWait,
-		Instructions: "Waiting for Discord…",
-		DisplayAndWaitParams: &bridgev2.LoginDisplayAndWaitParams{
-			Type: bridgev2.LoginDisplayTypeNothing,
-		},
-	}
-}
-
-func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
-	return initialCredsStep(""), nil
-}
-
-// initialCredsRejectionMessage reports whether err was caused by Discord
-// rejecting the submitted credentials (i.e. a bad username/phone or password),
-// and if so unwraps a human-readable reason suitable for re-prompting. It
-// deliberately only matches errors that carry login/password field errors.
-func initialCredsRejectionMessage(err error) (string, bool) {
-	// TODO(skip): This needs to go. Rewrite AuthMachine to be a proper state
-	// machine and obviate the connector from having to care about recognizing
-	// that it should prompt the user again.
-
-	var apiErr discordauth.APIError
-	if !errors.As(err, &apiErr) || !apiErr.IsUserInputError() {
-		return "", false
-	}
-
-	// Discord returns the same "Login or password is invalid." string under
-	// both the login and password keys; surface it verbatim when present.
-	for _, key := range []string{"login", "password"} {
-		if fieldErrs, err := apiErr.FormFieldErrors(key); err == nil && len(fieldErrs) > 0 {
-			return fieldErrs[0].Message, true
-		}
-	}
-
-	return "", false
-}
-
-func (d *DiscordMachineLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
-	return d.tryDrainingPendingPrompt(ctx, cookies), nil
+	})
 }
 
 func (d *DiscordMachineLogin) SubmitUserInput(ctx context.Context, input map[string]string) (*bridgev2.LoginStep, error) {
-	log := zerolog.Ctx(ctx)
-
-	// User input was submitted as part of a prompt that the worker signaled to
-	// us.
-	step := d.tryDrainingPendingPrompt(ctx, input)
-	if step != nil {
-		return step, nil
+	if _, ok := input[InputDataFieldIDUsernameOrPhone]; ok {
+		return d.submitCreds(ctx, input)
+	}
+	if _, ok := input[InputDataFieldIDPassword]; ok {
+		return d.submitCreds(ctx, input)
+	}
+	if _, ok := input[InputDataFieldIDEmailVerification]; ok {
+		return d.answer(ctx, &discordauth.Answer{})
+	}
+	if selected, ok := input[InputDataFieldIDMFAMethod]; ok {
+		authType, err := mfaOptionToAuthenticator(selected)
+		if err != nil {
+			return nil, err
+		}
+		return d.answer(ctx, &discordauth.Answer{
+			PickedMFAType: &authType,
+		})
+	}
+	if hasAnyInput(input, InputDataFieldIDMFABackupCode, InputDataFieldIDMFATOTPCode, InputDataFieldIDMFASMSCode) {
+		cont, err := d.mfaContinueFromInput(input)
+		if err != nil {
+			return nil, err
+		}
+		return d.answer(ctx, &discordauth.Answer{
+			MFAContinue: cont,
+		})
 	}
 
-	// Initial submission of the username/phone and password.
+	return nil, fmt.Errorf("unrecognized machine login input")
+}
+
+func (d *DiscordMachineLogin) submitCreds(ctx context.Context, input map[string]string) (*bridgev2.LoginStep, error) {
 	username := strings.TrimSpace(input[InputDataFieldIDUsernameOrPhone])
 	password := discordauth.NewSensitive(input[InputDataFieldIDPassword])
 	if username == "" {
@@ -601,117 +473,111 @@ func (d *DiscordMachineLogin) SubmitUserInput(ctx context.Context, input map[str
 		return nil, fmt.Errorf("no password provided")
 	}
 
-	log.Info().Msg("Starting worker goroutine")
-	err := d.startWorker(ctx, &discordauth.Creds{
-		Login:    username,
-		Password: password,
+	return d.answer(ctx, &discordauth.Answer{
+		Creds: &discordauth.Creds{
+			Login:    username,
+			Password: password,
+		},
 	})
+}
+
+func (d *DiscordMachineLogin) answer(ctx context.Context, answer *discordauth.Answer) (*bridgev2.LoginStep, error) {
+	prompt, done, err := d.Machine.Advance(ctx, answer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start login worker: %w", err)
-	}
-
-	return waitStep(), nil
-}
-
-func (d *DiscordMachineLogin) tryDrainingPendingPrompt(ctx context.Context, input map[string]string) *bridgev2.LoginStep {
-	log := zerolog.Ctx(ctx)
-
-	d.currentlyPendingMu.Lock()
-	// (Avoid holding the mutex across the channel send.)
-	pending := d.currentlyPending
-	d.currentlyPending = nil
-	d.currentlyPendingMu.Unlock()
-
-	if pending == nil {
-		log.Debug().Msg("No pending prompt")
-		return nil
-	}
-
-	log.Info().Str("pending_step_id", pending.step.StepID).
-		Msg("Received user input for pending step ID, sending reply")
-	pending.reply <- input
-
-	// Go back to waiting for the worker to send a signal.
-	return waitStep()
-}
-
-func (d *DiscordMachineLogin) startWorker(ctx context.Context, creds *discordauth.Creds) error {
-	// Act as a sort of "mailbox"; only buffer 1 signal at a time. Not
-	// unbuffered because it wouldn't be ideal to block the worker goroutine on
-	// waiting for the signal to be "consumed" per se.
-	d.signals = make(chan machineSignal, 1)
-
-	// Don't want ourselves to get cancelled if the enclosing context does, but
-	// we do want to preserve the data inside of the context (such as logging
-	// stuff).
-	//
-	// Also, shadow the original context to avoid using it by accident.
-	ctx, d.cancelMachine = context.WithCancel(context.WithoutCancel(ctx))
-	d.machineCtx = ctx
-
-	go func() {
-		// It's important that these calls occur on a goroutine because
-		// AuthMachine methods can call into our handlers (e.g. ContinueMFA),
-		// which need to synchronously prompt the user, and we need both sides
-		// of the reply/signal channels to work in order to avoid a deadlock.
-
-		err := d.Machine.Prepare(ctx)
-		if err != nil {
-			err = fmt.Errorf("failed to prepare login: %w", err)
-			_ = d.signal(d.machineCtx, machineSignal{err: err})
-			return
-		}
-
-		done, err := d.Machine.Login(ctx, creds)
-		log := zerolog.Ctx(ctx)
-		if err == nil {
-			log.Info().
-				Any("required_actions", done.RequiredActions).
-				Msg("Login finished")
-		} else {
-			// FIXME detect bad password/username and just retry the step
-			// instead of failing out
-			log.Err(err).Msg("Login failed")
-		}
-
-		// At the moment this can only error if we get canceled, and we don't
-		// really care about that here. Just signal so we can tell bridgev2.
-		_ = d.signal(d.machineCtx, machineSignal{done: done, err: err})
-	}()
-
-	return nil
-}
-
-// signal should only be called by the background goroutine, and is used to
-// control the bridgev2 login process.
-func (d *DiscordMachineLogin) signal(ctx context.Context, sig machineSignal) error {
-	select {
-	case d.signals <- sig:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// promptUser should only be called by the background goroutine, and is used to
-// send a [bridgev2.LoginStep] to be presented to the user. The submitted
-// inputs are collected via channel and returned.
-func (d *DiscordMachineLogin) promptUser(ctx context.Context, step *bridgev2.LoginStep) (map[string]string, error) {
-	reply := make(chan map[string]string, 1)
-	pending := &pendingPrompt{step, reply}
-	if err := d.signal(ctx, machineSignal{prompt: pending}); err != nil {
 		return nil, err
 	}
-
-	select {
-	case input, ok := <-pending.reply:
-		if !ok {
-			return nil, context.Canceled
-		}
-		return input, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	if done != nil {
+		zerolog.Ctx(ctx).Info().
+			Any("required_actions", done.RequiredActions).
+			Msg("Login finished")
+		return d.finalize(ctx, done)
 	}
+	return d.stepForPrompt(ctx, prompt)
+}
+
+func (d *DiscordMachineLogin) stepForPrompt(ctx context.Context, prompt *discordauth.Prompt) (*bridgev2.LoginStep, error) {
+	if prompt == nil {
+		return nil, fmt.Errorf("auth machine did not advance")
+	}
+	switch {
+	case prompt.CredsPrompt != nil:
+		return initialCredsStep(prompt.CredsPrompt.Reason), nil
+	case prompt.EmailVerify:
+		zerolog.Ctx(ctx).Info().Msg("Prompting user to verify the IP address via email")
+		return emailVerificationStep(), nil
+	case prompt.Captcha != nil:
+		return d.captchaStep(ctx, prompt.Captcha)
+	case prompt.MFAChallengePrompt != nil:
+		return d.mfaMethodStep(ctx, prompt.MFAChallengePrompt)
+	case prompt.MFACodePrompt != nil:
+		return mfaCodeStep(prompt.MFACodePrompt.Type)
+	default:
+		return nil, fmt.Errorf("auth machine returned an empty prompt")
+	}
+}
+
+func hasAnyInput(input map[string]string, fields ...string) bool {
+	for _, field := range fields {
+		if _, ok := input[field]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func mfaOptionToAuthenticator(selected string) (discordauth.AuthenticatorType, error) {
+	switch mfaOption(strings.TrimSpace(selected)) {
+	case mfaBackup:
+		return discordauth.AuthenticatorBackup, nil
+	case mfaTotp:
+		return discordauth.AuthenticatorTOTP, nil
+	case mfaSms:
+		return discordauth.AuthenticatorSMS, nil
+	default:
+		return "", fmt.Errorf("unknown mfa method %q", selected)
+	}
+}
+
+func (d *DiscordMachineLogin) mfaContinueFromInput(input map[string]string) (*discordauth.MFAContinue, error) {
+	if d.mfaChallenge == nil {
+		return nil, fmt.Errorf("no MFA challenge is active")
+	}
+
+	authType, code, ok := mfaCodeFromInput(input)
+	if !ok {
+		return nil, fmt.Errorf("no MFA code provided")
+	}
+	if authType == discordauth.AuthenticatorBackup {
+		// Discord presents MFA backup codes to the user with dashes, but the
+		// backend doesn't actually accept them. Follow in the footsteps of the
+		// first party clients and remove them from the user input.
+		code = strings.ReplaceAll(code, "-", "")
+	}
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, fmt.Errorf("no MFA code provided")
+	}
+
+	return &discordauth.MFAContinue{
+		Type: authType,
+		MFAContinuation: discordauth.MFAContinuation{
+			MFAState: d.mfaChallenge.MFAState,
+			Code:     code,
+		},
+	}, nil
+}
+
+func mfaCodeFromInput(input map[string]string) (discordauth.AuthenticatorType, string, bool) {
+	if code, ok := input[InputDataFieldIDMFABackupCode]; ok {
+		return discordauth.AuthenticatorBackup, code, true
+	}
+	if code, ok := input[InputDataFieldIDMFATOTPCode]; ok {
+		return discordauth.AuthenticatorTOTP, code, true
+	}
+	if code, ok := input[InputDataFieldIDMFASMSCode]; ok {
+		return discordauth.AuthenticatorSMS, code, true
+	}
+	return "", "", false
 }
 
 func (d *DiscordMachineLogin) finalize(ctx context.Context, done *discordauth.LoginCompleted) (*bridgev2.LoginStep, error) {
@@ -728,37 +594,4 @@ func (d *DiscordMachineLogin) finalize(ctx context.Context, done *discordauth.Lo
 			UserLogin:   ul,
 		},
 	}, nil
-}
-
-func (d *DiscordMachineLogin) Wait(ctx context.Context) (*bridgev2.LoginStep, error) {
-	select {
-	case signal := <-d.signals:
-		if signal.err != nil {
-			if msg, ok := initialCredsRejectionMessage(signal.err); ok {
-				zerolog.Ctx(ctx).Warn().Err(signal.err).
-					Msg("Discord rejected initial credentials, prompting user with initial creds step again")
-				return initialCredsStep(msg), nil
-			}
-			return nil, signal.err
-		}
-
-		if signal.done != nil {
-			return d.finalize(ctx, signal.done)
-		}
-
-		// Sanity check.
-		if signal.prompt == nil {
-			return nil, fmt.Errorf("unexpected empty prompt")
-		}
-
-		// Stash the prompt that we're about to show to the user so that we
-		// can properly reply when mautrix calls our SubmitUserInput method.
-		d.currentlyPendingMu.Lock()
-		d.currentlyPending = signal.prompt
-		d.currentlyPendingMu.Unlock()
-
-		return signal.prompt.step, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
 }

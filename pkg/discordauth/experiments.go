@@ -26,6 +26,10 @@ func (f Fingerprint) IsZero() bool {
 	return f == ""
 }
 
+type ExperimentsApex struct {
+	InstallationID string `json:"installation"`
+}
+
 type ExperimentsLegacy struct {
 	Fingerprint Fingerprint `json:"fingerprint"`
 	// `json:"assignments"`

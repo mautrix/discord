@@ -1210,7 +1210,7 @@ func (d *DiscordClient) tapDiscordRESTResponse(req *http.Request, resp *http.Res
 		return
 	}
 
-	captcha := discordauth.TryUnmarshalingCaptcha(ctx, resp, body)
+	captcha := discordauth.CheckCaptcha(ctx, resp, body)
 	if captcha == nil {
 		return
 	}

@@ -48,6 +48,7 @@ func (err HTTPError) Error() string {
 	return fmt.Sprintf("Discord replied with HTTP %d", err.resp.StatusCode)
 }
 
+// refreshReq refreshes an [http.Request] such that it can be retried.
 func refreshReq(ctx context.Context, req *http.Request) (*http.Request, error) {
 	var newBody io.ReadCloser
 	var err error

@@ -88,7 +88,9 @@ func (c *Captcha) LogContext(ctx zerolog.Context) zerolog.Context {
 		Bool("captcha_invisible", c.Invisible)
 }
 
-func TryUnmarshalingCaptcha(ctx context.Context, resp *http.Response, body []byte) *Captcha {
+// CheckCaptcha tries to detect a CAPTCHA challenge in an HTTP response from
+// Discord, returning a [Captcha] when one is found.
+func CheckCaptcha(ctx context.Context, resp *http.Response, body []byte) *Captcha {
 	if resp.StatusCode != 400 {
 		return nil
 	}

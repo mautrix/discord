@@ -115,6 +115,17 @@ func (err *APIError) FormFieldErrors(key string) ([]FormError, error) {
 	return leaf.Errors, nil
 }
 
+// AnyFieldHasError reports whether any field has a given [FormErrorCode].
+// false is returned on error conditions.
+func (err *APIError) AnyFieldHasError(code FormErrorCode) bool {
+	for key := range err.Errors {
+		if err.FieldHasError(key, code) {
+			return true
+		}
+	}
+	return false
+}
+
 // FieldHasError reports whether a certain field has a given [FormErrorCode].
 // false is returned on error conditions.
 func (err *APIError) FieldHasError(key string, code FormErrorCode) bool {

@@ -193,7 +193,9 @@ const (
 	AccountVerificationNeeded ErrCode = 40002
 	CloudflareBlocked         ErrCode = 40333
 
-	InvalidFormBody ErrCode = 50035
+	InvalidAuthenticationToken ErrCode = 50014
+	InvalidFormBody            ErrCode = 50035
+	InvalidVerificationCode    ErrCode = 50037
 
 	MFAAlreadyEnrolled                ErrCode = 60001
 	MFANotEnrolled                    ErrCode = 60002

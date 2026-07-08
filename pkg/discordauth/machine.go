@@ -53,10 +53,18 @@ type AuthMachine struct {
 	InstallationID string
 	Personality    *Personality
 
-	pending    *pendingRequest   // the current operation being attempted
-	lastPrompt *Prompt           // the last prompt that was shown to the user
+	pending    *pendingRequest   // primary operation; logically, the "position in the login flow"
+	interrupt  *pendingRequest   // op needed to resolve an interruption (phone verification)
+	lastPrompt *Prompt           // last prompt that was shown to the user
 	mfa        *LoginMFARequired // set upon entering MFA flow
 	finished   bool
+}
+
+func (am *AuthMachine) currentOp() *pendingRequest {
+	if am.interrupt != nil {
+		return am.interrupt
+	}
+	return am.pending
 }
 
 func NewAuthMachine(
@@ -215,59 +223,77 @@ func (am *AuthMachine) advance(ctx context.Context, answer *Answer) (*Prompt, *L
 	return am.pump(ctx, captchaSolution)
 }
 
-// pump executes the current [pendingRequest] while handling cross-cutting
-// interrupts such as CAPTCHA challenges and email verification.
+// pump drives the machine's operations forward until one of them yields a
+// [Prompt] for the user, the login is completed, or an error occurs.
 func (am *AuthMachine) pump(
 	ctx context.Context,
 	solution *CaptchaSolution,
 ) (*Prompt, *LoginCompleted, error) {
-	log := zerolog.Ctx(ctx).With().
-		Str("machine_op_name", am.pending.name).
-		Logger()
-	ctx = log.WithContext(ctx)
-
-	// Build the request data.
-	req, err := am.pending.request(ctx, am)
-	if err != nil {
-		return nil, nil, fmt.Errorf("constructing %s request: %w", am.pending.name, err)
+	needSolution := am.lastPrompt != nil && am.lastPrompt.Captcha != nil
+	if needSolution && solution == nil {
+		return nil, nil, fmt.Errorf("cannot proceed without a captcha solution")
 	}
-	// If we had just asked the user to solve a CAPTCHA challenge and a
-	// solution was provided, add it to the HTTP request.
-	if am.lastPrompt != nil && am.lastPrompt.Captcha != nil {
-		if solution == nil {
-			return nil, nil, fmt.Errorf("cannot proceed without a captcha solution")
+
+	for {
+		op := am.currentOp()
+
+		log := zerolog.Ctx(ctx).With().
+			Str("machine_op_name", op.name).
+			Logger()
+		opCtx := log.WithContext(ctx)
+
+		// Build the request data.
+		req, err := op.request(opCtx, am)
+		if err != nil {
+			return nil, nil, fmt.Errorf("constructing %s request: %w", op.name, err)
 		}
-		req.Header.Set(HeaderCaptchaKey, solution.Solution)
-		am.lastPrompt.Captcha.UpdateHeaders(&req.Header)
-	}
-
-	// Send the request to Discord.
-	body, err := am.exchange(ctx, req)
-	var capErr *CaptchaError
-	var apiErr APIError
-	switch {
-	case errors.As(err, &capErr):
-		return &Prompt{Captcha: capErr.Captcha}, nil, nil
-	case errors.As(err, &apiErr):
-		if apiErr.RequiresEmailVerification() {
-			return &Prompt{EmailVerify: true}, nil, nil
+		if needSolution {
+			// Apply the CAPTCHA solution to the request.
+			req.Header.Set(HeaderCaptchaKey, solution.Solution)
+			am.lastPrompt.Captcha.UpdateHeaders(&req.Header)
+			// Only apply the solution to the first request in this pump of the
+			// state machine; don't smear it across all requests. (Another
+			// CAPTCHA will terminate the current pump.)
+			needSolution = false
 		}
-		// Give the current [pendingRequest] a chance to handle the error.
-		if am.pending.fail != nil {
-			prompt, err := am.pending.fail(ctx, am, apiErr)
-			return prompt, nil, err
+
+		// Send the request to Discord.
+		body, err := am.exchange(opCtx, req)
+		var capErr *CaptchaError
+		var apiErr APIError
+		// Here is where we perform uniform error handling for all
+		// [pendingRequest]s. We presume that a CAPTCHA challenge may be presented
+		// in lieu of a response to _any_ request.
+		switch {
+		case errors.As(err, &capErr):
+			return &Prompt{Captcha: capErr.Captcha}, nil, nil
+		case errors.As(err, &apiErr):
+			if apiErr.RequiresEmailVerification() {
+				return &Prompt{EmailVerify: true}, nil, nil
+			}
+
+			// Give the current [pendingRequest] a chance to handle the error.
+			if op.fail != nil {
+				prompt, err := op.fail(opCtx, am, apiErr)
+				return prompt, nil, err
+			}
+			return nil, nil, apiErr
+		case err != nil:
+			return nil, nil, fmt.Errorf("making %s request: %w", op.name, err)
 		}
-		return nil, nil, apiErr
-	case err != nil:
-		return nil, nil, fmt.Errorf("making %s request: %w", am.pending.name, err)
-	}
 
-	prompt, done, err := am.pending.succeed(ctx, am, body)
-	if err != nil || prompt != nil || done != nil {
-		return prompt, done, err
+		prompt, done, err := op.succeed(opCtx, am, body)
+		if err != nil || prompt != nil || done != nil {
+			return prompt, done, err
+		}
+		// If we're here, then the op we just finished wants to run more ops.
+		// Verify that something changed pending or interrupt.
+		nextOp := am.currentOp()
+		if nextOp == op {
+			// Don't infinitely loop on the same op.
+			return nil, nil, fmt.Errorf("%s operation did not change the op", op.name)
+		}
 	}
-
-	return nil, nil, fmt.Errorf("%s operation did not advance auth state", am.pending.name)
 }
 
 // handleAuthResponse tries to consume a response body from /auth/login or

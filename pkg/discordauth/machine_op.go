@@ -47,8 +47,14 @@ type pendingRequest struct {
 	request func(context.Context, *AuthMachine) (*http.Request, error)
 
 	// succeed interprets a successful HTTP response body and advances the
-	// authentication flow by returning exactly one of a non-nil [Prompt], a
-	// [LoginCompleted], or an error; the other two results are nil.
+	// authentication flow.
+	//
+	// The flow may be advanced by doing one of:
+	//
+	//  - Returning exactly one of a non-nil [Prompt], a [LoginCompleted], or
+	//    an error; the other two results are nil.
+	//  - Mutating [AuthMachine.interrupt] and returning nil for all results.
+	//    This is done when more HTTP requests need to be made.
 	succeed func(context.Context, *AuthMachine, []byte) (*Prompt, *LoginCompleted, error)
 
 	// fail, when non-nil, defines bespoke Discord API error handling for this

@@ -128,9 +128,8 @@ func (am *AuthMachine) exchange(ctx context.Context, req *http.Request) ([]byte,
 	return body, nil
 }
 
-// POST constructs an [http.Request] that performs a POST with a JSON-marshaled
-// body.
-func (am *AuthMachine) POST(
+// post constructs an [http.Request] that POSTs a JSON-marshaled body.
+func (am *AuthMachine) post(
 	ctx context.Context,
 	endpoint string,
 	jsonBody any,

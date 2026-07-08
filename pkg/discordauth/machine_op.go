@@ -75,7 +75,7 @@ func loginOp(creds *Creds) *pendingRequest {
 			if am.Fingerprint.IsZero() {
 				return nil, fmt.Errorf("cannot consume credentials without a fingerprint")
 			}
-			return am.POST(ctx, "/auth/login", creds)
+			return am.post(ctx, "/auth/login", creds)
 		},
 		succeed: func(ctx context.Context, am *AuthMachine, body []byte) (*Prompt, *LoginCompleted, error) {
 			return am.handleAuthResponse(ctx, body)
@@ -93,7 +93,7 @@ func sendSMSOp(mfaState *MFAState) *pendingRequest {
 	return &pendingRequest{
 		name: "send_sms",
 		request: func(ctx context.Context, am *AuthMachine) (*http.Request, error) {
-			return am.POST(ctx, "/auth/mfa/sms/send", SMSSendRequest{
+			return am.post(ctx, "/auth/mfa/sms/send", SMSSendRequest{
 				Ticket: mfaState.Ticket,
 			})
 		},
@@ -109,7 +109,7 @@ func continueMFAOp(cont *MFAContinue, challenge *LoginMFARequired) *pendingReque
 	return &pendingRequest{
 		name: "continue_mfa",
 		request: func(ctx context.Context, am *AuthMachine) (*http.Request, error) {
-			return am.POST(ctx, fmt.Sprintf("/auth/mfa/%s", cont.Type), cont.MFAContinuation)
+			return am.post(ctx, fmt.Sprintf("/auth/mfa/%s", cont.Type), cont.MFAContinuation)
 		},
 		succeed: func(ctx context.Context, am *AuthMachine, body []byte) (*Prompt, *LoginCompleted, error) {
 			// /auth/mfa/<type>, upon success, responds with a body similar to

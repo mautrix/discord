@@ -765,10 +765,9 @@ func (d *DiscordClient) shouldBridgeChannel(
 	}
 
 	// Only ever bridge guild text channels.
-	// TODO(skip): Consider bridging news channels (sparkling text channels)?
 	// TODO(skip): Consider bridging voice channels (make sure to check for the
 	// right permission bits)?
-	if ch.Type != discordgo.ChannelTypeGuildText {
+	if ch.Type != discordgo.ChannelTypeGuildText && ch.Type != discordgo.ChannelTypeGuildNews {
 		return false
 	}
 

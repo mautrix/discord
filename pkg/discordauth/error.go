@@ -135,7 +135,9 @@ var _ error = (*APIError)(nil)
 // value again.
 func (err APIError) IsUserInputError() bool {
 	invalidForm := err.Code == InvalidFormBody && !err.RequiresEmailVerification()
-	return invalidForm || err.Code == MFAInvalidCode
+	return invalidForm ||
+		err.Code == MFAInvalidCode ||
+		err.Code == InvalidVerificationCode
 }
 
 // RequiresEmailVerification reports whether the error is due to a correct

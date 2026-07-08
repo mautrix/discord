@@ -173,27 +173,38 @@ func (err APIError) RequiresPhoneVerification() bool {
 	return err.Code == SMSAuthVerificationNeeded
 }
 
+// FieldErrorString returns a nicely formatted string that presents all of the
+// contained field errors in the following format:
+//
+//	login: "New login location detected, please check your e-mail." (ACCOUNT_LOGIN_VERIFICATION_EMAIL)
+//
+// Multiple fields are separated with semicolons. Note that this does not
+// include the root error message nor code.
+func (err APIError) FieldErrorString() string {
+	fieldErrs := make([]string, 0)
+
+	for key := range err.Errors {
+		errs, inspectionErr := err.FormFieldErrors(key)
+		if inspectionErr != nil {
+			continue
+		}
+
+		summaries := make([]string, 0)
+		for _, err := range errs {
+			summaries = append(summaries, fmt.Sprintf("\"%s\" (%s)", err.Message, err.Code))
+		}
+
+		fieldErrs = append(fieldErrs, fmt.Sprintf("%s: %s", key, strings.Join(summaries, ", ")))
+	}
+
+	return strings.Join(fieldErrs, "; ")
+}
+
 func (err APIError) Error() string {
 	msg := fmt.Sprintf("Discord API error %d: \"%s\"", err.Code, err.Message)
 
 	if err.Code == InvalidFormBody && err.Errors != nil {
-		fieldErrors := make([]string, 0)
-
-		for key := range err.Errors {
-			errors, err := err.FormFieldErrors(key)
-			if err != nil {
-				continue
-			}
-
-			summaries := make([]string, 0)
-			for _, error := range errors {
-				summaries = append(summaries, fmt.Sprintf("\"%s\" (%s)", error.Message, error.Code))
-			}
-
-			fieldErrors = append(fieldErrors, fmt.Sprintf("%s: %s", key, strings.Join(summaries, ", ")))
-		}
-
-		return msg + ": " + strings.Join(fieldErrors, "; ")
+		return msg + ": " + err.FieldErrorString()
 	}
 
 	return msg

@@ -64,6 +64,8 @@ func readableChannelType(typ discordgo.ChannelType) (desc string) {
 	switch typ {
 	case discordgo.ChannelTypeGuildText:
 		desc = "guild text"
+	case discordgo.ChannelTypeGuildNews:
+		desc = "guild news"
 	case discordgo.ChannelTypeDM:
 		desc = "dm"
 	case discordgo.ChannelTypeGroupDM:

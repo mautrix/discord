@@ -18,6 +18,7 @@ package discordauth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -95,7 +96,68 @@ func loginOp(creds *Creds) *pendingRequest {
 	}
 }
 
-func sendSMSOp(mfaState *MFAState) *pendingRequest {
+// authorizeIPAddressOp is used to authorize our IP address for login using a
+// token that was sent to the user's email or phone number (via SMS).
+func authorizeIPAddressOp(token string) *pendingRequest {
+	return &pendingRequest{
+		name: "authorize_ip_address",
+		request: func(ctx context.Context, am *AuthMachine) (*http.Request, error) {
+			return am.post(ctx, "/auth/authorize-ip", struct {
+				Token string `json:"token"`
+			}{
+				Token: token,
+			})
+		},
+		succeed: func(ctx context.Context, am *AuthMachine, body []byte) (*Prompt, *LoginCompleted, error) {
+			// Now that we've verified our IP address, we can replay the login
+			// request.
+			am.interrupt = nil
+			return nil, nil, nil
+		},
+	}
+}
+
+type VerifyPhoneNumberRequest struct {
+	Phone string `json:"phone"` // the phone number that received the code
+	Code  string `json:"code"`  // the code that was received
+}
+type VerifyPhoneNumberResponse struct {
+	Token string `json:"token"` // token that can be used to verify IP
+}
+
+func verifyPhoneNumberOp(req VerifyPhoneNumberRequest) *pendingRequest {
+	return &pendingRequest{
+		name: "verify_phone_number",
+		request: func(ctx context.Context, am *AuthMachine) (*http.Request, error) {
+			return am.post(ctx, "/phone-verifications/verify", req)
+		},
+		succeed: func(ctx context.Context, am *AuthMachine, body []byte) (*Prompt, *LoginCompleted, error) {
+			var r VerifyPhoneNumberResponse
+			if err := json.Unmarshal(body, &r); err != nil {
+				return nil, nil, fmt.Errorf("unmarshaling verify phone response: %w", err)
+			}
+			if r.Token == "" {
+				// TODO: find a safe, privacy-preserving way to log the
+				// response body in case the schema changes?
+				return nil, nil, fmt.Errorf("no token received after verifying phone")
+			}
+			// Verify our IP address with the code we just received.
+			am.interrupt = authorizeIPAddressOp(r.Token)
+			return nil, nil, nil
+		},
+		fail: func(ctx context.Context, am *AuthMachine, err APIError) (*Prompt, error) {
+			if err.IsUserInputError() {
+				return &Prompt{PhoneVerifyPrompt: &PhoneVerifyPrompt{
+					Phone:    am.login,
+					Retrying: true,
+				}}, nil
+			}
+			return nil, err
+		},
+	}
+}
+
+func sendMFASMSOp(mfaState *MFAState) *pendingRequest {
 	return &pendingRequest{
 		name: "send_sms",
 		request: func(ctx context.Context, am *AuthMachine) (*http.Request, error) {

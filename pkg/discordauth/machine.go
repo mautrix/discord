@@ -53,6 +53,7 @@ type AuthMachine struct {
 	InstallationID string
 	Personality    *Personality
 
+	login      string            // phone number/email
 	pending    *pendingRequest   // primary operation; logically, the "position in the login flow"
 	interrupt  *pendingRequest   // op needed to resolve an interruption (phone verification)
 	lastPrompt *Prompt           // last prompt that was shown to the user
@@ -95,15 +96,19 @@ type MFAChallengePrompt struct {
 	*LoginMFARequired
 	Reason string
 }
+type PhoneVerifyPrompt struct {
+	Phone    string // the phone number that the code was sent to
+	Retrying bool   // whether the previous attempt failed and we're asking again
+}
 
 // A Prompt is a request for user input or interaction; the [AuthMachine] is
 // suspended until the user's response is fed back to [AuthMachine.Advance] as
 // an [Answer]. Exactly one field is set (non-nil or non-zero).
 //
-// Most prompts are ordinary steps of the login flow, but Captcha and
-// EmailVerify are interruptions: they preempt whatever operation was in
-// flight, and answering them ends up retrying it instead of starting a new
-// one.
+// Most prompts are ordinary steps of the login flow, but Captcha,
+// PhoneVerifyPrompt, and EmailVerify are interruptions: they preempt whatever
+// operation was in flight, and answering them ends up retrying it instead of
+// starting a new one.
 type Prompt struct {
 	// CredsPrompt is non-nil when we need to prompt for the user's email/phone
 	// number.
@@ -121,6 +126,11 @@ type Prompt struct {
 	// noted and the state machine is ready to accept the MFA code (TOTP,
 	// backup code, or SMS code).
 	MFACodePrompt *MFACodePrompt
+	// PhoneVerifyPrompt is non-nil when a code was sent to the phone number
+	// associated with the Discord account via SMS.
+	//
+	// The code is needed to verify our current IP address.
+	PhoneVerifyPrompt *PhoneVerifyPrompt
 	// EmailVerify is true if an email requesting IP verification has been sent
 	// to the email associated with the Discord account.
 	EmailVerify bool
@@ -136,14 +146,16 @@ type CaptchaSolution struct {
 // that was set on the prompt:
 //
 //   - [Prompt.CredsPrompt]: [Answer.Creds]
-//   - [Prompt.Captcha]: [Answer.Solution]
 //   - [Prompt.MFAChallengePrompt]: [Answer.PickedMFAType]
 //   - [Prompt.MFACodePrompt]: [Answer.MFAContinue]
 //   - [Prompt.EmailVerify]: none (an empty Answer resumes the flow)
+//   - [Prompt.PhoneVerifyPrompt]: [Answer.SMSCode]
+//   - [Prompt.Captcha]: [Answer.Solution]
 type Answer struct {
 	Creds         *Creds
 	PickedMFAType *AuthenticatorType
 	MFAContinue   *MFAContinue
+	SMSCode       string
 	Solution      *CaptchaSolution
 }
 
@@ -193,6 +205,7 @@ func (am *AuthMachine) advance(ctx context.Context, answer *Answer) (*Prompt, *L
 	switch {
 	case lastPrompt.CredsPrompt != nil:
 		// The user submitted their email/phone number and password.
+		am.login = answer.Creds.Login
 		am.pending = loginOp(answer.Creds)
 	case lastPrompt.MFAChallengePrompt != nil:
 		// The user picked the MFA method they would like to proceed with.
@@ -200,7 +213,7 @@ func (am *AuthMachine) advance(ctx context.Context, answer *Answer) (*Prompt, *L
 		log.Info().Str("mfa_type", string(picked)).Msg("Continuing with MFA flow")
 
 		if picked == AuthenticatorSMS {
-			am.pending = sendSMSOp(&am.mfa.MFAState)
+			am.pending = sendMFASMSOp(&am.mfa.MFAState)
 			// Fall into the pump to perform the request.
 			break
 		}
@@ -213,6 +226,13 @@ func (am *AuthMachine) advance(ctx context.Context, answer *Answer) (*Prompt, *L
 		am.pending = continueMFAOp(answer.MFAContinue, am.mfa)
 	case lastPrompt.EmailVerify:
 		// The user has authorized our IP address. Retry the last request.
+	case lastPrompt.PhoneVerifyPrompt != nil:
+		// Our IP address needs to be verified via phone number. The user has
+		// inputted the received SMS code.
+		am.interrupt = verifyPhoneNumberOp(VerifyPhoneNumberRequest{
+			Phone: lastPrompt.PhoneVerifyPrompt.Phone,
+			Code:  answer.SMSCode,
+		})
 	case lastPrompt.Captcha != nil:
 		// The user solved the CAPTCHA challenge. Retry the last request.
 		captchaSolution = answer.Solution
@@ -270,6 +290,14 @@ func (am *AuthMachine) pump(
 		case errors.As(err, &apiErr):
 			if apiErr.RequiresEmailVerification() {
 				return &Prompt{EmailVerify: true}, nil, nil
+			}
+			if apiErr.RequiresPhoneVerification() {
+				// This presumes that the "code sent to phone via SMS, then IP
+				// authorization" flow can only be triggered by logging in with
+				// a phone number instead of an email.
+				return &Prompt{PhoneVerifyPrompt: &PhoneVerifyPrompt{
+					Phone: am.login,
+				}}, nil, nil
 			}
 
 			// Give the current [pendingRequest] a chance to handle the error.

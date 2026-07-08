@@ -148,6 +148,12 @@ func (err APIError) RequiresEmailVerification() bool {
 		err.FieldHasError("login", AccountLoginVerificationEmail)
 }
 
+// RequiresPhoneVerification reports whether the error is due to Discord
+// requiring phone number verification.
+func (err APIError) RequiresPhoneVerification() bool {
+	return err.Code == SMSAuthVerificationNeeded
+}
+
 func (err APIError) Error() string {
 	msg := fmt.Sprintf("Discord API error %d: \"%s\"", err.Code, err.Message)
 

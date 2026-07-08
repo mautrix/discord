@@ -134,9 +134,8 @@ var _ error = (*APIError)(nil)
 // error. When this is true, it is appropriate to prompt the user for the same
 // value again.
 func (err APIError) IsUserInputError() bool {
-	isInvalidUsernamePhoneOrPassword := err.Code == InvalidFormBody &&
-		(err.FieldHasError("login", InvalidLogin) || err.FieldHasError("password", InvalidLogin))
-	return err.Code == MFAInvalidCode || isInvalidUsernamePhoneOrPassword
+	invalidForm := err.Code == InvalidFormBody && !err.RequiresEmailVerification()
+	return invalidForm || err.Code == MFAInvalidCode
 }
 
 // RequiresEmailVerification reports whether the error is due to a correct

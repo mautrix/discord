@@ -57,12 +57,6 @@ func (am *AuthMachine) do(
 	ctx context.Context,
 	req *http.Request,
 ) (*http.Response, error) {
-	log := zerolog.Ctx(ctx).With().
-		Str("http_method", req.Method).
-		Stringer("http_url", req.URL).
-		Logger()
-	ctx = log.WithContext(ctx)
-
 	if err := am.decorateReq(req); err != nil {
 		return nil, fmt.Errorf("decorating request: %w", err)
 	}
@@ -140,6 +134,12 @@ func (am *AuthMachine) post(
 	}
 
 	url := am.APIBase + endpoint
+
+	log := zerolog.Ctx(ctx).With().
+		Str("http_url", url).
+		Logger()
+	ctx = log.WithContext(ctx)
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		return nil, fmt.Errorf("constructing post request: %w", err)

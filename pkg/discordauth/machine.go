@@ -309,7 +309,6 @@ func (am *AuthMachine) handleAuthResponse(
 			Bool("mfa_totp_enabled", am.mfa.TOTPEnabled).
 			Bool("mfa_has_webauthn_credential", am.mfa.WebAuthnCredential != nil).
 			Logger()
-		ctx = log.WithContext(ctx)
 
 		log.Info().Msg("Need to log in with MFA")
 

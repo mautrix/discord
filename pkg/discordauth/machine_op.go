@@ -114,6 +114,18 @@ func authorizeIPAddressOp(token string) *pendingRequest {
 			am.interrupt = nil
 			return nil, nil, nil
 		},
+		fail: func(ctx context.Context, am *AuthMachine, err APIError) (*Prompt, error) {
+			// This is currently rare/impossible in practice because we
+			// immediately consume the IP authorization token after receiving
+			// it, but it could be useful in the future.
+			if err.Code == InvalidAuthenticationToken {
+				zerolog.Ctx(ctx).Warn().Msg("IP authorization token was invalid")
+				// Have the user login from scratch so we can receive a fresh
+				// authorization token.
+				return &Prompt{CredsPrompt: &CredsPrompt{}}, nil
+			}
+			return nil, err
+		},
 	}
 }
 

@@ -19,7 +19,9 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -31,6 +33,38 @@ import (
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
 	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 )
+
+func userVisibleLoginError(ctx context.Context, err error) error {
+	var apiErr discordauth.APIError
+	if !errors.As(err, &apiErr) {
+		return err
+	}
+
+	zerolog.Ctx(ctx).Err(apiErr).
+		Int("discord_error_code", int(apiErr.Code)).
+		Msg("Propagating Discord error to user")
+
+	if apiErr.AnyFieldHasError(discordauth.AccountCompromisedResetPassword) {
+		return bridgev2.RespError{
+			ErrCode:    "FI.MAU.DISCORD.ACCOUNT_COMPROMISED",
+			Err:        "Discord has flagged this account as compromised and requires a password reset. Reset your password on Discord, then try logging in again.",
+			StatusCode: http.StatusForbidden,
+		}
+	}
+
+	// Directly surface the root error message, falling back to the debug
+	// representation.
+	msg := apiErr.Message
+	if msg == "" {
+		msg = apiErr.Error()
+	}
+
+	return bridgev2.RespError{
+		ErrCode:    fmt.Sprintf("FI.MAU.DISCORD.API_%d", apiErr.Code),
+		Err:        msg,
+		StatusCode: http.StatusBadRequest,
+	}
+}
 
 const LoginFlowIDMachine = "machine"
 const LoginStepIDMachineInitialCreds = "fi.mau.discord.creds"
@@ -434,7 +468,7 @@ func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, e
 
 	prompt, done, err := d.Machine.Advance(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start login: %w", err)
+		return nil, userVisibleLoginError(ctx, fmt.Errorf("failed to start login: %w", err))
 	}
 	if done != nil {
 		return d.finalize(ctx, done)
@@ -513,7 +547,7 @@ func (d *DiscordMachineLogin) submitCreds(ctx context.Context, input map[string]
 func (d *DiscordMachineLogin) answer(ctx context.Context, answer *discordauth.Answer) (*bridgev2.LoginStep, error) {
 	prompt, done, err := d.Machine.Advance(ctx, answer)
 	if err != nil {
-		return nil, err
+		return nil, userVisibleLoginError(ctx, err)
 	}
 	if done != nil {
 		zerolog.Ctx(ctx).Info().

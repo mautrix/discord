@@ -17,9 +17,7 @@
 package discordauth
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"net/http"
 )
 

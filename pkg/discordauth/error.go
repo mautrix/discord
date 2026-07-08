@@ -118,12 +118,14 @@ func (err *APIError) FormFieldErrors(key string) ([]FormError, error) {
 // FieldHasError reports whether a certain field has a given [FormErrorCode].
 // false is returned on error conditions.
 func (err *APIError) FieldHasError(key string, code FormErrorCode) bool {
-	errors, inspectionErr := err.FormFieldErrors(key)
+	errs, inspectionErr := err.FormFieldErrors(key)
 	if inspectionErr != nil {
 		return false
 	}
-	for _, error := range errors {
-		return error.Code == code
+	for _, e := range errs {
+		if e.Code == code {
+			return true
+		}
 	}
 	return false
 }

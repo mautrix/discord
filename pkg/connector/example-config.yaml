@@ -70,3 +70,12 @@ proxy_login_machine: true
 # (The "remoteauth" login flow is the QR-code-based login process that connects
 # to a WebSocket gateway entirely dedicated to this login process.)
 proxy_login_remoteauth: true
+
+# Should "Account Standing" information (viewable under the Account tab on
+# Discord) be fetched and incorporated into "connected" bridge states sent by
+# the bridge?
+#
+# Personally identifiable information such as message or channel identifiers,
+# message content, or attachment data are not incorporated into the reported
+# information.
+report_scrubbed_account_standing: false

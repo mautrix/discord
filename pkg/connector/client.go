@@ -80,6 +80,10 @@ type DiscordClient struct {
 
 	lastSendAttemptMutex sync.Mutex
 	lastSendAttempt      *SendAttempt
+
+	vitalsMu  sync.Mutex // guards vitals and safetyHub
+	vitals    *vitals
+	safetyHub *discordgo.SafetyHub // last fetched safety hub information when permitted
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
@@ -165,6 +169,75 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 	d.markedOpened = make(map[string]time.Time)
 
 	d.connectRetrying(ctx, 0)
+}
+
+func vitalsErrorCode(v *vitals) (code status.BridgeStateErrorCode) {
+	if v == nil {
+		return
+	}
+
+	// TODO: Arrange the code assignments based on what actually takes priority
+	// in Discord's UI.
+
+	// TODO: This is somewhat isomorphic to RequiresUserIntervention, so maybe
+	// we can just define a set of intervention codes (?) in discordgo?
+
+	switch v.RequiredAction {
+	case discordgo.RequireAgreements:
+		code = DCRequireAgreements
+	case discordgo.RequireVerifiedEmail:
+		code = DCRequireVerifiedEmail
+	case discordgo.RequireVerifiedPhone:
+		code = DCRequireVerifiedPhone
+	case discordgo.RequireReverifiedEmail:
+		code = DCRequireReverifiedEmail
+	case discordgo.RequireReverifiedPhone:
+		code = DCRequireReverifiedPhone
+	case discordgo.RequireVerifiedEmailOrVerifiedPhone:
+		code = DCRequireVerifiedEmailOrVerifiedPhone
+	case discordgo.RequireReverifiedEmailOrVerifiedPhone:
+		code = DCRequireReverifiedEmailOrVerifiedPhone
+	case discordgo.RequireVerifiedEmailOrReverifiedPhone:
+		code = DCRequireVerifiedEmailOrReverifiedPhone
+	case discordgo.RequireReverifiedEmailOrReverifiedPhone:
+		code = DCRequireReverifiedEmailOrReverifiedPhone
+	case discordgo.RequireSafetyFlows:
+		code = DCRequireSafetyFlows
+	}
+
+	if v.HasUnreadSystemMessages {
+		code = DCUnreadSystemMessages
+	}
+
+	return
+}
+
+func (d *DiscordClient) sendCurrentState(ctx context.Context) {
+	log := zerolog.Ctx(ctx)
+
+	vitals := d.peekVitals()
+
+	info := make(map[string]any)
+	if vi, err := vitals.infoMap(); err == nil {
+		info["vitals"] = vi
+	} else {
+		log.Err(err).Msg("Failed to compute vitals info map, omitting from bridge state")
+	}
+
+	if vitals.RequiresUserIntervention() {
+		d.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateBadCredentials,
+			Error:      vitalsErrorCode(vitals),
+			UserAction: status.UserActionOpenNative,
+			Info:       info,
+		})
+		return
+	}
+
+	d.UserLogin.BridgeState.Send(status.BridgeState{
+		StateEvent: status.StateConnected,
+		Info:       info,
+	})
 }
 
 const maxGatewayConnectRetries = 5
@@ -279,12 +352,11 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 		return err
 	}
 
-	// Ensure that we actually have a user.
-	if !d.IsLoggedIn() {
-		return fmt.Errorf("unknown identity even after connecting to Discord")
-	}
 	user := d.Session.State.User
-	log.Info().Str("user_id", user.ID).Str("user_username", user.Username).Msg("Connected to Discord")
+	log.Info().
+		Str("user_id", user.ID).
+		Str("user_username", user.Username).
+		Msg("Connected to Discord")
 
 	d.BeginSyncing(ctx)
 
@@ -380,7 +452,15 @@ func (d *DiscordClient) IsLoggedIn() bool {
 		return false
 	}
 
-	return d.Session != nil && d.Session.State != nil && d.Session.State.User != nil && d.Session.State.User.ID != ""
+	if vitals := d.peekVitals(); vitals.RequiresUserIntervention() {
+		// Doing this tells mautrix to pause backfill queues, etc.
+		return false
+	}
+
+	return d.Session != nil &&
+		d.Session.State != nil &&
+		d.Session.State.User != nil &&
+		d.Session.State.User.ID != ""
 }
 
 func (d *DiscordClient) LogoutRemote(ctx context.Context) {
@@ -992,7 +1072,7 @@ func (d *DiscordClient) guildSettingsForGuildID(guildID string) *discordgo.UserG
 }
 
 func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *discordgo.Channel {
-	if !d.IsLoggedIn() {
+	if d.Session == nil {
 		return nil
 	}
 
@@ -1112,6 +1192,8 @@ func (d *DiscordClient) wrapReceived40002(ctx context.Context, err error) error 
 	props["errorMessage"] = err.Error()
 	d.UserLogin.TrackAnalytics("Discord account verification required", props)
 
+	// TODO: Make this bridge state actually sticky/latching. This needs to
+	// stop the backfill loops.
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateBadCredentials,
 		UserAction: status.UserActionOpenNative,

@@ -67,6 +67,8 @@ type Config struct {
 	// go through the proxy. The gateway websocket and REST API always use it.
 	ProxyMedia bool `yaml:"proxy_media"`
 
+	ReportScrubbedAccountStanding bool `yaml:"report_scrubbed_account_standing"`
+
 	channelNameTemplate *template.Template `yaml:"-"`
 }
 
@@ -145,6 +147,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "proxy_media")
 	helper.Copy(up.Bool, "proxy_login_machine")
 	helper.Copy(up.Bool, "proxy_login_remoteauth")
+	helper.Copy(up.Bool, "report_scrubbed_account_standing")
 }
 
 func (d *DiscordConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {

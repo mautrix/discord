@@ -31,7 +31,6 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
-	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/util/variationselector"
@@ -39,27 +38,6 @@ import (
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"go.mau.fi/mautrix-discord/pkg/router"
 )
-
-const (
-	DCNotLoggedIn             status.BridgeStateErrorCode = "dc-not-logged-in"
-	DCWebsocketDisconnect4004 status.BridgeStateErrorCode = "dc-websocket-disconnect-4004"
-	DCUnknownWebsocketError   status.BridgeStateErrorCode = "dc-unknown-websocket-error"
-	DCHTTP40002               status.BridgeStateErrorCode = "dc-http-40002"
-	DCProxyResolveFail        status.BridgeStateErrorCode = "dc-proxy-resolve-fail"
-)
-const accountVerificationRequiredMessage = "You need to verify your account in the Discord app."
-
-func init() {
-	status.BridgeStateHumanErrors.Update(status.BridgeStateErrorMap{
-		DCWebsocketDisconnect4004: "Please log in to your Discord account again.",
-		DCNotLoggedIn:             "Please log in to your Discord account.",
-		DCProxyResolveFail:        "Failed to update proxy",
-		DCHTTP40002:               accountVerificationRequiredMessage,
-		// (For DCUnknownWebsocketError, provide a specific error message when
-		// sending state. If there were a generic message here, it would
-		// overwrite that.)
-	})
-}
 
 type DiscordEventMeta struct {
 	Type       bridgev2.RemoteEventType
@@ -764,6 +742,7 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		wasSeen := d.seenReady.Swap(true)
 
 		d.applyReadyPayload(ctx, evt)
+		d.pokeVitals(ctx)
 
 		// A READY after the first one means the gateway handed us a fresh
 		// session instead of resuming (our resume was refused or the session
@@ -773,6 +752,46 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			log.Info().Msg("Reconnected without resuming, re-syncing chats and spaces")
 			d.beginResyncingChatsAndSpaces(ctx)
 		}
+	case *discordgo.MessageCreate:
+		if evt.Author == nil {
+			return
+		}
+
+		urgent := evt.Flags&discordgo.MessageFlagsUrgent != 0
+		system := evt.Author.System
+		if !urgent && !system {
+			return
+		}
+
+		var le *zerolog.Event
+		if urgent {
+			le = log.Warn()
+		} else {
+			le = log.Info()
+		}
+		le.Bool("message_urgent", urgent).
+			Bool("message_system", system).
+			Msg("Received system message")
+
+		if urgent {
+			d.refreshSafetyHub(ctx)
+		}
+
+		// Discord's first-party client does this. It seems that a USER_UPDATE
+		// gateway event is not sent out when this user flag bit changes.
+		d.Session.State.Lock()
+		d.Session.State.User.Flags |= int(discordgo.UserFlagHasUnreadUrgentMessages)
+		d.Session.State.Unlock()
+
+		d.pokeVitals(ctx)
+	case *discordgo.UserRequiredActionUpdate:
+		if evt.RequiredAction == "" {
+			log.Info().Msg("Required action was performed")
+		} else {
+			log.Error().Str("required_action", string(evt.RequiredAction)).
+				Msg("Required action was updated")
+		}
+		d.pokeVitals(ctx)
 	case *discordgo.RelationshipAdd:
 		d.upsertRelationship(evt.Relationship)
 	case *discordgo.RelationshipUpdate:
@@ -874,17 +893,15 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		// offline.
 		d.syncRemoteProfile(ctx)
 		go d.resyncGhostsFromReady(ctx, evt)
-
-		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateConnected,
-		})
+		d.refreshSafetyHub(ctx)
+		d.pokeVitals(ctx)
+		d.sendCurrentState(ctx) // (pokeVitals already enqueued a new bridge state but let's be explicit about it here.)
 	case *discordgo.Resumed:
 		// (All missed gateway events have been replayed, and all subsequent
 		// events will be new.)
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
-		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateConnected,
-		})
+		d.refreshSafetyHub(ctx)
+		d.sendCurrentState(ctx)
 	case *discordgo.InvalidAuth:
 		log.Warn().Msg("Got logged out of Discord due to invalid token")
 		d.tokenInvalidated(ctx, "while connected")
@@ -1043,21 +1060,26 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		// discordgo does not update State.User for us. This is probably a bug.
 		// Do it ourselves in the meantime.
+		var oldFlags int
 		{
 			state := d.Session.State
 			state.Lock()
+			oldFlags = d.Session.State.User.Flags
 			*d.Session.State.User = *evt.User
 			state.Unlock()
 		}
 		d.userCache.UpdateWithUserUpdate(evt)
+		user := evt.User
 
-		if d.syncRemoteProfile(ctx) {
-			// Send out a new bridge state so clients immediately get the
-			// updated profile.
-			d.UserLogin.BridgeState.Send(status.BridgeState{
-				StateEvent: status.StateConnected,
-			})
+		if oldFlags != user.Flags {
+			log.Info().
+				Int("old_user_flags", oldFlags).
+				Int("new_user_flags", user.Flags).
+				Msg("User flags were updated")
 		}
+		d.pokeVitals(ctx)
+		d.syncRemoteProfile(ctx)
+		d.sendCurrentState(ctx)
 	case *discordgo.MessageDelete:
 		ctx, _ := messageCtx(ctx, evt.Message)
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)

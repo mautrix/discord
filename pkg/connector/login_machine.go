@@ -36,6 +36,7 @@ const LoginFlowIDMachine = "machine"
 const LoginStepIDMachineInitialCreds = "fi.mau.discord.creds"
 const LoginStepIDMachineCaptcha = "fi.mau.discord.captcha"
 const LoginStepIDMachineEmailVerification = "fi.mau.discord.email_verification"
+const LoginStepIDMachineSMSVerification = "fi.mau.discord.sms_verification"
 const LoginStepIDMachineMFAMethod = "fi.mau.discord.mfa.method"
 const LoginStepIDMachineMFATOTP = "fi.mau.discord.mfa.totp"
 const LoginStepIDMachineMFABackup = "fi.mau.discord.mfa.backup"
@@ -43,10 +44,11 @@ const LoginStepIDMachineMFASMS = "fi.mau.discord.mfa.sms"
 const InputDataFieldIDUsernameOrPhone = "username_or_phone"
 const InputDataFieldIDPassword = "password"
 const InputDataFieldIDMFAMethod = "mfa_method"
-const InputDataFieldIDMFABackupCode = "backup_code"
-const InputDataFieldIDMFASMSCode = "sms_code"
-const InputDataFieldIDMFATOTPCode = "totp_code"
+const InputDataFieldIDMFABackupCode = "mfa_backup_code"
+const InputDataFieldIDMFASMSCode = "mfa_sms_code"
+const InputDataFieldIDMFATOTPCode = "mfa_totp_code"
 const InputDataFieldIDEmailVerification = "email_verification"
+const InputDataFieldIDSMSCode = "sms_code" // IP verification via SMS code
 
 type mfaOption string
 
@@ -157,12 +159,17 @@ func initialCredsStep(instructions string) *bridgev2.LoginStep {
 	}
 }
 
+const newLocationInstructionPreamble = "Your login was correct, but Discord " +
+	"detected Beeper as a new login location."
+const textedCodeInstruction = "Enter the code Discord just texted you."
+
 func emailVerificationStep() *bridgev2.LoginStep {
-	// This isn't ideal by any means, but chat-command login and Beeper iOS
-	// cannot handle a user_input step with no inputs.
-	instructions := "Your login was correct, but Discord detected Beeper " +
-		"as a new login location. Check your email for a verification link, " +
-		"then choose the option below to continue."
+	// Forcing a dummy input like this isn't ideal by any means, but
+	// chat-command login and Beeper iOS cannot handle a user_input step with
+	// no inputs.
+	instructions := newLocationInstructionPreamble + " Check your email for a " +
+		"verification link, then choose the option below to continue."
+
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
 		StepID:       LoginStepIDMachineEmailVerification,
@@ -176,6 +183,36 @@ func emailVerificationStep() *bridgev2.LoginStep {
 					Options: []string{
 						"I’ve verified the login",
 					},
+				},
+			},
+		},
+	}
+}
+
+type smsCodeStepOptions struct {
+	loginStepID  string
+	inputFieldID string
+	instructions string // optional, defaults to [textedCodeInstruction]
+}
+
+func smsCodeStep(opts smsCodeStepOptions) *bridgev2.LoginStep {
+	if opts.instructions == "" {
+		opts.instructions = textedCodeInstruction
+	}
+
+	return &bridgev2.LoginStep{
+		Type:         bridgev2.LoginStepTypeUserInput,
+		StepID:       opts.loginStepID,
+		Instructions: opts.instructions,
+		UserInputParams: &bridgev2.LoginUserInputParams{
+			Fields: []bridgev2.LoginInputDataField{
+				{
+					Description: "The code might take a moment to arrive.",
+					ID:          opts.inputFieldID,
+					Name:        "Verification code",
+					// TODO enforce length
+					Pattern: `^(\d+)$`,
+					Type:    bridgev2.LoginInputFieldType2FACode,
 				},
 			},
 		},
@@ -274,23 +311,10 @@ func mfaCodeStep(authType discordauth.AuthenticatorType) (*bridgev2.LoginStep, e
 			},
 		}, nil
 	case discordauth.AuthenticatorSMS:
-		return &bridgev2.LoginStep{
-			Type:         bridgev2.LoginStepTypeUserInput,
-			StepID:       LoginStepIDMachineMFASMS,
-			Instructions: "Enter the code Discord just texted you.",
-			UserInputParams: &bridgev2.LoginUserInputParams{
-				Fields: []bridgev2.LoginInputDataField{
-					{
-						Description: "The code might take a moment to arrive.",
-						ID:          InputDataFieldIDMFASMSCode,
-						Name:        "Verification code",
-						// TODO enforce length
-						Pattern: `^(\d+)$`,
-						Type:    bridgev2.LoginInputFieldType2FACode,
-					},
-				},
-			},
-		}, nil
+		return smsCodeStep(smsCodeStepOptions{
+			loginStepID:  LoginStepIDMachineMFASMS,
+			inputFieldID: InputDataFieldIDMFASMSCode,
+		}), nil
 	default:
 		return nil, fmt.Errorf("unknown mfa authenticator type %q", authType)
 	}
@@ -438,9 +462,14 @@ func (d *DiscordMachineLogin) SubmitUserInput(ctx context.Context, input map[str
 	if _, ok := input[InputDataFieldIDPassword]; ok {
 		return d.submitCreds(ctx, input)
 	}
+
+	if code, ok := input[InputDataFieldIDSMSCode]; ok {
+		return d.answer(ctx, &discordauth.Answer{SMSCode: strings.TrimSpace(code)})
+	}
 	if _, ok := input[InputDataFieldIDEmailVerification]; ok {
 		return d.answer(ctx, &discordauth.Answer{})
 	}
+
 	if selected, ok := input[InputDataFieldIDMFAMethod]; ok {
 		authType, err := mfaOptionToAuthenticator(selected)
 		if err != nil {
@@ -499,12 +528,27 @@ func (d *DiscordMachineLogin) stepForPrompt(ctx context.Context, prompt *discord
 	if prompt == nil {
 		return nil, fmt.Errorf("auth machine did not advance")
 	}
+	log := zerolog.Ctx(ctx)
+
 	switch {
 	case prompt.CredsPrompt != nil:
 		return initialCredsStep(prompt.CredsPrompt.Reason), nil
 	case prompt.EmailVerify:
-		zerolog.Ctx(ctx).Info().Msg("Prompting user to verify the IP address via email")
+		log.Info().Msg("Prompting user to verify the IP address via email")
 		return emailVerificationStep(), nil
+	case prompt.PhoneVerifyPrompt != nil:
+		log.Info().Msg("Prompting user to verify the IP address via SMS")
+		var instructions string
+		if prompt.PhoneVerifyPrompt.Retrying {
+			instructions = "That code didn’t work. Check your information and try again."
+		} else {
+			instructions = fmt.Sprintf("%s %s", newLocationInstructionPreamble, textedCodeInstruction)
+		}
+		return smsCodeStep(smsCodeStepOptions{
+			loginStepID:  LoginStepIDMachineSMSVerification,
+			inputFieldID: InputDataFieldIDSMSCode,
+			instructions: instructions,
+		}), nil
 	case prompt.Captcha != nil:
 		return d.captchaStep(ctx, prompt.Captcha)
 	case prompt.MFAChallengePrompt != nil:

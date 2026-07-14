@@ -13,7 +13,6 @@ func (d *DiscordClient) refreshSafetyHub(ctx context.Context) {
 	}
 
 	log := zerolog.Ctx(ctx).With().Str("action", "refresh safety hub").Logger()
-	ctx = log.WithContext(ctx)
 
 	log.Debug().Msg("Fetching safety hub data")
 	hub, err := d.Session.SafetyHub()

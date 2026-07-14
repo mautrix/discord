@@ -90,7 +90,7 @@ func newVitals(
 		return
 	}
 	user := s.State.User
-	flags := discordgo.UserFlags(user.Flags)
+	flags := user.Flags
 
 	v.Quarantined = flags&discordgo.UserFlagQuarantined != 0
 	// This can change on the fly via USER_REQUIRED_ACTION_UPDATE from the

@@ -40,6 +40,13 @@ const (
 	DCRequireReverifiedEmailOrReverifiedPhone status.BridgeStateErrorCode = "dc-require-reverified-email-or-reverified-phone" // reaffirm ownership of existing email or phone number
 	DCRequireSafetyFlows                      status.BridgeStateErrorCode = "dc-require-safety-flows"                         // server-driven safety flow UI
 
+	// NOTE: We expect the user to use a first-party client to read their
+	// system messages. Pressing the CTA button on the modal triggers a POST
+	// /users/@me with {flags:0}, clearing the HAS_UNREAD_URGENT_MESSAGES flag
+	// and dispatching a USER_UPDATE on the gateway (that we may observe).
+	//
+	// Critically, this HTTP request itself is likely to prompt an in-app
+	// CAPTCHA challenge.
 	DCUnreadSystemMessages status.BridgeStateErrorCode = "dc-unread-system-messages"
 )
 const accountVerificationRequiredMessage = "You need to verify your account in the Discord app."

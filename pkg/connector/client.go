@@ -234,6 +234,10 @@ func (d *DiscordClient) sendCurrentState(ctx context.Context) {
 		return
 	}
 
+	// TODO: Don't actually fire off BeginSyncing unless we connect with a
+	// vitals state that doesn't require intervention. That way, we can fire
+	// off the sync goroutines only after we know we can interact with stuff.
+
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnected,
 		Info:       info,

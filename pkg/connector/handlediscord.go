@@ -777,8 +777,10 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			d.refreshSafetyHub(ctx)
 		}
 
-		// Discord's first-party client does this. It seems that a USER_UPDATE
-		// gateway event is not sent out when this user flag bit changes.
+		// Discord's first-party client does this. A USER_UPDATE gateway event
+		// is not sent out when this bit becomes true (due to a new system
+		// message), but it *does* get sent out when another client does PATCH
+		// /users/@me with {flags:…}.
 		d.Session.State.Lock()
 		d.Session.State.User.Flags |= int(discordgo.UserFlagHasUnreadUrgentMessages)
 		d.Session.State.Unlock()

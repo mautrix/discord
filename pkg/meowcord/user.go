@@ -1,0 +1,248 @@
+// mautrix-discord - A Matrix-Discord puppeting bridge.
+// Copyright 2015-2016 Bruce Marriner <bruce@sqls.net>.  All rights reserved.
+// Copyright (C) 2026 The mautrix-discord contributors
+//
+// This file is derived from discordgo (https://github.com/bwmarrin/discordgo),
+// used under the BSD-3-Clause license; see README.md in this directory. This
+// file is distributed under the GNU AGPLv3 as follows:
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+package meowcord
+
+import (
+	"strconv"
+)
+
+// UserFlags is the flags of "user" (see UserFlags* consts)
+// https://discord.com/developers/docs/resources/user#user-object-user-flags
+type UserFlags uint64
+
+// Valid UserFlags values
+//
+// https://docs.discord.food/resources/user#user-flags
+const (
+	UserFlagDiscordEmployee UserFlags = 1 << iota
+	UserFlagDiscordPartner
+	UserFlagHypeSquadEvents
+	UserFlagBugHunterLevel1
+	UserFlagMFASMS                // private
+	UserFlagPremiumPromoDismissed // private
+	UserFlagHouseBravery
+	UserFlagHouseBrilliance
+	UserFlagHouseBalance
+	UserFlagEarlySupporter
+	UserFlagTeamUser
+	UserFlagIsHubspotContact        // private, harvested
+	UserFlagSystem                  // legacy
+	UserFlagHasUnreadUrgentMessages // private
+	UserFlagBugHunterLevel2
+	UserFlagUnderageDeleted // private, harvested
+	UserFlagVerifiedBot
+	UserFlagVerifiedBotDeveloper
+	UserFlagDiscordCertifiedModerator
+	UserFlagBotHTTPInteractions
+	UserFlagSpammer
+	UserFlagDisablePremium     // private, legacy
+	UserFlagActiveBotDeveloper // legacy
+	UserFlagProvisionalAccount
+)
+
+// (9 bits, 24 through 32, are unknown)
+
+const (
+	UserFlagHighGlobalRatelimit        UserFlags = 1 << (iota + 33) // private, harvested
+	UserFlagDeleted                                                 // private, harvested
+	UserFlagDisabledSuspiciousActivity                              // private, harvested
+	UserFlagSelfDeleted                                             // private, harvested
+	UserFlagPremiumDiscriminator                                    // private, harvested
+	UserFlagUsedDesktopClient                                       // private, harvested
+	UserFlagUsedWebClient                                           // private, harvested
+	UserFlagUsedMobileClient                                        // private, harvested
+	UserFlagDisabled                                                // private, harvested
+)
+
+// (bit 42 is unknown)
+
+const (
+	UserFlagHasSessionStarted UserFlags = 1 << (iota + 43)
+	UserFlagQuarantined                 // private
+)
+
+// (bits 45 and 46 are unknown)
+
+const (
+	UserFlagPremiumEligibleForUniqueUsername UserFlags = 1 << (iota + 47)
+)
+
+// (bits 48 and 49 are unknown)
+
+const (
+	UserFlagCollaborator UserFlags = 1 << (iota + 50)
+	UserFlagRestrictedCollaborator
+)
+
+// UserPremiumType is the type of premium (nitro) subscription a user has (see UserPremiumType* consts).
+// https://discord.com/developers/docs/resources/user#user-object-premium-types
+type UserPremiumType int
+
+// Valid UserPremiumType values.
+const (
+	UserPremiumTypeNone         UserPremiumType = 0
+	UserPremiumTypeNitroClassic UserPremiumType = 1
+	UserPremiumTypeNitro        UserPremiumType = 2
+	UserPremiumTypeNitroBasic   UserPremiumType = 3
+)
+
+// UserPrimaryGuild represents a user's primary guild information.
+type UserPrimaryGuild struct {
+	// The ID of the user's primary guild.
+	IdentityGuildID string `json:"identity_guild_id"`
+
+	// Whether the user is displaying the primary guild's server tag.
+	IdentityEnabled bool `json:"identity_enabled"`
+
+	// The server tag of the user's primary guild. Limited to 4 characters
+	Tag string `json:"tag"`
+
+	// The server tag badge hash
+	// https://discord.com/developers/docs/reference#image-formatting
+	Badge string `json:"badge"`
+}
+
+// A User stores all data for an individual Discord user.
+type User struct {
+	// The ID of the user.
+	ID string `json:"id"`
+
+	// The email of the user. This is only present when
+	// the application possesses the email scope for the user.
+	Email string `json:"email"`
+
+	Phone string `json:"phone"`
+
+	// The user's username.
+	Username string `json:"username"`
+
+	// The hash of the user's avatar. Use Session.UserAvatar
+	// to retrieve the avatar itself.
+	Avatar string `json:"avatar"`
+
+	// The user's chosen language option.
+	Locale string `json:"locale"`
+
+	// The discriminator of the user (4 numbers after name).
+	Discriminator string `json:"discriminator"`
+
+	// The user's display name, if it is set.
+	// For bots, this is the application name.
+	GlobalName string `json:"global_name"`
+
+	// The token of the user. This is only present for
+	// the user represented by the current session.
+	Token string `json:"token"`
+
+	// Whether the user's email is verified.
+	Verified bool `json:"verified"`
+
+	// Whether the user has multi-factor authentication enabled.
+	MFAEnabled bool `json:"mfa_enabled"`
+
+	// The hash of the user's banner image.
+	Banner string `json:"banner"`
+
+	// User's banner color, encoded as an integer representation of hexadecimal color code
+	AccentColor int `json:"accent_color"`
+
+	// Whether the user is a bot.
+	Bot bool `json:"bot"`
+
+	// The public flags on a user's account.
+	// This is a combination of bit masks; the presence of a certain flag can
+	// be checked by performing a bitwise AND between this int and the flag.
+	PublicFlags UserFlags `json:"public_flags"`
+
+	// The type of Nitro subscription on a user's account.
+	// Only available when the request is authorized via a Bearer token.
+	PremiumType UserPremiumType `json:"premium_type"`
+
+	// Whether the user is an Official Discord System user (part of the urgent message system).
+	System bool `json:"system"`
+
+	// The flags on a user's account.
+	// Only available when the request is authorized via a Bearer token.
+	Flags UserFlags `json:"flags"`
+
+	// The user's primary guild.
+	PrimaryGuild UserPrimaryGuild `json:"primary_guild"`
+}
+
+// String returns a unique identifier of the form username#discriminator
+// or just username, if the discriminator is set to "0".
+func (u *User) String() string {
+	// If the user has been migrated from the legacy username system, their discriminator is "0".
+	// See https://support-dev.discord.com/hc/en-us/articles/13667755828631
+	if u.Discriminator == "0" {
+		return u.Username
+	}
+
+	return u.Username + "#" + u.Discriminator
+}
+
+// Mention return a string which mentions the user
+func (u *User) Mention() string {
+	return "<@" + u.ID + ">"
+}
+
+// AvatarURL returns a URL to the user's avatar.
+//
+//	size:    The size of the user's avatar as a power of two
+//	         if size is an empty string, no size parameter will
+//	         be added to the URL.
+func (u *User) AvatarURL(size string) string {
+	return avatarURL(
+		u.Avatar,
+		EndpointDefaultUserAvatar(u.DefaultAvatarIndex()),
+		EndpointUserAvatar(u.ID, u.Avatar),
+		EndpointUserAvatarAnimated(u.ID, u.Avatar),
+		size,
+	)
+}
+
+// BannerURL returns the URL of the users's banner image.
+//
+//	size:    The size of the desired banner image as a power of two
+//	         Image size can be any power of two between 16 and 4096.
+func (u *User) BannerURL(size string) string {
+	return bannerURL(u.Banner, EndpointUserBanner(u.ID, u.Banner), EndpointUserBannerAnimated(u.ID, u.Banner), size)
+}
+
+// DefaultAvatarIndex returns the index of the user's default avatar.
+func (u *User) DefaultAvatarIndex() int {
+	if u.Discriminator == "0" {
+		id, _ := strconv.ParseUint(u.ID, 10, 64)
+		return int((id >> 22) % 6)
+	}
+
+	id, _ := strconv.Atoi(u.Discriminator)
+	return id % 5
+}
+
+// DisplayName returns the user's global name if they have one, otherwise it returns their username.
+func (u *User) DisplayName() string {
+	if u.GlobalName != "" {
+		return u.GlobalName
+	}
+	return u.Username
+}

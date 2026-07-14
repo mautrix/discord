@@ -25,6 +25,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
@@ -164,8 +165,7 @@ func (mc *MessageConverter) ToDiscord(
 			att.OriginalContentType = content.Info.MimeType
 		}
 		if voiceMeta != nil {
-			flags := int(discordgo.MessageFlagsIsVoiceMessage)
-			req.Flags = &flags
+			req.Flags = ptr.Ptr(discordgo.MessageFlagsIsVoiceMessage)
 			att.ContentType = voiceMeta.ContentType
 			att.DurationSeconds = voiceMeta.DurationSeconds
 			att.Waveform = voiceMeta.Waveform

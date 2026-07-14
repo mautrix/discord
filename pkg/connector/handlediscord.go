@@ -782,7 +782,7 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		// message), but it *does* get sent out when another client does PATCH
 		// /users/@me with {flags:…}.
 		d.Session.State.Lock()
-		d.Session.State.User.Flags |= int(discordgo.UserFlagHasUnreadUrgentMessages)
+		d.Session.State.User.Flags |= discordgo.UserFlagHasUnreadUrgentMessages
 		d.Session.State.Unlock()
 
 		d.pokeVitals(ctx)
@@ -1062,7 +1062,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		// discordgo does not update State.User for us. This is probably a bug.
 		// Do it ourselves in the meantime.
-		var oldFlags int
+		var oldFlags discordgo.UserFlags
 		{
 			state := d.Session.State
 			state.Lock()
@@ -1075,8 +1075,8 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		if oldFlags != user.Flags {
 			log.Info().
-				Int("old_user_flags", oldFlags).
-				Int("new_user_flags", user.Flags).
+				Int("old_user_flags", int(oldFlags)).
+				Int("new_user_flags", int(user.Flags)).
 				Msg("User flags were updated")
 		}
 		d.pokeVitals(ctx)

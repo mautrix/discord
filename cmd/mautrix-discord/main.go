@@ -17,6 +17,7 @@
 package main
 
 import (
+	"maunium.net/go/mautrix/bridgev2/bridgeconfig"
 	"maunium.net/go/mautrix/bridgev2/matrix/mxmain"
 
 	"go.mau.fi/mautrix-discord/pkg/connector"
@@ -40,6 +41,7 @@ var m = mxmain.BridgeMain{
 }
 
 func main() {
+	bridgeconfig.HackyMigrateLegacyNetworkConfig = connector.MigrateLegacyConfig
 	m.PostInit = func() {
 		m.CheckLegacyDB(24, "v0.7.6", "v26.03",
 			m.LegacyMigrateWithAnotherUpgrader(

@@ -1,21 +1,19 @@
 package connector
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"testing"
 	"time"
 )
 
 func TestParseAttachmentExpiryParam(t *testing.T) {
-	losAngeles, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		t.Fatalf("failed to load test timezone: %v", err)
-	}
+	want := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	var encoded [4]byte
+	binary.BigEndian.PutUint32(encoded[:], uint32(want.Unix()))
 
-	expiry := parseAttachmentExpiryParam("69be6214").In(losAngeles)
-	got := expiry.String()
-	want := "2026-03-21 02:17:08 -0700 PDT"
-
-	if got != want {
+	got := parseAttachmentExpiryParam(hex.EncodeToString(encoded[:]))
+	if !got.Equal(want) {
 		t.Fatalf("unexpected parsed expiry: got %q, want %q", got, want)
 	}
 }

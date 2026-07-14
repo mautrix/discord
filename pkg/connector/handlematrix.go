@@ -149,7 +149,39 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		d.lastSendAttemptMutex.Unlock()
 	}
 
-	sentMsg, err := d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, discordgo.WithContext(ctx))
+	var sentMsg *discordgo.Message
+	if msg.OrigSender != nil {
+		if guildID == "" {
+			err = fmt.Errorf("Discord webhooks are not available in DMs/group DMs")
+			return nil, bridgev2.WrapErrorInStatus(err).
+				WithStatus(event.MessageStatusFail).
+				WithIsCertain(true).
+				WithMessage("Relay messages need Discord webhooks, which are only available in guild channels.").
+				WithSendNotice(true)
+		}
+		username, avatarURL := d.relayWebhookProfile(ctx, portal, msg.OrigSender)
+		if username == "" {
+			username = msg.OrigSender.UserID.String()
+		}
+		username = sanitizeRelayWebhookUsername(username, msg.OrigSender.UserID.String())
+		params := &discordgo.WebhookParams{
+			Content:         sendReq.Content,
+			Username:        username,
+			AvatarURL:       avatarURL,
+			Embeds:          sendReq.Embeds,
+			Components:      sendReq.Components,
+			Files:           sendReq.Files,
+			Attachments:     sendReq.Attachments,
+			AllowedMentions: sendReq.AllowedMentions,
+			Flags:           relayWebhookFlags(sendReq.Flags),
+		}
+		if sendReq.Reference != nil {
+			params.Embeds = prependReplyEmbed(params.Embeds, guildID, sendReq.Reference.ChannelID, sendReq.Reference.MessageID)
+		}
+		sentMsg, err = d.executeRelayWebhook(ctx, portal, parentChannelID, threadChannelID, params, refererOpt)
+	} else {
+		sentMsg, err = d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, discordgo.WithContext(ctx))
+	}
 	if err != nil {
 		return nil, d.tryWrappingError(ctx, err)
 	}
@@ -213,11 +245,14 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
 	}
+	if msg.EditTarget == nil {
+		return fmt.Errorf("missing edit target")
+	}
 
 	log := zerolog.Ctx(ctx).With().Str("action", "matrix message edit").Logger()
 	ctx = log.WithContext(ctx)
 
-	content, _ := d.connector.MsgConv.ConvertMatrixMessageContent(
+	content, allowedMentions := d.connector.MsgConv.ConvertMatrixMessageContent(
 		ctx,
 		msg.Portal,
 		msg.Content,
@@ -238,6 +273,29 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 			threadChannelID = thread.ThreadChannelID
 			channelID = threadChannelID
 		}
+	}
+
+	if d.isRelayWebhookMessage(msg.Portal, msg.EditTarget) {
+		meta := msg.Portal.Metadata.(*discordid.PortalMetadata)
+		edit := &discordgo.WebhookEdit{
+			Content:         &content,
+			AllowedMentions: allowedMentions,
+		}
+		if err := d.populateRelayWebhookEditMedia(ctx, edit, msg.Content); err != nil {
+			return err
+		}
+		_, err := d.webhookMessageEditThread(
+			ctx,
+			meta.RelayWebhookID,
+			meta.RelayWebhookToken,
+			discordid.ParseMessageID(msg.EditTarget.ID),
+			threadChannelID,
+			edit,
+		)
+		if err != nil {
+			return d.tryWrappingError(ctx, err)
+		}
+		return nil
 	}
 
 	_, err := d.Session.ChannelMessageEdit(
@@ -275,6 +333,10 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 		emojiID = variationselector.FullyQualify(emojiID)
 	}
 
+	// Relayed reactions have to use the relay login on Discord. Discord only
+	// allows one reaction per user/emoji, so multiple Matrix users reacting
+	// with the same emoji intentionally collapse into the relay user's one
+	// Discord reaction.
 	return bridgev2.MatrixReactionPreResponse{
 		SenderID: discordid.UserLoginIDToUserID(d.UserLogin.ID),
 		EmojiID:  discordid.MakeEmojiID(emojiID),
@@ -349,6 +411,9 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
 	}
+	if removal.TargetMessage == nil {
+		return fmt.Errorf("missing message remove target")
+	}
 
 	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
@@ -364,6 +429,16 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 		}
 	}
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
+	if d.isRelayWebhookMessage(removal.Portal, removal.TargetMessage) {
+		meta := removal.Portal.Metadata.(*discordid.PortalMetadata)
+		return d.tryWrappingError(ctx, d.webhookMessageDeleteThread(
+			ctx,
+			meta.RelayWebhookID,
+			meta.RelayWebhookToken,
+			messageID,
+			threadChannelID,
+		))
+	}
 	return d.tryWrappingError(ctx, d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID)))
 }
 

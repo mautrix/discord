@@ -24,6 +24,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	up "go.mau.fi/util/configupgrade"
 	"gopkg.in/yaml.v3"
+	"maunium.net/go/mautrix/bridgev2/bridgeconfig"
 )
 
 //go:embed example-config.yaml
@@ -148,6 +149,15 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "proxy_login_machine")
 	helper.Copy(up.Bool, "proxy_login_remoteauth")
 	helper.Copy(up.Bool, "report_scrubbed_account_standing")
+}
+
+func MigrateLegacyConfig(helper up.Helper) {
+	bridgeconfig.CopyToOtherLocation(helper, up.Str, []string{"bridge", "channel_name_template"}, []string{"network", "channel_name_template"})
+	bridgeconfig.CopyToOtherLocation(helper, up.Bool, []string{"bridge", "custom_emoji_reactions"}, []string{"network", "custom_emoji_reactions"})
+	bridgeconfig.CopyToOtherLocation(helper, up.Bool, []string{"bridge", "guild_avatars_in_rooms"}, []string{"network", "guilds", "guild_avatars_in_rooms"})
+	bridgeconfig.CopyToOtherLocation(helper, up.Bool, []string{"bridge", "forbid_dming_strangers"}, []string{"network", "forbid_dming_strangers"})
+	bridgeconfig.CopyToOtherLocation(helper, up.Bool, []string{"bridge", "log_when_dropping_messages"}, []string{"network", "log_when_dropping_messages"})
+	bridgeconfig.CopyToOtherLocation(helper, up.Str, []string{"bridge", "proxy"}, []string{"network", "proxy"})
 }
 
 func (d *DiscordConnector) GetConfig() (example string, data any, upgrader up.Upgrader) {

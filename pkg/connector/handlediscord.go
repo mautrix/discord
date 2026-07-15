@@ -774,10 +774,6 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			Msg("Received system message")
 
 		if urgent {
-			// The account's safety standing might've changed. There isn't
-			// a Gateway event for this.
-			d.refreshSafetyHub(ctx)
-
 			// Discord's first-party client does this too.
 			//
 			// When it comes to this flag bit in particular (perhaps all
@@ -788,8 +784,14 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			d.Session.State.Lock()
 			d.Session.State.User.Flags |= discordgo.UserFlagHasUnreadUrgentMessages
 			d.Session.State.Unlock()
+
+			// The account's safety standing might've changed. There isn't a
+			// handy Gateway event for this.
+			go func() {
+				d.refreshSafetyHub(ctx)
+				d.pokeVitals(ctx)
+			}()
 		}
-		d.pokeVitals(ctx)
 	case *discordgo.UserRequiredActionUpdate:
 		if evt.RequiredAction == "" {
 			log.Info().Msg("Required action was performed")

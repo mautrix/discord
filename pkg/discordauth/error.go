@@ -148,13 +148,30 @@ func (err *APIError) FieldHasError(key string, code FormErrorCode) bool {
 var _ error = (*APIError)(nil)
 
 // IsUserInputError reports whether the error was ultimately due to user input
-// error. When this is true, it is appropriate to prompt the user for the same
-// value again.
+// error and can be resolved by providing correct values.
+//
+// When this is true, it is appropriate to prompt the user for the same
+// value(s) again.
 func (err APIError) IsUserInputError() bool {
-	invalidForm := err.Code == InvalidFormBody && !err.RequiresEmailVerification()
-	return invalidForm ||
+	actuallyInvalidForm := err.Code == InvalidFormBody &&
+		// these errors use InvalidFormBody, but aren't actually user input
+		// errors
+		!err.RequiresEmailVerification() &&
+		!err.IsAccountCompromised()
+
+	return actuallyInvalidForm ||
+		// error codes that aren't InvalidFormBody but are user input errors
 		err.Code == MFAInvalidCode ||
 		err.Code == InvalidVerificationCode
+}
+
+// IsAccountCompromised reports whether the error was due to Discord
+// determining that the user's account has been compromised. This prevents
+// login; the user must reset their password with Discord.
+func (err APIError) IsAccountCompromised() bool {
+	// We have observed this field error code on the "login" field
+	// specifically, but check all fields just to be safe.
+	return err.Code == InvalidFormBody && err.AnyFieldHasError(AccountCompromisedResetPassword)
 }
 
 // RequiresEmailVerification reports whether the error is due to a correct

@@ -3,6 +3,7 @@ package discordauth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -85,6 +86,15 @@ const (
 	testIPVerificationToken = "foobar123"
 	testVerifiedPhone       = `{"token":"` + testIPVerificationToken + `"}`
 )
+
+// Verbatim response body observed in production (PLAT-37962).
+const testAccountCompromisedBody = `{` +
+	`"code":50035,` +
+	`"errors":{"login":{"_errors":[{` +
+	`"code":"ACCOUNT_COMPROMISED_RESET_PASSWORD",` +
+	`"message":"Please reset your password to log in."}]}},` +
+	`"message":"Invalid Form Body"` +
+	`}`
 
 // advanceToCaptchaPrompt drives the machine from its initial state through
 // credential submission, at which point the (canned) HTTP client is expected to
@@ -181,6 +191,41 @@ func TestAdvanceCaptchaSolutionRetriesWithHeader(t *testing.T) {
 	}
 	if got := retryHeader.Get(HeaderCaptchaSessionID); got != "sess" {
 		t.Fatalf("expected %s header %q on retry, got %q", HeaderCaptchaSessionID, "sess", got)
+	}
+}
+
+func TestAdvanceAccountCompromisedPropagates(t *testing.T) {
+	client := testHTTPClient(func(req *http.Request) (*http.Response, error) {
+		expectPostRequest(t, req, "/api/v9/auth/login")
+		return newResponse(http.StatusBadRequest, testAccountCompromisedBody), nil
+	})
+
+	ctx := context.Background()
+
+	am := NewAuthMachine(ctx, client, newTestPersonality())
+	am.Fingerprint = "test-fingerprint"
+
+	prompt, done := mustAdvance(t, ctx, am, nil)
+	if done != nil || prompt == nil || prompt.CredsPrompt == nil {
+		t.Fatalf("expected credentials prompt, got prompt=%+v done=%+v", prompt, done)
+	}
+
+	prompt, done, err := am.Advance(ctx, &Answer{
+		Creds: NewCreds("user@example.com", "hunter2"),
+	})
+	if prompt != nil || done != nil {
+		t.Fatalf("expected only an error, got prompt=%+v done=%+v", prompt, done)
+	}
+
+	var apiErr APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected an APIError, got: %v", err)
+	}
+	if !apiErr.IsAccountCompromised() {
+		t.Fatalf("expected error to be recognized as account compromised: %v", err)
+	}
+	if apiErr.IsUserInputError() {
+		t.Fatal("account compromised error must not count as a user input error")
 	}
 }
 

@@ -37,8 +37,7 @@ func (d *DiscordClient) pokeVitals(ctx context.Context) {
 	{
 		v := newVitals(d.Session, d.safetyHub)
 
-		log = ptr.Ptr(v.logContext(log.With()).Logger())
-		ctx = log.WithContext(ctx)
+		log := v.logContext(log.With()).Logger()
 		log.Info().Msg("Reevaluated vitals")
 
 		d.vitals = &v

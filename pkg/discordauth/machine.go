@@ -201,14 +201,24 @@ func (am *AuthMachine) advance(ctx context.Context, answer *Answer) (*Prompt, *L
 		return &Prompt{CredsPrompt: &CredsPrompt{}}, nil, nil
 	}
 
+	// The cases in the following switch explicitly check for API contract
+	// violations (specifically, nilness of the corresponding answer field) to
+	// help clients catch errors, especially since race conditions are likely
+	// possible.
 	var captchaSolution *CaptchaSolution
 	switch {
 	case lastPrompt.CredsPrompt != nil:
 		// The user submitted their email/phone number and password.
+		if answer.Creds == nil {
+			return nil, nil, fmt.Errorf("expected credentials in answer")
+		}
 		am.login = answer.Creds.Login
 		am.pending = loginOp(answer.Creds)
 	case lastPrompt.MFAChallengePrompt != nil:
 		// The user picked the MFA method they would like to proceed with.
+		if answer.PickedMFAType == nil {
+			return nil, nil, fmt.Errorf("expected picked mfa type in answer")
+		}
 		picked := *answer.PickedMFAType
 		log.Info().Str("mfa_type", string(picked)).Msg("Continuing with MFA flow")
 
@@ -223,18 +233,27 @@ func (am *AuthMachine) advance(ctx context.Context, answer *Answer) (*Prompt, *L
 	case lastPrompt.MFACodePrompt != nil:
 		// After having picked the authenticator type, the user inputted their
 		// MFA code (the TOTP, backup code, or SMS code).
+		if answer.MFAContinue == nil {
+			return nil, nil, fmt.Errorf("expected mfa continue in answer")
+		}
 		am.pending = continueMFAOp(answer.MFAContinue, am.mfa)
 	case lastPrompt.EmailVerify:
 		// The user has authorized our IP address. Retry the last request.
 	case lastPrompt.PhoneVerifyPrompt != nil:
 		// Our IP address needs to be verified via phone number. The user has
 		// inputted the received SMS code.
+		if answer.SMSCode == "" {
+			return nil, nil, fmt.Errorf("expected sms code in answer")
+		}
 		am.interrupt = verifyPhoneNumberOp(VerifyPhoneNumberRequest{
 			Phone: lastPrompt.PhoneVerifyPrompt.Phone,
 			Code:  answer.SMSCode,
 		})
 	case lastPrompt.Captcha != nil:
 		// The user solved the CAPTCHA challenge. Retry the last request.
+		if answer.Solution == nil {
+			return nil, nil, fmt.Errorf("expected captcha solution in answer")
+		}
 		captchaSolution = answer.Solution
 	default:
 		return nil, nil, fmt.Errorf("cannot advance from unhandled prompt")

@@ -786,6 +786,8 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			d.Session.State.Lock()
 			d.Session.State.User.Flags |= discordgo.UserFlagHasUnreadUrgentMessages
 			d.Session.State.Unlock()
+			// Transition into BAD_CREDENTIALS ASAP.
+			d.pokeVitals(ctx)
 
 			// The account's safety standing might've changed. (There isn't a
 			// handy Gateway event for this.) Do this in a goroutine to avoid

@@ -122,6 +122,7 @@ func authorizeIPAddressOp(token string) *pendingRequest {
 				zerolog.Ctx(ctx).Warn().Msg("IP authorization token was invalid")
 				// Have the user login from scratch so we can receive a fresh
 				// authorization token.
+				am.interrupt = nil
 				return &Prompt{CredsPrompt: &CredsPrompt{}}, nil
 			}
 			return nil, err

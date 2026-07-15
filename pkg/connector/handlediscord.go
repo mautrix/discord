@@ -774,17 +774,21 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			Msg("Received system message")
 
 		if urgent {
+			// The account's safety standing might've changed. There isn't
+			// a Gateway event for this.
 			d.refreshSafetyHub(ctx)
+
+			// Discord's first-party client does this too.
+			//
+			// When it comes to this flag bit in particular (perhaps all
+			// "editable" user flags?), the Gateway doesn't send a USER_UPDATE
+			// event to sessions when it becomes set. However, when another
+			// client does PATCH /users/@me with {flags:…}, that _does_ result
+			// in a Gateway event.
+			d.Session.State.Lock()
+			d.Session.State.User.Flags |= discordgo.UserFlagHasUnreadUrgentMessages
+			d.Session.State.Unlock()
 		}
-
-		// Discord's first-party client does this. A USER_UPDATE gateway event
-		// is not sent out when this bit becomes true (due to a new system
-		// message), but it *does* get sent out when another client does PATCH
-		// /users/@me with {flags:…}.
-		d.Session.State.Lock()
-		d.Session.State.User.Flags |= discordgo.UserFlagHasUnreadUrgentMessages
-		d.Session.State.Unlock()
-
 		d.pokeVitals(ctx)
 	case *discordgo.UserRequiredActionUpdate:
 		if evt.RequiredAction == "" {

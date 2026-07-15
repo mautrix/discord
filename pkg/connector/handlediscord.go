@@ -742,6 +742,8 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		wasSeen := d.seenReady.Swap(true)
 
 		d.applyReadyPayload(ctx, evt)
+		// Block everyone and make sure our vitals are up-to-date so the bridge
+		// can immediately send out a bridge state that reflects it.
 		d.pokeVitals(ctx)
 
 		// A READY after the first one means the gateway handed us a fresh
@@ -785,8 +787,9 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			d.Session.State.User.Flags |= discordgo.UserFlagHasUnreadUrgentMessages
 			d.Session.State.Unlock()
 
-			// The account's safety standing might've changed. There isn't a
-			// handy Gateway event for this.
+			// The account's safety standing might've changed. (There isn't a
+			// handy Gateway event for this.) Do this in a goroutine to avoid
+			// blocking.
 			go func() {
 				d.refreshSafetyHub(ctx)
 				d.pokeVitals(ctx)

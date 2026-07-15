@@ -234,10 +234,6 @@ func (d *DiscordClient) sendCurrentState(ctx context.Context) {
 		return
 	}
 
-	// TODO: Don't actually fire off BeginSyncing unless we connect with a
-	// vitals state that doesn't require intervention. That way, we can fire
-	// off the sync goroutines only after we know we can interact with stuff.
-
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnected,
 		Info:       info,
@@ -348,8 +344,9 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 	d.Session.EventHandler = d.handleDiscordEventSync
 
 	// Open() blocks until we have processed READY or we have resumed
-	// successfully. This will also internally dispatch event handlers (so our
-	// READY/etc. handlers will have completed once this method finishes).
+	// successfully. This will also internally dispatch event handlers, so our
+	// synchronous READY event handler will have completed, and a goroutine for
+	// the asynchronous one has been fired (go).
 	err := d.Session.Open()
 	if err != nil {
 		log.Err(err).Msg("Failed to connect to Discord")
@@ -362,6 +359,11 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 		Str("user_username", user.Username).
 		Msg("Connected to Discord")
 
+	// TODO: Don't fire off BeginSyncing when the vitals require user
+	// intervention. That way, the sync goroutines only start once we know we
+	// can actually interact with the account. (The READY state handler pokes
+	// vitals synchronously during Open(), so d.vitals is already accurate
+	// here.)
 	d.BeginSyncing(ctx)
 
 	return nil

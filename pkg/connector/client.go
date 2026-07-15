@@ -51,9 +51,8 @@ type DiscordClient struct {
 	Session    *discordgo.Session
 	httpClient *http.Client
 
-	stopConnecting  atomic.Pointer[context.CancelFunc]
-	hasBegunSyncing bool
-
+	stopConnecting atomic.Pointer[context.CancelFunc]
+	fullSyncDone   atomic.Bool // inverted (i.e. not needsInitSync) so zero value is "correct"
 	// seenReady is used to discern the initial READY payload from ones
 	// received during reconnections (where resumption is not possible).
 	seenReady atomic.Bool
@@ -359,12 +358,7 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 		Str("user_username", user.Username).
 		Msg("Connected to Discord")
 
-	// TODO: Don't fire off BeginSyncing when the vitals require user
-	// intervention. That way, the sync goroutines only start once we know we
-	// can actually interact with the account. (The READY state handler pokes
-	// vitals synchronously during Open(), so d.vitals is already accurate
-	// here.)
-	d.BeginSyncing(ctx)
+	d.beginFullSync(ctx)
 
 	return nil
 }
@@ -459,7 +453,11 @@ func (d *DiscordClient) IsLoggedIn() bool {
 	}
 
 	if vitals := d.peekVitals(); vitals.RequiresUserIntervention() {
-		// Doing this tells mautrix to pause backfill queues, etc.
+		// When user intervention is required, block nearly everything the
+		// bridge can do (outgoing messages, edits, reactions, etc.) This will
+		// also tell mautrix to pause backfill queues. It's OK to receive
+		// incoming events though, and is actually needed to get notified that
+		// vitals are restabilized.
 		return false
 	}
 
@@ -474,17 +472,27 @@ func (d *DiscordClient) LogoutRemote(ctx context.Context) {
 	d.Disconnect()
 }
 
-// BeginSyncing kicks off background sync of the remote profile, all private
-// channels, and bridged guilds. This occurs asynchronously. This should only
-// be called once the gateway connection is READY or RESUMED.
-func (d *DiscordClient) BeginSyncing(ctx context.Context) {
-	if d.hasBegunSyncing {
-		d.connector.Bridge.Log.Warn().Msg("Not beginning sync more than once")
+// beginFullSync kicks off a full account sync (remote profile, private
+// channels, and bridged guilds) in the background, if one is pending and the
+// account's vitals permit it.
+//
+// Calling it when a full sync isn't needed is cheap and safe.
+func (d *DiscordClient) beginFullSync(ctx context.Context) {
+	log := zerolog.Ctx(ctx).With().Str("action", "full sync").Logger()
+	ctx = log.WithContext(ctx)
+
+	if d.fullSyncDone.Load() {
 		return
 	}
-	d.hasBegunSyncing = true
+	if d.peekVitals().RequiresUserIntervention() {
+		log.Warn().Msg("Refusing to begin full sync as user intervention is required")
+		return
+	}
+	if !d.fullSyncDone.CompareAndSwap(false, true) {
+		return
+	}
 
-	d.syncRemoteProfile(ctx)
+	go d.syncRemoteProfile(ctx) // don't block the caller
 	d.beginResyncingChatsAndSpaces(ctx)
 }
 

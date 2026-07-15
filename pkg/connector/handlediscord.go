@@ -739,21 +739,20 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			Int("n_lazy_private_channels", len(evt.LazyPrivateChannels)).
 			Msg("Received supplemental READY")
 	case *discordgo.Ready:
-		wasSeen := d.seenReady.Swap(true)
+		readiedBefore := d.seenReady.Swap(true)
 
 		d.applyReadyPayload(ctx, evt)
-		// Block everyone and make sure our vitals are up-to-date so the bridge
-		// can immediately send out a bridge state that reflects it.
-		d.pokeVitals(ctx)
-
 		// A READY after the first one means the gateway handed us a fresh
 		// session instead of resuming (our resume was refused or the session
 		// was invalidated), so Discord didn't replay the events we missed
 		// while offline.
-		if wasSeen {
-			log.Info().Msg("Reconnected without resuming, re-syncing chats and spaces")
-			d.beginResyncingChatsAndSpaces(ctx)
+		if readiedBefore {
+			log.Info().Msg("Reconnected without resuming, init sync is needed")
+			d.fullSyncDone.Store(false)
 		}
+		// Block everyone and make sure our vitals are up-to-date so the bridge
+		// can immediately send out a bridge state that reflects it.
+		d.pokeVitals(ctx)
 	case *discordgo.MessageCreate:
 		if evt.Author == nil {
 			return

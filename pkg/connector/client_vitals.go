@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/rs/zerolog"
-	"go.mau.fi/util/ptr"
 )
 
 func (d *DiscordClient) refreshSafetyHub(ctx context.Context) {
@@ -30,6 +29,12 @@ func (d *DiscordClient) refreshSafetyHub(ctx context.Context) {
 	d.vitalsMu.Unlock()
 }
 
+// pokeVitals reevaluates the client's [vitals] according to current state and
+// latest fetched safety hub information.
+//
+//   - Safety hub information is not fetched by this method.
+//   - This method may end up kicking off a full sync in the background if the
+//     bridge started off with bad vitals or there is one pending.
 func (d *DiscordClient) pokeVitals(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
@@ -45,8 +50,11 @@ func (d *DiscordClient) pokeVitals(ctx context.Context) {
 	d.vitalsMu.Unlock()
 
 	// Emit unconditionally, somewhat relying on mautrix's deduping behavior to
-	// avoid excessive bridge state sends.
+	// avoid excessive bridge state sends; avoid replicating "do we need user
+	// intervention?" logic here.
 	d.sendCurrentState(ctx)
+	// Kick off any pending full sync.
+	d.beginFullSync(ctx)
 }
 
 func (d *DiscordClient) peekVitals() (v *vitals) {

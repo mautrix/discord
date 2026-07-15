@@ -89,6 +89,8 @@ func newVitals(
 	if s == nil || s.State.User == nil {
 		return
 	}
+	s.State.RLock()
+	defer s.State.RUnlock()
 	user := s.State.User
 	flags := user.Flags
 

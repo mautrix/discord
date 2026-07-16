@@ -41,7 +41,7 @@ const (
 	DCRequireSafetyFlows                      status.BridgeStateErrorCode = "dc-require-safety-flows"                         // server-driven safety flow UI
 
 	// NOTE: We expect the user to use a first-party client to read their
-	// system messages. Pressing the CTA button on the modal triggers a POST
+	// system messages. Pressing the CTA button on the modal triggers a PATCH
 	// /users/@me with {flags:0}, clearing the HAS_UNREAD_URGENT_MESSAGES flag
 	// and dispatching a USER_UPDATE on the gateway (that we may observe).
 	//

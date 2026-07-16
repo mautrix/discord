@@ -342,24 +342,18 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 
 	d.Session.EventHandler = d.handleDiscordEventSync
 
-	// Open() blocks until we have processed READY or we have resumed
-	// successfully. This will also internally dispatch event handlers, so our
-	// synchronous READY event handler will have completed, and a goroutine for
-	// the asynchronous one has been fired (go).
+	// Open() returns once the first frame after IDENTIFY has been processed.
+	// In the common case that's READY (or RESUMED), which is dispatched to our
+	// synchronous handler before Open() returns, so State is populated by the
+	// time we get here. But it can also return on a non-dispatch control frame
+	// (e.g. an Op1 heartbeat request arriving before READY), in which case
+	// State.User is still nil and READY will land shortly via the listen
+	// goroutine.
 	err := d.Session.Open()
 	if err != nil {
 		log.Err(err).Msg("Failed to connect to Discord")
 		return err
 	}
-
-	user := d.Session.State.User
-	log.Info().
-		Str("user_id", user.ID).
-		Str("user_username", user.Username).
-		Msg("Connected to Discord")
-
-	d.beginFullSync(ctx)
-
 	return nil
 }
 

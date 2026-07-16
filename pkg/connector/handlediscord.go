@@ -752,6 +752,9 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		}
 		// Block everyone and make sure our vitals are up-to-date so the bridge
 		// can immediately send out a bridge state that reflects it.
+		//
+		// This will also kick off a full sync (if needed). Notably, without
+		// this line, fresh bridges would never perform an initial full sync.
 		d.pokeVitals(ctx)
 	case *discordgo.MessageCreate:
 		if evt.Author == nil {

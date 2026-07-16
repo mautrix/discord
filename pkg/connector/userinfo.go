@@ -85,7 +85,7 @@ func (d *DiscordClient) makeUserAvatar(u *discordgo.User) *bridgev2.Avatar {
 }
 
 func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
-	if !d.IsLoggedIn() {
+	if d.Session == nil {
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 

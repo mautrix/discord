@@ -245,7 +245,7 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 }
 
 func (d *DiscordClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
-	if !d.IsLoggedIn() {
+	if d.Session == nil {
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 

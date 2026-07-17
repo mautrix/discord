@@ -72,7 +72,6 @@ func registerInterfaceProvider(eh EventInterfaceProvider) {
 		// fmt.Errorf("event %s already registered", eh.Type())
 	}
 	registeredInterfaceProviders[eh.Type()] = eh
-	return
 }
 
 // eventHandlerInstance is a wrapper around an event handler, as functions
@@ -186,6 +185,7 @@ func (s *Session) removeEventHandlerInstance(t string, ehi *eventHandlerInstance
 }
 
 // Handles calling permanent and once handlers for an event type.
+/*
 func (s *Session) handle(t string, i interface{}) {
 	for _, eh := range s.handlers[t] {
 		if s.SyncEvents {
@@ -206,6 +206,7 @@ func (s *Session) handle(t string, i interface{}) {
 		s.onceHandlers[t] = nil
 	}
 }
+*/
 
 // Handles an event type by calling internal methods, firing handlers and firing the
 // interface{} event.

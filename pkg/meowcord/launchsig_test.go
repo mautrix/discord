@@ -29,7 +29,7 @@ import (
 func TestLaunchSignatureValidUUID(t *testing.T) {
 	sig, err := NewVanillaSignature()
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 	uuid.MustParse(sig.String())
 }
@@ -37,11 +37,11 @@ func TestLaunchSignatureValidUUID(t *testing.T) {
 func TestLaunchSignatureMarshal(t *testing.T) {
 	sig, err := NewVanillaSignature()
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 	j, err := json.Marshal(sig)
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 
 	if string(j) != fmt.Sprintf("\"%s\"", sig.String()) {

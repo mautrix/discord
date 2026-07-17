@@ -95,10 +95,6 @@ type Session struct {
 	// Max number of REST API retries
 	MaxRestRetries int
 
-	// Status stores the current status of the websocket connection
-	// this is being tested, may stay, may go away.
-	status int32
-
 	// Whether the Voice Websocket is ready
 	VoiceReady bool // NOTE: Deprecated.
 

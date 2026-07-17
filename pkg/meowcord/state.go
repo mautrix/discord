@@ -1068,8 +1068,8 @@ func (s *State) OnInterface(se *Session, i interface{}) (err error) {
 
 		// Removes member from the cache if tracking is enabled.
 		if s.TrackMembers {
-			old, err := s.Member(t.Member.GuildID, t.Member.User.ID)
-			if err == nil {
+			old, getErr := s.Member(t.Member.GuildID, t.Member.User.ID)
+			if getErr == nil {
 				oldCopy := *old
 				t.BeforeDelete = &oldCopy
 			}
@@ -1095,8 +1095,8 @@ func (s *State) OnInterface(se *Session, i interface{}) (err error) {
 		}
 	case *GuildRoleUpdate:
 		if s.TrackRoles {
-			old, err := s.Role(t.GuildID, t.Role.ID)
-			if err == nil {
+			old, getErr := s.Role(t.GuildID, t.Role.ID)
+			if getErr == nil {
 				oldCopy := *old
 				t.BeforeUpdate = &oldCopy
 			}
@@ -1105,8 +1105,8 @@ func (s *State) OnInterface(se *Session, i interface{}) (err error) {
 		}
 	case *GuildRoleDelete:
 		if s.TrackRoles {
-			old, err := s.Role(t.GuildID, t.RoleID)
-			if err == nil {
+			old, getErr := s.Role(t.GuildID, t.RoleID)
+			if getErr == nil {
 				oldCopy := *old
 				t.BeforeDelete = &oldCopy
 			}
@@ -1141,8 +1141,8 @@ func (s *State) OnInterface(se *Session, i interface{}) (err error) {
 		}
 	case *ChannelUpdate:
 		if s.TrackChannels {
-			old, err := s.Channel(t.ID)
-			if err == nil {
+			old, getErr := s.Channel(t.ID)
+			if getErr == nil {
 				oldCopy := *old
 				t.BeforeUpdate = &oldCopy
 			}
@@ -1150,8 +1150,8 @@ func (s *State) OnInterface(se *Session, i interface{}) (err error) {
 		}
 	case *ChannelDelete:
 		if s.TrackChannels {
-			old, err := s.Channel(t.ID)
-			if err == nil {
+			old, getErr := s.Channel(t.ID)
+			if getErr == nil {
 				oldCopy := *old
 				t.BeforeDelete = &oldCopy
 			}
@@ -1163,8 +1163,8 @@ func (s *State) OnInterface(se *Session, i interface{}) (err error) {
 		}
 	case *ThreadUpdate:
 		if s.TrackThreads {
-			old, err := s.Channel(t.ID)
-			if err == nil {
+			old, getErr := s.Channel(t.ID)
+			if getErr == nil {
 				oldCopy := *old
 				t.BeforeUpdate = &oldCopy
 			}
@@ -1172,8 +1172,8 @@ func (s *State) OnInterface(se *Session, i interface{}) (err error) {
 		}
 	case *ThreadDelete:
 		if s.TrackThreads {
-			old, err := s.Channel(t.ID)
-			if err == nil {
+			old, getErr := s.Channel(t.ID)
+			if getErr == nil {
 				oldCopy := *old
 				t.BeforeDelete = &oldCopy
 			}

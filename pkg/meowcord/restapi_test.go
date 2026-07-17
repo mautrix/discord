@@ -116,7 +116,7 @@ func TestUserChannelCreate(t *testing.T) {
 
 	_, err := dg.UserChannelCreate(envAdmin)
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 
 	// TODO make sure the channel was added
@@ -129,7 +129,7 @@ func TestUserChannels(t *testing.T) {
 
 	_, err := dg.UserChannels()
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestUserGuilds(t *testing.T) {
 
 	_, err := dg.UserGuilds(10, "", "", false)
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 }
 
@@ -151,7 +151,7 @@ func TestUserSettings(t *testing.T) {
 
 	_, err := dg.UserSettings()
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 }
 
@@ -162,7 +162,7 @@ func TestUserUpdateStatus(t *testing.T) {
 
 	_, err := dg.UserUpdateStatus(StatusDoNotDisturb)
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 }
 

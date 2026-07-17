@@ -43,7 +43,6 @@ type RateLimiter struct {
 	sync.Mutex
 	global           *int64
 	buckets          map[string]*Bucket
-	globalRateLimit  time.Duration
 	customRateLimits []*customRateLimit
 }
 
@@ -95,7 +94,7 @@ func (r *RateLimiter) GetWaitTime(b *Bucket, minRemaining int) time.Duration {
 	// If we ran out of calls and the reset time is still ahead of us
 	// then we need to take it easy and relax a little
 	if b.Remaining < minRemaining && b.reset.After(time.Now()) {
-		return b.reset.Sub(time.Now())
+		return time.Until(b.reset)
 	}
 
 	// Check for global ratelimits
@@ -129,7 +128,6 @@ type Bucket struct {
 	sync.Mutex
 	Key       string
 	Remaining int
-	limit     int
 	reset     time.Time
 	global    *int64
 
@@ -145,7 +143,7 @@ func (b *Bucket) Release(headers http.Header) error {
 
 	// Check if the bucket uses a custom ratelimiter
 	if rl := b.customRateLimit; rl != nil {
-		if time.Now().Sub(b.lastReset) >= rl.reset {
+		if time.Since(b.lastReset) >= rl.reset {
 			b.Remaining = rl.requests - 1
 			b.lastReset = time.Now()
 		}

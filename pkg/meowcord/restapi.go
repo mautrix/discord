@@ -35,7 +35,6 @@ import (
 	_ "image/jpeg" // For JPEG decoding
 	_ "image/png"  // For PNG decoding
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -47,7 +46,7 @@ import (
 // All error constants
 var (
 	ErrJSONUnmarshal           = errors.New("json unmarshal")
-	ErrStatusOffline           = errors.New("You can't set your Status to offline")
+	ErrStatusOffline           = errors.New("you can't set your Status to offline")
 	ErrVerificationLevelBounds = errors.New("VerificationLevel out of bounds, should be between 0 and 3")
 	ErrPruneDaysBounds         = errors.New("the number of days should be more than or equal to 1")
 	ErrGuildNoIcon             = errors.New("guild does not have an icon set")
@@ -301,7 +300,7 @@ func (s *Session) RequestWithLockedBucket(method, urlStr, contentType string, b 
 
 	logBody := b
 	if contentType != "application/json" {
-		logBody = []byte(fmt.Sprintf("%d bytes of %s", len(logBody), contentType))
+		logBody = fmt.Appendf(nil, "%d bytes of %s", len(logBody), contentType)
 	}
 	s.log(LogDebug, "Requesting %s %s with %s", req.Method, req.URL.String(), logBody)
 	resp, err := cfg.Client.Do(req)
@@ -321,7 +320,7 @@ func (s *Session) RequestWithLockedBucket(method, urlStr, contentType string, b 
 		return
 	}
 
-	response, err = ioutil.ReadAll(resp.Body)
+	response, err = io.ReadAll(resp.Body)
 	if s.RESTResponseHook != nil {
 		s.RESTResponseHook(req, resp, response)
 	}
@@ -374,7 +373,7 @@ func (s *Session) RequestWithLockedBucket(method, urlStr, contentType string, b 
 		}
 	case http.StatusUnauthorized:
 		if strings.Index(s.Token, "Bot ") != 0 {
-			s.log(LogInformational, ErrUnauthorized.Error())
+			s.log(LogInformational, "%s", ErrUnauthorized.Error())
 			err = ErrUnauthorized
 		}
 		fallthrough
@@ -919,7 +918,7 @@ func (s *Session) GuildEdit(guildID string, g *GuildParams, options ...RequestOp
 			for _, r := range regions {
 				valid = append(valid, r.ID)
 			}
-			err = fmt.Errorf("Region not a valid region (%q)", valid)
+			err = fmt.Errorf("region not a valid region (%q)", valid)
 			return
 		}
 	}
@@ -1873,7 +1872,7 @@ func (s *Session) GuildTemplates(guildID string, options ...RequestOption) (st [
 // GuildTemplateCreate creates a template for the guild
 // guildID : The ID of the guild
 // data    : Template metadata
-func (s *Session) GuildTemplateCreate(guildID string, data *GuildTemplateParams, options ...RequestOption) (st *GuildTemplate) {
+func (s *Session) GuildTemplateCreate(guildID string, data *GuildTemplateParams, options ...RequestOption) (st *GuildTemplate, err error) {
 	body, err := s.RequestWithBucketID("POST", EndpointGuildTemplates(guildID), data, EndpointGuildTemplates(guildID), options...)
 	if err != nil {
 		return
@@ -4164,7 +4163,7 @@ func (s *Session) Entitlements(appID string, filterOptions *EntitlementFilterOpt
 		if filterOptions.UserID != "" {
 			queryParams.Set("user_id", filterOptions.UserID)
 		}
-		if filterOptions.SkuIDs != nil && len(filterOptions.SkuIDs) > 0 {
+		if len(filterOptions.SkuIDs) > 0 {
 			queryParams.Set("sku_ids", strings.Join(filterOptions.SkuIDs, ","))
 		}
 		if filterOptions.Before != nil {

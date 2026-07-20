@@ -30,14 +30,10 @@ type DiscordDB struct {
 	Thread      *ThreadQuery
 }
 
-var table dbutil.UpgradeTable
+var table = dbutil.BuildUpgradeTable().WithFS(upgrades).Finish()
 
 //go:embed *.sql
 var upgrades embed.FS
-
-func init() {
-	table.RegisterFS(upgrades)
-}
 
 func UpgradeTable() dbutil.UpgradeTable {
 	return table

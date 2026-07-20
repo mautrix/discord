@@ -322,6 +322,13 @@ func (am *AuthMachine) pump(
 			// Give the current [pendingRequest] a chance to handle the error.
 			if op.fail != nil {
 				prompt, err := op.fail(opCtx, am, apiErr)
+				if prompt != nil {
+					zerolog.Ctx(opCtx).Info().
+						Int("discord_error_code", int(apiErr.Code)).
+						Str("discord_error_message", apiErr.Message).
+						Str("discord_field_errors", apiErr.FieldErrorString()).
+						Msg("Discord API error was converted into a prompt")
+				}
 				return prompt, nil, err
 			}
 			return nil, nil, apiErr

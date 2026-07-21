@@ -291,6 +291,10 @@ func (portal *Portal) IsPrivateChat() bool {
 	return portal.Type == discordgo.ChannelTypeDM
 }
 
+func (portal *Portal) IsPrivateChannel() bool {
+	return portal.Type == discordgo.ChannelTypeDM || portal.Type == discordgo.ChannelTypeGroupDM
+}
+
 func (portal *Portal) MainIntent() *appservice.IntentAPI {
 	if portal.IsPrivateChat() && portal.OtherUserID != "" {
 		return portal.bridge.GetPuppetByID(portal.OtherUserID).DefaultIntent()
@@ -394,6 +398,9 @@ func (portal *Portal) CreateMatrixRoom(user *User, channel *discordgo.Channel) e
 	if portal.MXID != "" {
 		portal.ensureUserInvited(user, false)
 		return nil
+	}
+	if portal.IsPrivateChannel() && !portal.bridge.Config.Bridge.BridgePrivateChat {
+		return errPrivateChatBridgingDisabled
 	}
 	portal.log.Info().Msg("Creating Matrix room for channel")
 
@@ -1098,6 +1105,12 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 }
 
 func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
+	if portal.IsPrivateChannel() && !portal.bridge.Config.Bridge.BridgePrivateChat {
+		if msg.evt.Type == event.EventMessage || msg.evt.Type == event.EventSticker {
+			go portal.sendMessageMetrics(msg.evt, errPrivateChatBridgingDisabled, "Ignoring")
+		}
+		return
+	}
 	portal.forwardBackfillLock.Lock()
 	defer portal.forwardBackfillLock.Unlock()
 	switch msg.evt.Type {
@@ -1228,6 +1241,7 @@ var (
 	errUnknownEmoji                = errors.New("unknown emoji")
 	errRelationshipsNotReady       = errors.New("can't direct message before receiving relationships")
 	errDMingStranger               = errors.New("can't direct message a stranger")
+	errPrivateChatBridgingDisabled = errors.New("private chat bridging is disabled")
 	errCantStartThread             = errors.New("can't create thread without being logged into Discord")
 )
 
@@ -1245,6 +1259,8 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		return event.MessageStatusUnsupported, event.MessageStatusFail, true, true, "", nil
 	case errors.Is(err, errDMingStranger):
 		return event.MessageStatusGenericError, event.MessageStatusFail, true, true, "You can't message users who aren't on your friends list. Use the Discord app to chat or add them as a friend to continue.", nil
+	case errors.Is(err, errPrivateChatBridgingDisabled):
+		return event.MessageStatusGenericError, event.MessageStatusFail, true, true, "Private chat bridging is disabled on this bridge.", nil
 	case errors.Is(err, errRelationshipsNotReady):
 		return event.MessageStatusGenericError, event.MessageStatusRetriable, true, true, "Still syncing your Discord friends list, please try again in a moment.", nil
 	case errors.Is(err, attachment.HashMismatch),

@@ -40,6 +40,7 @@ func DoUpgrade(helper *up.Helper) {
 		helper.Copy(up.Str, "bridge", "private_chat_portal_meta")
 	}
 	helper.Copy(up.Int, "bridge", "startup_private_channel_create_limit")
+	helper.Copy(up.Bool, "bridge", "bridge_private_chat")
 	helper.Copy(up.Str|up.Null, "bridge", "public_address")
 	if apkey, ok := helper.Get(up.Str, "bridge", "avatar_proxy_key"); !ok || apkey == "generate" {
 		helper.Set(up.Str, random.String(32), "bridge", "avatar_proxy_key")

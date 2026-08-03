@@ -1147,6 +1147,12 @@ func (s *Session) reconnect() {
 
 			s.log(LogError, "error reconnecting to gateway, %s", err)
 
+			if websocket.CloseStatus(err) == 4004 {
+				s.log(LogInformational, "emit invalid auth event")
+				s.handleEvent(invalidAuthEventType, &InvalidAuth{})
+				return
+			}
+
 			<-time.After(wait * time.Second)
 			wait *= 2
 			if wait > 600 {

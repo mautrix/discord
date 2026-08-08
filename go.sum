@@ -4,8 +4,8 @@ github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7Oputl
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
 github.com/andybalholm/brotli v1.2.0 h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
 github.com/andybalholm/brotli v1.2.0/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
-github.com/beeper/discordgo v0.0.0-20260803125648-0ee5f692e9eb h1:pryU/1vc9mz0+EmBAv9BXYQHuLCw7LXa5PJ10x/RbA0=
-github.com/beeper/discordgo v0.0.0-20260803125648-0ee5f692e9eb/go.mod h1:ATQaN5n/cY4rxHFSsp4UOB1cxf4gdtreFt5NXmlVTmc=
+github.com/beeper/discordgo v0.0.0-20260808090638-8051e14a4471 h1:yeMnzGxjXjRNbUo5cwP5+XGNJUPHX+yFjvD/PbGvTJc=
+github.com/beeper/discordgo v0.0.0-20260808090638-8051e14a4471/go.mod h1:ATQaN5n/cY4rxHFSsp4UOB1cxf4gdtreFt5NXmlVTmc=
 github.com/beeper/req/v3 v3.0.0-20260703124114-47a4e2aa147e h1:CpRFpusGLZVcc+R1Im50QYI9JeEQuwudVMkUkRvZpuU=
 github.com/beeper/req/v3 v3.0.0-20260703124114-47a4e2aa147e/go.mod h1:pH5qbsMNeaNpCOlozJoLRuLfSxEYGp9uWEG5j6zogNQ=
 github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=

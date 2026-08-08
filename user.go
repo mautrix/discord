@@ -591,21 +591,26 @@ func (user *User) Connect() error {
 	// make discordgo use our session instead of the one it creates automatically
 	session.HeartbeatSession = *user.HeartbeatSession
 
+	var proxyURL *url.URL
 	if user.bridge.Config.Bridge.Proxy != "" {
-		u, _ := url.Parse(user.bridge.Config.Bridge.Proxy)
+		proxyURL, _ = url.Parse(user.bridge.Config.Bridge.Proxy)
 		tlsConf := &tls.Config{
 			InsecureSkipVerify: os.Getenv("DISCORD_SKIP_TLS_VERIFICATION") == "true",
 		}
 		session.Client.Transport = &http.Transport{
-			Proxy:             http.ProxyURL(u),
+			Proxy:             http.ProxyURL(proxyURL),
 			TLSClientConfig:   tlsConf,
 			ForceAttemptHTTP2: true,
 		}
 		session.GatewayHTTPClient.Transport = &http.Transport{
-			Proxy:             http.ProxyURL(u),
+			Proxy:             http.ProxyURL(proxyURL),
 			TLSClientConfig:   tlsConf,
 			ForceAttemptHTTP2: true,
 		}
+	}
+	if session.IsUser {
+		session.Client.Transport = compileTransport(false, proxyURL)
+		session.GatewayHTTPClient.Transport = compileTransport(true, proxyURL)
 	}
 	// TODO move to config
 	if os.Getenv("DISCORD_DEBUG") == "1" {

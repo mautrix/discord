@@ -601,8 +601,11 @@ func (user *User) Connect() error {
 			TLSClientConfig:   tlsConf,
 			ForceAttemptHTTP2: true,
 		}
-		session.Dialer.Proxy = http.ProxyURL(u)
-		session.Dialer.TLSClientConfig = tlsConf
+		session.GatewayHTTPClient.Transport = &http.Transport{
+			Proxy:             http.ProxyURL(u),
+			TLSClientConfig:   tlsConf,
+			ForceAttemptHTTP2: true,
+		}
 	}
 	// TODO move to config
 	if os.Getenv("DISCORD_DEBUG") == "1" {

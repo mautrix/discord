@@ -553,6 +553,48 @@ func (portal *Portal) convertDiscordRichEmbed(ctx context.Context, intent *appse
 	return compiledHTML
 }
 
+func (portal *Portal) resolveComponents(ctx context.Context, intent *appservice.IntentAPI, htmlParts []string, components []discordgo.MessageComponent) []string {
+	log := zerolog.Ctx(ctx)
+	for i := 0; i < len(components); i++ {
+		item := components[i]
+
+		switch item.Type() {
+		case discordgo.ContainerComponent:
+			container := item.(*discordgo.Container)
+			htmlParts = portal.resolveComponents(ctx, intent, htmlParts, container.Components)
+		case discordgo.SectionComponent:
+			section := item.(*discordgo.Section)
+			htmlParts = portal.resolveComponents(ctx, intent, htmlParts, section.Components)
+		case discordgo.TextDisplayComponent:
+			text := item.(*discordgo.TextDisplay)
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, portal.renderDiscordMarkdownOnlyHTML(text.Content, true)))
+		case discordgo.MediaGalleryComponent:
+			gallery := item.(*discordgo.MediaGallery)
+			for i := 0; i < len(gallery.Items); i++ {
+				galleryItem := gallery.Items[i]
+				dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, galleryItem.Media.URL, false, NoMeta)
+				if err != nil {
+					log.Warn().Err(err).Msg("Failed to reupload image in embed")
+				} else {
+					htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, dbFile.MXC))
+				}
+			}
+		}
+	}
+
+	return htmlParts
+}
+
+func (portal *Portal) convertDiscordComponents(ctx context.Context, intent *appservice.IntentAPI, components []discordgo.MessageComponent, msgID string) string {
+	var result []string
+
+	htmlParts := portal.resolveComponents(ctx, intent, result, components)
+
+	compiledHTML := strings.Join(htmlParts, "")
+	compiledHTML = fmt.Sprintf(embedHTMLWrapper, compiledHTML)
+	return compiledHTML
+}
+
 type BeeperLinkPreview struct {
 	mautrix.RespPreviewURL
 	MatchedURL      string                   `json:"matched_url"`
@@ -758,7 +800,8 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 	}
 
 	if len(msg.Components) > 0 {
-		htmlParts = append(htmlParts, msgComponentTemplateHTML)
+		htmlParts = append(htmlParts, portal.convertDiscordComponents(log.WithContext(ctx), intent, msg.Components, msg.ID))
+		//htmlParts = append(htmlParts, msgComponentTemplateHTML)
 	}
 
 	if len(htmlParts) == 0 {

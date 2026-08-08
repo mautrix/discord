@@ -748,6 +748,9 @@ func (user *User) Disconnect() error {
 
 func (user *User) getGuildBridgingMode(guildID string) database.GuildBridgingMode {
 	if guildID == "" {
+		if !user.bridge.Config.Bridge.BridgePrivateChat {
+			return database.GuildBridgeNothing
+		}
 		return database.GuildBridgeEverything
 	}
 	guild := user.bridge.GetGuildByID(guildID, false)
@@ -807,11 +810,13 @@ func (user *User) readyHandler(r *discordgo.Ready) {
 	for _, guild := range r.Guilds {
 		user.handleGuild(guild, updateTS, portalsInSpace[guild.ID])
 	}
-	// The private channel list doesn't seem to be sorted by default, so sort it by message IDs (highest=newest first)
-	sort.Sort(ChannelSlice(r.PrivateChannels))
-	for i, ch := range r.PrivateChannels {
-		portal := user.GetPortalByMeta(ch)
-		user.handlePrivateChannel(portal, ch, updateTS, i < user.bridge.Config.Bridge.PrivateChannelCreateLimit, portalsInSpace[portal.Key.ChannelID])
+	if user.bridge.Config.Bridge.BridgePrivateChat {
+		// The private channel list doesn't seem to be sorted by default, so sort it by message IDs (highest=newest first)
+		sort.Sort(ChannelSlice(r.PrivateChannels))
+		for i, ch := range r.PrivateChannels {
+			portal := user.GetPortalByMeta(ch)
+			user.handlePrivateChannel(portal, ch, updateTS, i < user.bridge.Config.Bridge.PrivateChannelCreateLimit, portalsInSpace[portal.Key.ChannelID])
+		}
 	}
 	user.PrunePortalList(updateTS)
 
@@ -1208,6 +1213,9 @@ func (user *User) channelDeleteHandler(c *discordgo.ChannelDelete) {
 }
 
 func (user *User) channelUpdateHandler(c *discordgo.ChannelUpdate) {
+	if c.GuildID == "" && !user.bridge.Config.Bridge.BridgePrivateChat {
+		return
+	}
 	portal := user.GetPortalByMeta(c.Channel)
 	if c.GuildID == "" {
 		user.handlePrivateChannel(portal, c.Channel, time.Now(), true, user.IsInSpace(portal.Key.String()))

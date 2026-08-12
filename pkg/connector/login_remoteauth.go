@@ -83,7 +83,7 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 		}, nil
 	case <-ctx.Done():
 		log.Debug().Msg("Cancelled while waiting for QR code")
-		return nil, nil
+		return nil, ctx.Err()
 	}
 }
 
@@ -101,14 +101,14 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 		user, err := dl.remoteAuthClient.Result()
 		if err != nil {
 			log.Err(err).Msg("Discord remoteauth failed")
-			return nil, fmt.Errorf("discord remoteauth failed: %w", err)
+			return nil, userVisibleLoginError(ctx, fmt.Errorf("discord remoteauth failed: %w", err))
 		}
 		log.Debug().Msg("Discord remoteauth succeeded")
 
 		return dl.finalizeSuccessfulLogin(ctx, user)
 	case <-ctx.Done():
 		log.Debug().Msg("Cancelled while waiting for remoteauth to complete")
-		return nil, nil
+		return nil, ctx.Err()
 	}
 }
 

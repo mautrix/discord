@@ -46,6 +46,13 @@ type Config struct {
 
 	ForbidDMingStrangers *bool `yaml:"forbid_dming_strangers"`
 
+	// AllowRepliesToMessageRequests exempts DM channels that are (or were)
+	// incoming message requests from the forbid_dming_strangers screen.
+	AllowRepliesToMessageRequests *bool `yaml:"allow_replies_to_message_requests"`
+	// AllowDMingStrangersWhenUnimpeded exempts users whose account vitals are
+	// unimpeded from the forbid_dming_strangers screen.
+	AllowDMingStrangersWhenUnimpeded bool `yaml:"allow_dming_strangers_when_unimpeded"`
+
 	LogWhenDroppingMessages bool `yaml:"log_when_dropping_messages"`
 
 	// Proxy is a static proxy address (HTTP or SOCKS5) for connecting to
@@ -122,6 +129,10 @@ func (c Config) ForbidDMingStrangersEnabled() bool {
 	return c.ForbidDMingStrangers == nil || *c.ForbidDMingStrangers
 }
 
+func (c Config) AllowRepliesToMessageRequestsEnabled() bool {
+	return c.AllowRepliesToMessageRequests == nil || *c.AllowRepliesToMessageRequests
+}
+
 func (c Config) CustomEmojiReactionsEnabled() bool {
 	return c.CustomEmojiReactions == nil || *c.CustomEmojiReactions
 }
@@ -138,6 +149,8 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.List, "guilds", "bridging_guild_ids")
 	helper.Copy(up.Bool, "guilds", "guild_avatars_in_rooms")
 	helper.Copy(up.Bool, "forbid_dming_strangers")
+	helper.Copy(up.Bool, "allow_replies_to_message_requests")
+	helper.Copy(up.Bool, "allow_dming_strangers_when_unimpeded")
 	helper.Copy(up.Str, "channel_name_template")
 	helper.Copy(up.Bool, "custom_emoji_reactions")
 	helper.Copy(up.Bool, "per_message_profiles_on_every_message_hack")

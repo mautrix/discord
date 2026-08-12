@@ -34,10 +34,16 @@ import (
 	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 )
 
+var ErrMissingLoginInput = bridgev2.RespError{
+	ErrCode:    "FI.MAU.DISCORD.MISSING_LOGIN_INPUT",
+	Err:        "Missing required login input",
+	StatusCode: http.StatusBadRequest,
+}
+
 func userVisibleLoginError(ctx context.Context, err error) error {
 	var apiErr discordauth.APIError
 	if !errors.As(err, &apiErr) {
-		return err
+		return userVisibleRESTError(ctx, err)
 	}
 
 	zerolog.Ctx(ctx).Err(apiErr).
@@ -64,6 +70,52 @@ func userVisibleLoginError(ctx context.Context, err error) error {
 		Err:        msg,
 		StatusCode: http.StatusBadRequest,
 	}
+}
+
+// userVisibleRESTError handles plain discordgo REST failures, which is what the token,
+// browser and QR flows produce when Discord rejects a token outright.
+func userVisibleRESTError(ctx context.Context, err error) error {
+	var restErr *discordgo.RESTError
+	if !errors.As(err, &restErr) || restErr.Response == nil {
+		return err
+	}
+
+	logEvt := zerolog.Ctx(ctx).Err(err).Int("http_status", restErr.Response.StatusCode)
+	if restErr.Message != nil {
+		logEvt = logEvt.Int("discord_error_code", restErr.Message.Code)
+	}
+	logEvt.Msg("Propagating Discord REST error to user")
+
+	switch restErr.Response.StatusCode {
+	case http.StatusUnauthorized:
+		return bridgev2.RespError{
+			ErrCode:    "FI.MAU.DISCORD.INVALID_TOKEN",
+			Err:        "Discord rejected that token. Please log in again to get a fresh one.",
+			StatusCode: http.StatusUnauthorized,
+		}
+	case http.StatusForbidden:
+		return bridgev2.RespError{
+			ErrCode:    "FI.MAU.DISCORD.FORBIDDEN",
+			Err:        "Discord refused access to this account. Check the account on Discord, then try again.",
+			StatusCode: http.StatusForbidden,
+		}
+	case http.StatusTooManyRequests:
+		return bridgev2.RespError{
+			ErrCode:    "FI.MAU.DISCORD.RATE_LIMITED",
+			Err:        "Discord is rate limiting the sign-in. Please wait a few minutes and try again.",
+			StatusCode: http.StatusTooManyRequests,
+		}
+	}
+
+	// Discord's own message is written for end users, so prefer it when present.
+	if restErr.Message != nil && restErr.Message.Message != "" {
+		return bridgev2.RespError{
+			ErrCode:    fmt.Sprintf("FI.MAU.DISCORD.API_%d", restErr.Message.Code),
+			Err:        restErr.Message.Message,
+			StatusCode: http.StatusBadRequest,
+		}
+	}
+	return err
 }
 
 const LoginFlowIDMachine = "machine"
@@ -479,7 +531,7 @@ func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, e
 func (d *DiscordMachineLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
 	solutionToken := cookies[CaptchaExtractionField]
 	if solutionToken == "" {
-		return nil, fmt.Errorf("extracted captcha solution is blank")
+		return nil, ErrMissingLoginInput.AppendMessage(": captcha solution")
 	}
 
 	return d.answer(ctx, &discordauth.Answer{
@@ -530,10 +582,10 @@ func (d *DiscordMachineLogin) submitCreds(ctx context.Context, input map[string]
 	username := strings.TrimSpace(input[InputDataFieldIDUsernameOrPhone])
 	password := discordauth.NewSensitive(input[InputDataFieldIDPassword])
 	if username == "" {
-		return nil, fmt.Errorf("no username provided")
+		return nil, ErrMissingLoginInput.AppendMessage(": username")
 	}
 	if password.IsZero() {
-		return nil, fmt.Errorf("no password provided")
+		return nil, ErrMissingLoginInput.AppendMessage(": password")
 	}
 
 	return d.answer(ctx, &discordauth.Answer{
@@ -623,7 +675,7 @@ func (d *DiscordMachineLogin) mfaContinueFromInput(input map[string]string) (*di
 
 	authType, code, ok := mfaCodeFromInput(input)
 	if !ok {
-		return nil, fmt.Errorf("no MFA code provided")
+		return nil, ErrMissingLoginInput.AppendMessage(": two-factor code")
 	}
 	if authType == discordauth.AuthenticatorBackup {
 		// Discord presents MFA backup codes to the user with dashes, but the
@@ -633,7 +685,7 @@ func (d *DiscordMachineLogin) mfaContinueFromInput(input map[string]string) (*di
 	}
 	code = strings.TrimSpace(code)
 	if code == "" {
-		return nil, fmt.Errorf("no MFA code provided")
+		return nil, ErrMissingLoginInput.AppendMessage(": two-factor code")
 	}
 
 	return &discordauth.MFAContinue{

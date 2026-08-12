@@ -71,6 +71,6 @@ func (d *DiscordConnector) CreateLogin(ctx context.Context, user *bridgev2.User,
 
 		return mach, nil
 	default:
-		return nil, fmt.Errorf("unknown discord login flow id")
+		return nil, bridgev2.ErrInvalidLoginFlowID
 	}
 }

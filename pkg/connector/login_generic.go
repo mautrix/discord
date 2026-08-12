@@ -68,7 +68,7 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 	log.Info().Msg("Requesting @me with provided token")
 	self, err := session.User("@me")
 	if err != nil {
-		return nil, fmt.Errorf("couldn't request self user (bad credentials?): %w", err)
+		return nil, userVisibleLoginError(ctx, fmt.Errorf("couldn't request self user (bad credentials?): %w", err))
 	}
 	dl.DiscordUser = self
 

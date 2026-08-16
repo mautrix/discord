@@ -187,7 +187,7 @@ func main() {
 		Name:              "mautrix-discord",
 		URL:               "https://github.com/mautrix/discord",
 		Description:       "A Matrix-Discord puppeting bridge.",
-		Version:           "0.7.6",
+		Version:           "0.7.7",
 		ProtocolName:      "Discord",
 		BeeperServiceName: "discordgo",
 		BeeperNetworkName: "discord",

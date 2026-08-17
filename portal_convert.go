@@ -255,8 +255,44 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 	} else {
 		content.URL = dbFile.MXC.CUString()
 	}
+	if content.MsgType == event.MsgVideo && embed.Thumbnail != nil && embed.Thumbnail.ProxyURL != "" {
+		thumbMeta := AttachmentMeta{
+			Converter: portal.bridge.convertVideoThumbnailToWebP,
+			MimeType:  "image/webp",
+		}
+		thumbFile, thumbErr := portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, thumbMeta)
+		if thumbErr != nil {
+			zerolog.Ctx(ctx).Warn().Err(thumbErr).Str("embed_url", embed.URL).Msg("Failed to convert/upload video embed thumbnail as webp, falling back to original")
+			thumbFile, thumbErr = portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, portal.Encrypted, NoMeta)
+		}
+		if thumbErr != nil {
+			zerolog.Ctx(ctx).Warn().Err(thumbErr).Str("embed_url", embed.URL).Msg("Failed to copy video embed thumbnail to Matrix")
+		} else {
+			thumbInfo := &event.FileInfo{
+				MimeType: thumbFile.MimeType,
+				Size:     thumbFile.Size,
+				Width:    embed.Thumbnail.Width,
+				Height:   embed.Thumbnail.Height,
+			}
+			if thumbInfo.Width == 0 && thumbInfo.Height == 0 {
+				thumbInfo.Width = thumbFile.Width
+				thumbInfo.Height = thumbFile.Height
+			}
+			content.Info.ThumbnailInfo = thumbInfo
+			if thumbFile.DecryptionInfo != nil {
+				content.Info.ThumbnailFile = &event.EncryptedFileInfo{
+					EncryptedFile: *thumbFile.DecryptionInfo,
+					URL:           thumbFile.MXC.CUString(),
+				}
+			} else {
+				content.Info.ThumbnailURL = thumbFile.MXC.CUString()
+			}
+		}
+	}
 	extra := map[string]any{}
 	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
+		content.Body = makeGIFVFileName(embed.URL)
+		content.FileName = content.Body
 		extra["info"] = map[string]any{
 			"fi.mau.discord.gifv":  true,
 			"fi.mau.gif":           true,
@@ -272,6 +308,14 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 		Content:      content,
 		Extra:        extra,
 	}
+}
+
+func makeGIFVFileName(embedURL string) string {
+	if embedURL == "" {
+		return "discord-gifv.mp4"
+	}
+	sum := sha256.Sum256([]byte(embedURL))
+	return fmt.Sprintf("discord-gifv-%s.mp4", hex.EncodeToString(sum[:4]))
 }
 
 func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
@@ -735,6 +779,12 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 		htmlParts = append(htmlParts, fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink))
 	}
 	previews := make([]*BeeperLinkPreview, 0)
+	videoEmbedURLs := make(map[string]struct{})
+	for _, emb := range msg.Embeds {
+		if getEmbedType(msg, emb) == EmbedVideo && emb.URL != "" {
+			videoEmbedURLs[emb.URL] = struct{}{}
+		}
+	}
 	for i, embed := range msg.Embeds {
 		if i == 0 && msg.MessageReference == nil && isReplyEmbed(embed) {
 			continue
@@ -747,6 +797,12 @@ func (portal *Portal) convertDiscordTextMessage(ctx context.Context, intent *app
 			log := with.Str("computed_embed_type", "rich").Logger()
 			htmlParts = append(htmlParts, portal.convertDiscordRichEmbed(log.WithContext(ctx), intent, embed, msg.ID, i))
 		case EmbedLinkPreview:
+			_, sameURLAsVideoEmbed := videoEmbedURLs[embed.URL]
+			contentLooksLikeSingleURL := msg.Content == embed.URL || discordLinkRegexFull.MatchString(msg.Content)
+			// Avoid duplicate UI (link card + media event) when a video embed is already bridged separately.
+			if sameURLAsVideoEmbed || (len(videoEmbedURLs) > 0 && contentLooksLikeSingleURL) {
+				continue
+			}
 			log := with.Str("computed_embed_type", "link preview").Logger()
 			previews = append(previews, portal.convertDiscordLinkEmbedToBeeper(log.WithContext(ctx), intent, embed))
 		case EmbedVideo:

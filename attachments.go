@@ -127,10 +127,10 @@ func (br *DiscordBridge) uploadMatrixAttachment(intent *appservice.IntentAPI, da
 	dbFile.ID = meta.AttachmentID
 	dbFile.EmojiName = meta.EmojiName
 	dbFile.Size = len(data)
-	dbFile.MimeType = mimetype.Detect(data).String()
 	if meta.MimeType == "" {
-		meta.MimeType = dbFile.MimeType
+		meta.MimeType = mimetype.Detect(data).String()
 	}
+	dbFile.MimeType = meta.MimeType
 	if strings.HasPrefix(meta.MimeType, "image/") {
 		cfg, _, _ := image.DecodeConfig(bytes.NewReader(data))
 		dbFile.Width = cfg.Width
@@ -197,6 +197,9 @@ func (br *DiscordBridge) convertLottie(data []byte) ([]byte, string, error) {
 	target := br.Config.Bridge.AnimatedSticker.Target
 	var lottieTarget, outputMime string
 	switch target {
+	case "apng":
+		lottieTarget = "pngs"
+		outputMime = "image/apng"
 	case "png":
 		lottieTarget = "png"
 		outputMime = "image/png"
@@ -241,18 +244,29 @@ func (br *DiscordBridge) convertLottie(data []byte) ([]byte, string, error) {
 	var path string
 	if lottieTarget == "pngs" {
 		var videoCodec string
+		var pixelFormat string
+		var loopFlags []string
 		outputExtension := "." + target
 		if target == "webm" {
 			videoCodec = "libvpx-vp9"
+			pixelFormat = "yuva420p"
 		} else if target == "webp" {
 			videoCodec = "libwebp_anim"
+			pixelFormat = "yuva420p"
+			loopFlags = []string{"-loop", "0"}
+		} else if target == "apng" {
+			videoCodec = "apng"
+			pixelFormat = "rgba"
+			loopFlags = []string{"-plays", "0"}
 		} else {
 			panic(fmt.Errorf("impossible case: unknown target %q", target))
 		}
+		outputArgs := []string{"-c:v", videoCodec, "-pix_fmt", pixelFormat, "-f", target}
+		outputArgs = append(outputArgs, loopFlags...)
 		path, err = ffmpeg.ConvertPath(
 			ctx, lottieOutput+"*.png", outputExtension,
 			[]string{"-framerate", strconv.Itoa(fps), "-pattern_type", "glob"},
-			[]string{"-c:v", videoCodec, "-pix_fmt", "yuva420p", "-f", target},
+			outputArgs,
 			false,
 		)
 		if err != nil {

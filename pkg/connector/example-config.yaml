@@ -27,6 +27,12 @@ forbid_dming_strangers: true
 #   .IsGroupDM - Whether the channel is a group DM.
 #   .IsCategory - Whether the channel is a guild category.
 #   .IsGuildChannel - Whether the channel belongs to a guild.
+#   .Recipients - The channel's other members, comma-separated; you are not one
+#     of them. Takes an optional limit, as {{.Recipients 4}}, naming that many
+#     and summarising the rest as "+N"; omit it or pass 0 to name all of them.
+#     Not used by default: an untitled channel is better left unnamed, so that
+#     clients generate a name locally. Available for those who want the room
+#     named explicitly, as Discord names untitled group DMs after their members.
 channel_name_template: "{{if and .IsGuildChannel (not .IsCategory)}}#{{end}}{{.Name}}"
 
 # Should incoming custom emoji reactions be bridged as mxc:// URIs?

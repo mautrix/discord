@@ -18,6 +18,7 @@ package connector
 
 import (
 	_ "embed"
+	"fmt"
 	"strings"
 	"text/template"
 
@@ -107,6 +108,24 @@ type ChannelNameParams struct {
 	IsGroupDM      bool
 	IsCategory     bool
 	IsGuildChannel bool
+
+	recipients []string
+}
+
+// Recipients names a private channel's other members, comma-separated. Discord
+// does not count the logged-in user among them. An optional limit caps how many
+// are named and summarises the rest as "+N"; omitted or zero names all of them.
+//
+// Called from the channel name template as {{.Recipients}} or {{.Recipients 4}}.
+func (p *ChannelNameParams) Recipients(limit ...int) string {
+	n := 0
+	if len(limit) > 0 {
+		n = limit[0]
+	}
+	if n <= 0 || len(p.recipients) <= n {
+		return strings.Join(p.recipients, ", ")
+	}
+	return fmt.Sprintf("%s +%d", strings.Join(p.recipients[:n], ", "), len(p.recipients)-n)
 }
 
 // FormatChannelName renders [Config.ChannelNameTemplate] for non-guild-space

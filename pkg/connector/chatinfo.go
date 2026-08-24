@@ -19,6 +19,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -137,6 +138,19 @@ func (d *DiscordClient) getChannelNameParams(ch *discordgo.Channel) *ChannelName
 		IsGroupDM:      ch.Type == discordgo.ChannelTypeGroupDM,
 		IsCategory:     ch.Type == discordgo.ChannelTypeGuildCategory,
 		IsGuildChannel: ch.GuildID != "",
+	}
+
+	if len(ch.Recipients) > 0 {
+		names := make([]string, 0, len(ch.Recipients))
+		for _, recipient := range ch.Recipients {
+			if name := recipient.DisplayName(); name != "" {
+				names = append(names, name)
+			}
+		}
+		// Recipient order is not stable between payloads; an unstable name
+		// would rename the room on every resync.
+		slices.Sort(names)
+		params.recipients = names
 	}
 
 	if ch.ParentID != "" {

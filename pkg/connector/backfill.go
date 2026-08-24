@@ -18,8 +18,11 @@ package connector
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -89,7 +92,9 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	// ChannelMessages returns messages ordered from newest to oldest.
 	count := min(fetchParams.Count, 100)
 	log.Debug().Msg("Fetching channel history for backfill")
-	msgs, err := d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
+	msgs, err := d.retryHistoryFetch(ctx, func() ([]*discordgo.Message, error) {
+		return d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
+	})
 	if err != nil {
 		return nil, d.tryWrappingError(ctx, err)
 	}
@@ -207,6 +212,49 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 		// of `count`, but that's probably okay.
 		HasMore: len(msgs) == count,
 	}, nil
+}
+
+// retryHistoryFetch retries fetch while the error looks transient.
+//
+// discordgo parses the body of a 429 before honouring Retry-After and returns
+// early if that parse fails, and Discord's edge answers some rate limits with
+// an HTML block page. The fetch then fails without ever being retried.
+func (d *DiscordClient) retryHistoryFetch(
+	ctx context.Context, fetch func() ([]*discordgo.Message, error),
+) ([]*discordgo.Message, error) {
+	interval := time.Duration(d.connector.Config.BackfillRetryIntervalSeconds) * time.Second
+	for attempt := 0; ; attempt++ {
+		msgs, err := fetch()
+		if err == nil || attempt >= d.connector.Config.BackfillRetries || !shouldRetryHistoryFetch(err) {
+			return msgs, err
+		}
+		zerolog.Ctx(ctx).Warn().Err(err).Int("attempt", attempt+1).
+			Msg("Failed to fetch channel history for backfill, retrying")
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(interval):
+		}
+	}
+}
+
+// shouldRetryHistoryFetch reports whether a failed fetch is worth another
+// attempt.
+func shouldRetryHistoryFetch(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	// A response that arrived but would not decode. Deterministic, unlike the
+	// unparseable rate limit body, which discordgo returns unwrapped.
+	if errors.Is(err, discordgo.ErrJSONUnmarshal) {
+		return false
+	}
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) && restErr.Response != nil {
+		return restErr.Response.StatusCode == http.StatusTooManyRequests ||
+			restErr.Response.StatusCode >= 500
+	}
+	return true
 }
 
 func (d *DiscordClient) GetBackfillMaxBatchCount(

@@ -78,3 +78,13 @@ proxy_login_remoteauth: true
 # message content, or attachment data are never incorporated into the reported
 # information.
 report_scrubbed_account_standing: false
+
+# Retrying a failed history fetch during backfill. Discord sometimes answers a
+# rate limit with an HTML block page instead of JSON, which discordgo cannot
+# parse and does not retry, aborting the backfill. Initial backfill only runs
+# once, so the room keeps whatever history it got.
+#
+# Only rate limits, server errors and transport failures are retried. Set
+# retries to 0 to disable.
+backfill_retries: 5
+backfill_retry_interval_seconds: 30

@@ -48,6 +48,12 @@ type Config struct {
 
 	LogWhenDroppingMessages bool `yaml:"log_when_dropping_messages"`
 
+	// BackfillRetries is how many times a failed history fetch is retried before
+	// the backfill is abandoned. 0 disables retrying.
+	BackfillRetries int `yaml:"backfill_retries"`
+	// BackfillRetryIntervalSeconds is how long to wait between those retries.
+	BackfillRetryIntervalSeconds int `yaml:"backfill_retry_interval_seconds"`
+
 	// Proxy is a static proxy address (HTTP or SOCKS5) for connecting to
 	// Discord. Ignored when GetProxyFrom is set.
 	Proxy string `yaml:"proxy"`
@@ -142,6 +148,8 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "custom_emoji_reactions")
 	helper.Copy(up.Bool, "per_message_profiles_on_every_message_hack")
 	helper.Copy(up.Bool, "log_when_dropping_messages")
+	helper.Copy(up.Int, "backfill_retries")
+	helper.Copy(up.Int, "backfill_retry_interval_seconds")
 	helper.Copy(up.Str, "proxy")
 	helper.Copy(up.Str, "get_proxy_from")
 	helper.Copy(up.Bool, "proxy_media")

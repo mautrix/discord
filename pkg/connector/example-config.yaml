@@ -27,6 +27,8 @@ forbid_dming_strangers: true
 #   .IsGroupDM - Whether the channel is a group DM.
 #   .IsCategory - Whether the channel is a guild category.
 #   .IsGuildChannel - Whether the channel belongs to a guild.
+#   .Recipients - Other members in group DMs. Not safe on multi-user instances.
+#                 Takes an optional limit, as {{.Recipients 4}}
 channel_name_template: "{{if and .IsGuildChannel (not .IsCategory)}}#{{end}}{{.Name}}"
 
 # Should incoming custom emoji reactions be bridged as mxc:// URIs?

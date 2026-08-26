@@ -186,6 +186,22 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 				if rel != nil {
 					loggedRelType = readableRelationshipType(rel.Type)
 				}
+
+				if d.connector.Config.AllowRepliesToMessageRequestsEnabled() && channelIsOrWasMessageRequest(destCh) {
+					log.Info().
+						Str("relationship_type", loggedRelType).
+						Bool("is_message_request", destCh.IsMessageRequest).
+						Msg("Allowing direct message send to a non-friend: channel is an incoming message request")
+					return nil
+				}
+
+				if d.connector.Config.AllowDMingStrangersWhenUnimpeded && d.peekVitals().Unimpeded() {
+					log.Info().
+						Str("relationship_type", loggedRelType).
+						Msg("Allowing direct message send to a stranger: account vitals are unimpeded")
+					return nil
+				}
+
 				log.Info().
 					Str("relationship_type", loggedRelType).
 					Msg("Preventing direct message send to a stranger")

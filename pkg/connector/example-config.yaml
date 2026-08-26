@@ -13,6 +13,19 @@ guilds:
 # action.
 forbid_dming_strangers: true
 
+# Even when forbid_dming_strangers is enabled, should sends into DM channels
+# that are (or were) incoming message requests be allowed? The recipient
+# contacted the user first in this case, and sending a message accepts the
+# request, mirroring first-party client behavior.
+allow_replies_to_message_requests: true
+
+# Even when forbid_dming_strangers is enabled, should users whose account
+# vitals are unimpeded (no pending required actions, unread system messages,
+# quarantine, or spammer flag) be allowed to DM strangers? When
+# report_scrubbed_account_standing is enabled, an all-good account standing
+# with no active spam classification is also required.
+allow_dming_strangers_when_unimpeded: false
+
 # Template for Matrix room names created for Discord channels, except for 1:1
 # DMs. 1:1 DMs intentionally do not use this template as their room metadata is
 # derived from the other user's ghost (when private_chat_portal_meta is enabled).

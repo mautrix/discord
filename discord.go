@@ -11,8 +11,8 @@ func (user *User) channelIsBridgeable(channel *discordgo.Channel) bool {
 	case discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews:
 		// allowed
 	case discordgo.ChannelTypeDM, discordgo.ChannelTypeGroupDM:
-		// DMs are always bridgeable, no need for permission checks
-		return true
+		// DMs need no permission checks, but may be disabled
+		return user.bridge.Config.Bridge.BridgePrivateChat
 	default:
 		// everything else is not allowed
 		return false

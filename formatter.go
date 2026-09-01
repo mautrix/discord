@@ -40,6 +40,22 @@ import (
 // but standard markdown requires both to be escaped (\_\_a__)
 var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
 
+// codeBlockFixer ensures fenced code blocks start on their own line.
+// Discord allows ``` to open/close a code block without a preceding newline,
+// but goldmark (CommonMark) requires fenced code blocks to begin at the start of a line.
+// consecutiveCodeFences splits back-to-back fences (e.g. `````` → ```\n```).
+var consecutiveCodeFences = regexp.MustCompile("(```)(`{3})")
+var codeBlockFixer = regexp.MustCompile("([^\n])(```)")
+
+func ensureCodeBlockNewlines(text string) string {
+	// First split back-to-back fences like `````` into separate ```\n```
+	for consecutiveCodeFences.MatchString(text) {
+		text = consecutiveCodeFences.ReplaceAllString(text, "$1\n$2")
+	}
+	// Then ensure each ``` fence starts on its own line
+	return codeBlockFixer.ReplaceAllString(text, "$1\n$2")
+}
+
 func escapeReplacement(s string) string {
 	return s[:2] + `\` + s[2:]
 }
@@ -76,6 +92,7 @@ var discordRendererWithInlineLinks = goldmark.New(
 
 func (portal *Portal) renderDiscordMarkdownOnlyHTMLNoUnwrap(text string, allowInlineLinks bool) string {
 	text = escapeFixer.ReplaceAllStringFunc(text, escapeReplacement)
+	text = ensureCodeBlockNewlines(text)
 
 	var buf strings.Builder
 	ctx := parser.NewContext()

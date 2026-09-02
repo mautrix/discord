@@ -21,7 +21,7 @@ func (c *Client) processMessages() {
 		OP string `json:"op"`
 	}
 
-	defer c.close()
+	defer c.Close()
 
 	for {
 		c.Lock()
@@ -128,7 +128,7 @@ func (h *serverHello) process(client *Client) error {
 
 		client.Lock()
 		client.err = fmt.Errorf("timed out after %s", duration)
-		client.close()
+		client.Close()
 		client.Unlock()
 	}()
 
@@ -228,7 +228,7 @@ func (p *serverPendingLogin) process(client *Client) error {
 
 	client.user.Token = string(plaintext)
 
-	client.close()
+	client.Close()
 
 	return nil
 }
@@ -239,7 +239,7 @@ func (p *serverPendingLogin) process(client *Client) error {
 type serverCancel struct{}
 
 func (c *serverCancel) process(client *Client) error {
-	client.close()
+	client.Close()
 
 	return nil
 }

@@ -138,8 +138,5 @@ func (dl *DiscordRemoteAuthLogin) Cancel() {
 
 	dl.User.Log.Debug().Msg("Discord remoteauth cancelled")
 	dl.DiscordGenericLogin.Cancel()
-
-	// remoteauth.Client doesn't seem to expose a cancellation method.
-	close(dl.doneChan)
-	close(dl.qrChan)
+	_ = dl.remoteAuthClient.Close()
 }

@@ -114,7 +114,7 @@ func (c *Client) Result() (User, error) {
 	return c.user, c.err
 }
 
-func (c *Client) close() error {
+func (c *Client) Close() error {
 	c.Lock()
 	defer c.Unlock()
 

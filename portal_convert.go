@@ -44,6 +44,10 @@ type ConvertedMessage struct {
 	Type    event.Type
 	Content *event.MessageEventContent
 	Extra   map[string]any
+
+	// PollOptionIDs holds the Matrix option IDs of a poll, in Discord answer order,
+	// so poll votes can be mapped back to the correct options.
+	PollOptionIDs []string
 }
 
 func (portal *Portal) createMediaFailedMessage(bridgeErr error) *event.MessageEventContent {
@@ -275,6 +279,11 @@ func (portal *Portal) convertDiscordVideoEmbed(ctx context.Context, intent *apps
 }
 
 func (portal *Portal) convertDiscordMessage(ctx context.Context, puppet *Puppet, intent *appservice.IntentAPI, msg *discordgo.Message) []*ConvertedMessage {
+	if msg.Poll != nil {
+		if pollPart := portal.convertDiscordPoll(msg); pollPart != nil {
+			return []*ConvertedMessage{pollPart}
+		}
+	}
 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
 	if msg.Content != "" {
 		predictedLength++

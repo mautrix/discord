@@ -718,6 +718,10 @@ func (user *User) eventHandler(rawEvt any) {
 		user.pushPortalMessage(evt, "reaction add", evt.ChannelID, evt.GuildID)
 	case *discordgo.MessageReactionRemove:
 		user.pushPortalMessage(evt, "reaction remove", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessagePollVoteAdd:
+		user.pushPortalMessage(evt, "poll vote add", evt.ChannelID, evt.GuildID)
+	case *discordgo.MessagePollVoteRemove:
+		user.pushPortalMessage(evt, "poll vote remove", evt.ChannelID, evt.GuildID)
 	case *discordgo.MessageAck:
 		user.messageAckHandler(evt)
 	case *discordgo.TypingStart:

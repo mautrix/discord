@@ -316,6 +316,9 @@ func (portal *Portal) convertMessageBatch(log zerolog.Logger, source *User, mess
 				continue
 			}
 			intent.AddDoublePuppetValue(&evt.Content)
+			if len(part.PollOptionIDs) > 0 {
+				portal.storePollOptionIDs(evt.ID, part.PollOptionIDs)
+			}
 			evts = append(evts, evt)
 			dbMessages = append(dbMessages, database.Message{
 				Channel:      portal.Key,

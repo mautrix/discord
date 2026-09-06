@@ -77,6 +77,9 @@ type Portal struct {
 
 	currentlyTyping     []id.UserID
 	currentlyTypingLock sync.Mutex
+
+	pollOptionIDs     map[id.EventID][]string
+	pollOptionIDsLock sync.Mutex
 }
 
 const recentMessageBufferSize = 32
@@ -269,6 +272,8 @@ func (br *DiscordBridge) NewPortal(dbPortal *database.Portal) *Portal {
 		recentMessages: exsync.NewRingBuffer[string, *discordgo.Message](recentMessageBufferSize),
 
 		commands: make(map[string]*discordgo.ApplicationCommand),
+
+		pollOptionIDs: make(map[id.EventID][]string),
 	}
 
 	go portal.messageLoop()
@@ -594,6 +599,10 @@ func (portal *Portal) handleDiscordMessages(msg portalDiscordMessage) {
 		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, true, msg.thread, convertedMsg.Member)
 	case *discordgo.MessageReactionRemove:
 		portal.handleDiscordReaction(msg.user, convertedMsg.MessageReaction, false, msg.thread, nil)
+	case *discordgo.MessagePollVoteAdd:
+		portal.handleDiscordPollVote(convertedMsg.UserID, convertedMsg.MessageID, convertedMsg.AnswerID, true)
+	case *discordgo.MessagePollVoteRemove:
+		portal.handleDiscordPollVote(convertedMsg.UserID, convertedMsg.MessageID, convertedMsg.AnswerID, false)
 	default:
 		portal.log.Warn().Type("message_type", msg.msg).Msg("Unknown message type in handleDiscordMessages")
 	}
@@ -690,6 +699,9 @@ func (portal *Portal) handleDiscordMessageCreate(user *User, msg *discordgo.Mess
 				Str("attachment_id", part.AttachmentID).
 				Msg("Failed to send part of message to Matrix")
 			continue
+		}
+		if len(part.PollOptionIDs) > 0 {
+			portal.storePollOptionIDs(resp.EventID, part.PollOptionIDs)
 		}
 		lastThreadEvent = resp.EventID
 		dbParts = append(dbParts, database.MessagePart{AttachmentID: part.AttachmentID, MXID: resp.EventID})
@@ -1100,9 +1112,19 @@ func (portal *Portal) sendMatrixMessage(intent *appservice.IntentAPI, eventType 
 func (portal *Portal) handleMatrixMessages(msg portalMatrixMessage) {
 	portal.forwardBackfillLock.Lock()
 	defer portal.forwardBackfillLock.Unlock()
+	if msg.evt.Type == event.EventMessage && brIsPollStartMessage(msg.evt) {
+		// A poll sent as a regular m.room.message carrying the MSC3381 poll
+		// extension (how Element and other clients actually send polls).
+		portal.handleMatrixPollStart(msg.user, msg.evt)
+		return
+	}
 	switch msg.evt.Type {
 	case event.EventMessage, event.EventSticker:
 		portal.handleMatrixMessage(msg.user, msg.evt)
+	case EventUnstablePollStart:
+		portal.handleMatrixPollStart(msg.user, msg.evt)
+	case EventUnstablePollResponse:
+		portal.handleMatrixPollResponse(msg.user, msg.evt)
 	case event.EventRedaction:
 		portal.handleMatrixRedaction(msg.user, msg.evt)
 	case event.EventReaction:

@@ -508,6 +508,13 @@ func (portal *Portal) convertDiscordRichEmbed(ctx context.Context, intent *appse
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, dbFile.MXC))
 		}
+	} else if embed.Thumbnail != nil {
+		dbFile, err := portal.bridge.copyAttachmentToMatrix(intent, embed.Thumbnail.ProxyURL, false, NoMeta)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to reupload thumbnail in embed")
+		} else {
+			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, dbFile.MXC))
+		}
 	}
 	var embedDateHTML string
 	if embed.Timestamp != "" {

@@ -479,7 +479,7 @@ func captchaExtractionJS(cap *discordauth.Captcha) (string, error) {
 	return strings.Replace(captchaExtractionJSTemplate, "%__CONFIG_REPLACEME__%", string(stateJSON), 1), nil
 }
 
-func (d *DiscordMachineLogin) captchaStep(ctx context.Context, cap *discordauth.Captcha) (*bridgev2.LoginStep, error) {
+func captchaStep(ctx context.Context, cap *discordauth.Captcha) (*bridgev2.LoginStep, error) {
 	log := cap.LogContext(zerolog.Ctx(ctx).With()).Logger()
 
 	log.Info().Msg("Encountered CAPTCHA challenge")
@@ -636,7 +636,7 @@ func (d *DiscordMachineLogin) stepForPrompt(ctx context.Context, prompt *discord
 			instructions: instructions,
 		}), nil
 	case prompt.Captcha != nil:
-		return d.captchaStep(ctx, prompt.Captcha)
+		return captchaStep(ctx, prompt.Captcha)
 	case prompt.MFAChallengePrompt != nil:
 		return d.mfaMethodStep(ctx, prompt.MFAChallengePrompt)
 	case prompt.MFACodePrompt != nil:

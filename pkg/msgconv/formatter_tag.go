@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
@@ -43,6 +42,7 @@ import (
 
 type astDiscordTag struct {
 	ast.BaseInline
+	ctx    context.Context
 	source *bridgev2.UserLogin
 	portal *bridgev2.Portal
 	id     int64
@@ -160,6 +160,7 @@ func (s *discordTagParser) Trigger() []byte {
 	return []byte{'<'}
 }
 
+var parserContextGoContext = parser.NewContextKey()
 var parserContextPortal = parser.NewContextKey()
 var parserContextUserLogin = parser.NewContextKey()
 
@@ -179,7 +180,7 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 	if err != nil {
 		return nil
 	}
-	tag := astDiscordTag{id: id, source: source, portal: portal}
+	tag := astDiscordTag{id: id, source: source, portal: portal, ctx: pc.Get(parserContextGoContext).(context.Context)}
 	tagName := string(match[1])
 	switch {
 	case tagName == "@":
@@ -280,9 +281,6 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		return
 	}
 
-	log := zerolog.DefaultContextLogger.With().Str("action", "render discord mention").Logger()
-	ctx := log.WithContext(context.TODO())
-
 	switch node := n.(type) {
 	case *astDiscordUserMention:
 		var mxid id.UserID
@@ -290,7 +288,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		discordUserID := strconv.FormatInt(node.id, 10)
 		bridge := node.portal.Bridge
 
-		if ghost, _ := bridge.GetGhostByID(ctx, discordid.MakeUserID(discordUserID)); ghost != nil {
+		if ghost, _ := bridge.GetGhostByID(node.ctx, discordid.MakeUserID(discordUserID)); ghost != nil {
 			// TODO: Provide some kind of config option for this in the future.
 			// msgconv being in its own package means we can't just reach into
 			// the config. For now, avoid.
@@ -324,7 +322,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		meta, _ := node.portal.Metadata.(*discordid.PortalMetadata)
 		if meta != nil && meta.GuildID != "" {
 			if provider, ok := node.portal.Bridge.Network.(roleInfoProvider); ok {
-				role, roleErr := provider.GetRoleByID(ctx, meta.GuildID, strconv.FormatInt(node.id, 10))
+				role, roleErr := provider.GetRoleByID(node.ctx, meta.GuildID, strconv.FormatInt(node.id, 10))
 				if roleErr != nil {
 					node.portal.Log.Warn().
 						Err(roleErr).
@@ -343,10 +341,10 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		if ok {
 			var r *router.Route
 			mentionedChannelID := strconv.FormatInt(node.id, 10)
-			r, err = rtr.Route(ctx, mentionedChannelID)
+			r, err = rtr.Route(node.ctx, mentionedChannelID)
 
 			if err == nil && !r.Uncertain {
-				if portal, _ := node.portal.Bridge.GetExistingPortalByKey(ctx, r.PortalKey); portal != nil {
+				if portal, _ := node.portal.Bridge.GetExistingPortalByKey(node.ctx, r.PortalKey); portal != nil {
 					if portal.MXID != "" {
 						_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(portal.Bridge.Matrix.ServerName()).MatrixToURL(), html.EscapeString(portal.Name))
 					} else {
@@ -360,7 +358,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		}
 	case *astDiscordCustomEmoji:
 		if resolver, ok := node.portal.Bridge.Network.(customEmojiMXCProvider); ok {
-			reactionMXC, resolveErr := resolver.GetCustomEmojiMXC(ctx, strconv.FormatInt(node.id, 10), node.name, node.animated)
+			reactionMXC, resolveErr := resolver.GetCustomEmojiMXC(node.ctx, strconv.FormatInt(node.id, 10), node.name, node.animated)
 
 			if resolveErr != nil {
 				node.portal.Log.Warn().Err(resolveErr).Int64("emoji_id", node.id).Msg("Failed to resolve custom emoji while rendering message")

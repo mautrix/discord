@@ -279,7 +279,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 
 	if msg.Content != "" && !isPlainGifMessage(msg) {
 		// Bridge basic text messages.
-		htmlParts = append(htmlParts, mc.renderDiscordMarkdownOnlyHTML(portal, source, msg.Content, true))
+		htmlParts = append(htmlParts, mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, msg.Content, true))
 	} else if msg.MessageReference != nil &&
 		msg.MessageReference.Type == discordgo.MessageReferenceTypeForward &&
 		len(msg.MessageSnapshots) > 0 &&
@@ -388,7 +388,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, msg *discordgo.Message) string {
 	log := zerolog.Ctx(ctx)
 
-	forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(portal, source, msg.MessageSnapshots[0].Message.Content, true)
+	forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(ctx, portal, source, msg.MessageSnapshots[0].Message.Content, true)
 	msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
 	origLink, err := mc.forwardedMessageOrigLink(ctx, source, msg, msgTSText)
 	if err != nil {
@@ -585,7 +585,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 	portal := ctx.Value(contextKeyPortal).(*bridgev2.Portal)
 	if embed.Title != "" {
 		var titleHTML string
-		baseTitleHTML := mc.renderDiscordMarkdownOnlyHTML(portal, source, embed.Title, false)
+		baseTitleHTML := mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, embed.Title, false)
 		if embed.URL != "" {
 			titleHTML = fmt.Sprintf(embedHTMLTitleWithLink, html.EscapeString(embed.URL), baseTitleHTML)
 		} else {
@@ -595,7 +595,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 	}
 
 	if embed.Description != "" {
-		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, mc.renderDiscordMarkdownOnlyHTML(portal, source, embed.Description, true)))
+		htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLDescription, mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, embed.Description, true)))
 	}
 
 	for i := 0; i < len(embed.Fields); i++ {
@@ -614,15 +614,15 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 			headerParts := make([]string, len(splitItems))
 			contentParts := make([]string, len(splitItems))
 			for j, splitItem := range splitItems {
-				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, mc.renderDiscordMarkdownOnlyHTML(portal, source, splitItem.Name, false))
-				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, mc.renderDiscordMarkdownOnlyHTML(portal, source, splitItem.Value, true))
+				headerParts[j] = fmt.Sprintf(embedHTMLFieldName, mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, splitItem.Name, false))
+				contentParts[j] = fmt.Sprintf(embedHTMLFieldValue, mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, splitItem.Value, true))
 			}
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLFields, strings.Join(headerParts, ""), strings.Join(contentParts, "")))
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLLinearField,
 				strconv.FormatBool(item.Inline),
-				mc.renderDiscordMarkdownOnlyHTML(portal, source, item.Name, false),
-				mc.renderDiscordMarkdownOnlyHTML(portal, source, item.Value, true),
+				mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, item.Name, false),
+				mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, item.Value, true),
 			))
 		}
 	}

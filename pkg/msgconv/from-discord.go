@@ -208,7 +208,7 @@ func (mc *MessageConverter) addReplyToConvertedMessage(
 	msg *discordgo.Message,
 ) {
 	ref := msg.MessageReference
-	if ref == nil || ref.Type != discordgo.MessageReferenceTypeDefault {
+	if ref == nil || ref.Type != discordgo.MessageReferenceTypeDefault || ref.MessageID == "" {
 		return
 	}
 

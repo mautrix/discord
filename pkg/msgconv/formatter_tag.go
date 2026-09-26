@@ -280,7 +280,7 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 		return
 	}
 
-	log := zerolog.DefaultContextLogger.With().Str("action", "render discord mention").Logger()
+	log := zerolog.Ctx(context.TODO()).With().Str("action", "render discord mention").Logger()
 	ctx := log.WithContext(context.TODO())
 
 	switch node := n.(type) {

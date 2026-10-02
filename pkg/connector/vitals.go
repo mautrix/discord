@@ -141,10 +141,13 @@ func (v *vitals) RequiresUserIntervention() bool {
 // Discord has not applied any long-standing flags or states to the account
 // that could potentially hamper bridge operation and account reputation.
 func (v *vitals) Unimpeded() bool {
+	if v == nil {
+		return false
+	}
 	if v.RequiresUserIntervention() {
 		return false
 	}
-	if v.FlaggedAsSpammer {
+	if v.Quarantined || v.FlaggedAsSpammer {
 		return false
 	}
 	if v.Safety != nil {

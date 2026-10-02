@@ -1252,6 +1252,13 @@ func dmChannelRecipientID(ch *discordgo.Channel) *string {
 	return &ch.Recipients[0].ID
 }
 
+func channelIsOrWasMessageRequest(ch *discordgo.Channel) bool {
+	if ch == nil {
+		return false
+	}
+	return ch.IsMessageRequest || ch.IsMessageRequestTimestamp != nil
+}
+
 func (d *DiscordClient) baseAnalyticsProps(ctx context.Context) map[string]any {
 	props := make(map[string]any)
 	if ctx == nil {

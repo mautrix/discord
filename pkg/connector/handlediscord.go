@@ -27,13 +27,12 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
+	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/event"
-
-	"go.mau.fi/util/variationselector"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"go.mau.fi/mautrix-discord/pkg/router"
@@ -816,7 +815,7 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 	}
 }
 
-func (d *DiscordClient) handleRelationshipNickChange(ctx context.Context, userID, nickname string) {
+func (d *DiscordClient) handleRelationshipChange(ctx context.Context, userID, nickname string) {
 	ch := d.dmChannelForUserID(userID)
 	if ch == nil {
 		return
@@ -825,7 +824,7 @@ func (d *DiscordClient) handleRelationshipNickChange(ctx context.Context, userID
 	portalKey := d.portalKeyForChannel(ch)
 	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, portalKey)
 	if err != nil {
-		zerolog.Ctx(ctx).Err(err).Msg("Failed to look up DM portal for relationship nick change")
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to look up DM portal for relationship change")
 		return
 	}
 	if portal == nil || portal.MXID == "" {
@@ -839,6 +838,8 @@ func (d *DiscordClient) handleRelationshipNickChange(ctx context.Context, userID
 		name = bridgev2.DefaultChatName
 	}
 
+	rel := d.relationshipWithUserID(userID)
+	blocked := rel != nil && rel.Type == discordgo.RelationshipBlocked
 	d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
 		EventMeta: simplevent.EventMeta{
 			Type:      bridgev2.RemoteEventChatInfoChange,
@@ -847,7 +848,8 @@ func (d *DiscordClient) handleRelationshipNickChange(ctx context.Context, userID
 		},
 		ChatInfoChange: &bridgev2.ChatInfoChange{
 			ChatInfo: &bridgev2.ChatInfo{
-				Name: name,
+				Name:        name,
+				UserBlocked: &blocked,
 			},
 		},
 	})
@@ -1134,11 +1136,11 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	// coherence in the face of concurrency, because this method is always
 	// dispatched on a new goroutine.
 	case *discordgo.RelationshipAdd:
-		d.handleRelationshipNickChange(ctx, evt.ID, evt.Nickname)
+		d.handleRelationshipChange(ctx, evt.ID, evt.Nickname)
 	case *discordgo.RelationshipUpdate:
-		d.handleRelationshipNickChange(ctx, evt.ID, evt.Nickname)
+		d.handleRelationshipChange(ctx, evt.ID, evt.Nickname)
 	case *discordgo.RelationshipRemove:
-		d.handleRelationshipNickChange(ctx, evt.ID, "")
+		d.handleRelationshipChange(ctx, evt.ID, "")
 	case *discordgo.PresenceUpdate:
 		d.handlePresenceUpdate(ctx, evt)
 	case *discordgo.MessageAck:

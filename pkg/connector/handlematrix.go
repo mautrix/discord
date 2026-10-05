@@ -27,12 +27,11 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/ptr"
+	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/event"
-
-	"go.mau.fi/util/ptr"
-	"go.mau.fi/util/variationselector"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -44,6 +43,7 @@ var (
 	_ bridgev2.ReadReceiptHandlingNetworkAPI = (*DiscordClient)(nil)
 	_ bridgev2.TypingHandlingNetworkAPI      = (*DiscordClient)(nil)
 	_ bridgev2.MuteHandlingNetworkAPI        = (*DiscordClient)(nil)
+	_ bridgev2.UserBlockingNetworkAPI        = (*DiscordClient)(nil)
 )
 
 type contextKey int
@@ -611,4 +611,28 @@ func (d *DiscordClient) HandleMute(ctx context.Context, msg *bridgev2.MatrixMute
 
 	}
 	return nil
+}
+
+func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2.MatrixBlockUser) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+	if msg.Content.ReportSpam {
+		return fmt.Errorf("spam reporting is not supported")
+	}
+	ch, err := d.Session.State.Channel(discordid.ParseChannelPortalID(msg.Portal.ID))
+	if err != nil {
+		return err
+	}
+	recipient := dmChannelRecipientID(ch)
+	if ch.Type != discordgo.ChannelTypeDM || recipient == nil {
+		return bridgev2.ErrNonDMBlockUser
+	}
+	if msg.Content.Block {
+		err = d.Session.RelationshipUserBlock(*recipient)
+	} else {
+		// TODO check if the user is actually blocked before trying to unblock?
+		err = d.Session.RelationshipDelete(*recipient)
+	}
+	return err
 }

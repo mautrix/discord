@@ -21,6 +21,7 @@ import (
 
 	"go.mau.fi/util/ffmpeg"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -52,7 +53,7 @@ func (d *DiscordConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilitie
 }
 
 func (d *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
-	return 1, 4
+	return 1, 5
 }
 
 /*func supportedIfFFmpeg() event.CapabilitySupportLevel {
@@ -63,7 +64,7 @@ func (d *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
 }*/
 
 func capID() string {
-	base := "fi.mau.discord.capabilities.2026_03_18"
+	base := "fi.mau.discord.capabilities.2026_10_01"
 	if ffmpeg.Supported() {
 		return base + "+ffmpeg"
 	}
@@ -170,11 +171,24 @@ var discordCaps = &event.RoomFeatures{
 	Thread:          event.CapLevelPartialSupport,
 }
 
+var discordNonGuildCaps *event.RoomFeatures
+var discordDMCaps *event.RoomFeatures
+
+func init() {
+	discordNonGuildCaps = discordCaps.Clone()
+	discordNonGuildCaps.ID += "+private"
+	discordNonGuildCaps.Thread = event.CapLevelUnsupported
+
+	discordDMCaps = discordCaps.Clone()
+	discordDMCaps.ID += "+dm"
+	discordDMCaps.BlockUser = true
+}
+
 func (d *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {
-	if portal.Metadata.(*discordid.PortalMetadata).GuildID == "" {
-		caps := discordCaps.Clone()
-		caps.Thread = event.CapLevelUnsupported
-		return caps
+	if portal.RoomType == database.RoomTypeDM {
+		return discordDMCaps
+	} else if portal.Metadata.(*discordid.PortalMetadata).GuildID == "" {
+		return discordNonGuildCaps
 	}
 	return discordCaps
 }

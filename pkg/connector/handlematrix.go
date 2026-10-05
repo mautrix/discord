@@ -631,7 +631,10 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 	if msg.Content.Block {
 		err = d.Session.RelationshipUserBlock(*recipient)
 	} else {
-		// TODO check if the user is actually blocked before trying to unblock?
+		rel := d.relationshipWithUserID(*recipient)
+		if rel == nil || rel.Type != discordgo.RelationshipBlocked {
+			return nil
+		}
 		err = d.Session.RelationshipDelete(*recipient)
 	}
 	return err

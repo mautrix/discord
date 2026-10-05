@@ -182,7 +182,7 @@ func init() {
 	discordDMCaps = discordCaps.Clone()
 	discordDMCaps.ID += "+dm"
 	discordDMCaps.BlockUser = true
-	discordNonGuildCaps.Thread = event.CapLevelUnsupported
+	discordDMCaps.Thread = event.CapLevelUnsupported
 }
 
 func (d *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {

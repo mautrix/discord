@@ -31,6 +31,7 @@ import (
 	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -149,8 +150,18 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		d.lastSendAttemptMutex.Unlock()
 	}
 
+	txnID := networkid.TransactionID(sendReq.Nonce)
+	pendingMsg := &database.Message{}
+	if threadRootRemoteID != "" {
+		pendingMsg.ThreadRoot = discordid.MakeMessageID(threadRootRemoteID)
+	}
+	msg.AddPendingToSave(pendingMsg, txnID, nil)
 	sentMsg, err := d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, discordgo.WithContext(ctx))
 	if err != nil {
+		var restErr *discordgo.RESTError
+		if errors.As(err, &restErr) {
+			msg.RemovePending(txnID)
+		}
 		return nil, d.tryWrappingError(ctx, err)
 	}
 	sentMsgTimestamp, _ := discordgo.SnowflakeTimestamp(sentMsg.ID)
@@ -164,7 +175,8 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	}
 
 	return &bridgev2.MatrixMessageResponse{
-		DB: dbMessage,
+		DB:            dbMessage,
+		RemovePending: txnID,
 	}, nil
 }
 

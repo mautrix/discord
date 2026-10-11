@@ -127,6 +127,10 @@ func (m *DiscordMessage) ConvertEdit(
 	for _, part := range newlyConverted.Parts {
 		dbPart, ok := beforePartsByID[part.ID]
 		if !ok {
+			if part.ID == "" {
+				log.Debug().Msg("Ignoring text part in edit of message that was bridged without one")
+				continue
+			}
 			// Part ID is new, so it's being added.
 			addedParts = append(addedParts, part)
 			continue

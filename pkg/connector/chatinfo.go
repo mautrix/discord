@@ -244,7 +244,7 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 		ParentID: parentPortalID,
 
 		UserLocal: &bridgev2.UserLocalPortalInfo{
-			MutedUntil: ptr.Ptr(d.channelMutedUntil(ch.GuildID, ch.ID)),
+			MutedUntil: ptr.Ptr(d.channelMutedUntil(ch.GuildID, ch.ParentID, ch.ID)),
 		},
 		CanBackfill: true,
 

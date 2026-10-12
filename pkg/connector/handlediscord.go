@@ -140,6 +140,17 @@ func (m *DiscordMessage) ConvertEdit(
 			edit.ModifiedParts = append(edit.ModifiedParts, part.ToEditPart(dbPart))
 		}
 	}
+	if textPart, ok := beforePartsByID[""]; ok && !afterPartIDs.Has("") && len(addedParts) == 1 {
+		log.Debug().
+			Str("new_part_id", string(addedParts[0].ID)).
+			Msg("Replacing text part with new part in place")
+		edit.DeletedParts = slices.DeleteFunc(edit.DeletedParts, func(part *database.Message) bool {
+			return part == textPart
+		})
+		textPart.PartID = addedParts[0].ID
+		edit.ModifiedParts = append(edit.ModifiedParts, addedParts[0].ToEditPart(textPart))
+		addedParts = nil
+	}
 	if len(addedParts) > 0 {
 		edit.AddedParts = &bridgev2.ConvertedMessage{
 			Parts:      addedParts,

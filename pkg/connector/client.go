@@ -1055,20 +1055,22 @@ func (d *DiscordClient) computeMutedUntil(muted bool, cfg *discordgo.MuteConfig)
 //
 // This method works with private channels if an empty string is passed as the
 // guild ID.
-func (d *DiscordClient) channelMutedUntil(guildID string, channelID string) time.Time {
+func (d *DiscordClient) channelMutedUntil(guildID, parentID, channelID string) time.Time {
 	settings := d.guildSettingsForGuildID(guildID)
 	if settings == nil {
 		return bridgev2.Unmuted
 	}
 
+	mutedUntil := d.computeMutedUntil(settings.Muted, settings.MuteConfig)
 	// TODO: Might be worth speeding this up via map.
 	for _, override := range settings.ChannelOverrides {
-		if override.ChannelID == channelID {
-			return d.computeMutedUntil(override.Muted, override.MuteConfig)
+		if override.ChannelID == channelID || override.ChannelID == parentID {
+			if overrideMutedUntil := d.computeMutedUntil(override.Muted, override.MuteConfig); overrideMutedUntil.After(mutedUntil) {
+				mutedUntil = overrideMutedUntil
+			}
 		}
 	}
-
-	return d.computeMutedUntil(settings.Muted, settings.MuteConfig)
+	return mutedUntil
 }
 
 func (d *DiscordClient) guildSettingsForGuildID(guildID string) *discordgo.UserGuildSettings {

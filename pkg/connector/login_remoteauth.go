@@ -18,11 +18,14 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 
+	"go.mau.fi/mautrix-discord/pkg/discordauth"
 	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 )
 
@@ -35,9 +38,11 @@ type DiscordRemoteAuthLogin struct {
 	remoteAuthClient *remoteauth.Client
 	qrChan           chan string
 	doneChan         chan struct{}
+	captcha          *discordauth.Captcha
 }
 
 var _ bridgev2.LoginProcessDisplayAndWait = (*DiscordRemoteAuthLogin)(nil)
+var _ bridgev2.LoginProcessCookies = (*DiscordRemoteAuthLogin)(nil)
 
 func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
 	log := zerolog.Ctx(ctx)
@@ -101,7 +106,7 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 		user, err := dl.remoteAuthClient.Result()
 		if err != nil {
 			log.Err(err).Msg("Discord remoteauth failed")
-			return nil, userVisibleLoginError(ctx, fmt.Errorf("discord remoteauth failed: %w", err))
+			return dl.stepForError(ctx, err)
 		}
 		log.Debug().Msg("Discord remoteauth succeeded")
 
@@ -110,6 +115,33 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 		log.Debug().Msg("Cancelled while waiting for remoteauth to complete")
 		return nil, ctx.Err()
 	}
+}
+
+func (dl *DiscordRemoteAuthLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
+	solution := cookies[CaptchaExtractionField]
+	if solution == "" {
+		return nil, ErrMissingLoginInput.AppendMessage(": captcha solution")
+	}
+
+	user, err := dl.remoteAuthClient.RedeemTicket(func(cfg *discordgo.RequestConfig) {
+		cfg.Request.Header.Set(discordauth.HeaderCaptchaKey, solution)
+		dl.captcha.UpdateHeaders(&cfg.Request.Header)
+	})
+	if err != nil {
+		return dl.stepForError(ctx, err)
+	}
+	return dl.finalizeSuccessfulLogin(ctx, user)
+}
+
+func (dl *DiscordRemoteAuthLogin) stepForError(ctx context.Context, err error) (*bridgev2.LoginStep, error) {
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) {
+		if captcha := discordauth.CheckCaptcha(ctx, restErr.Response, restErr.ResponseBody); captcha != nil {
+			dl.captcha = captcha
+			return captchaStep(ctx, captcha)
+		}
+	}
+	return nil, userVisibleLoginError(ctx, fmt.Errorf("discord remoteauth failed: %w", err))
 }
 
 func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, user remoteauth.User) (*bridgev2.LoginStep, error) {

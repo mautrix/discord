@@ -123,7 +123,7 @@ func (dl *DiscordRemoteAuthLogin) SubmitCookies(ctx context.Context, cookies map
 		return nil, ErrMissingLoginInput.AppendMessage(": captcha solution")
 	}
 
-	user, err := dl.remoteAuthClient.RedeemTicket(func(cfg *discordgo.RequestConfig) {
+	user, err := dl.remoteAuthClient.RedeemTicket(discordgo.WithContext(ctx), func(cfg *discordgo.RequestConfig) {
 		cfg.Request.Header.Set(discordauth.HeaderCaptchaKey, solution)
 		dl.captcha.UpdateHeaders(&cfg.Request.Header)
 	})

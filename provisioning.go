@@ -473,6 +473,7 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request) {
 
 type reqBridgeGuild struct {
 	AutoCreateChannels bool `json:"auto_create_channels"`
+	UnifiedSpace       bool `json:"unified_space"`
 }
 
 type respBridgeGuild struct {
@@ -503,7 +504,7 @@ func (p *ProvisioningAPI) guildsBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	alreadyExists := guild.MXID == ""
-	if err := user.bridgeGuild(guildID, body.AutoCreateChannels); err != nil {
+	if err := user.bridgeGuild(guildID, body.AutoCreateChannels, body.UnifiedSpace); err != nil {
 		p.log.Errorfln("Error bridging %s: %v", guildID, err)
 		jsonResponse(w, http.StatusInternalServerError, Error{
 			Error:   "Internal error while trying to bridge guild",

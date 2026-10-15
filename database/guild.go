@@ -80,7 +80,7 @@ type GuildQuery struct {
 }
 
 const (
-	guildSelect = "SELECT dcid, mxid, plain_name, name, name_set, avatar, avatar_url, avatar_set, bridging_mode FROM guild"
+	guildSelect = "SELECT dcid, mxid, plain_name, name, name_set, avatar, avatar_url, avatar_set, bridging_mode, unified_space FROM guild"
 )
 
 func (gq *GuildQuery) New() *Guild {
@@ -132,12 +132,13 @@ type Guild struct {
 	AvatarSet bool
 
 	BridgingMode GuildBridgingMode
+	UnifiedSpace bool
 }
 
 func (g *Guild) Scan(row dbutil.Scannable) *Guild {
 	var mxid sql.NullString
 	var avatarURL string
-	err := row.Scan(&g.ID, &mxid, &g.PlainName, &g.Name, &g.NameSet, &g.Avatar, &avatarURL, &g.AvatarSet, &g.BridgingMode)
+	err := row.Scan(&g.ID, &mxid, &g.PlainName, &g.Name, &g.NameSet, &g.Avatar, &avatarURL, &g.AvatarSet, &g.BridgingMode, &g.UnifiedSpace)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			g.log.Errorln("Database scan failed:", err)
@@ -163,10 +164,10 @@ func (g *Guild) mxidPtr() *id.RoomID {
 
 func (g *Guild) Insert() {
 	query := `
-		INSERT INTO guild (dcid, mxid, plain_name, name, name_set, avatar, avatar_url, avatar_set, bridging_mode)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO guild (dcid, mxid, plain_name, name, name_set, avatar, avatar_url, avatar_set, bridging_mode, unified_space)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
-	_, err := g.db.Exec(query, g.ID, g.mxidPtr(), g.PlainName, g.Name, g.NameSet, g.Avatar, g.AvatarURL.String(), g.AvatarSet, g.BridgingMode)
+	_, err := g.db.Exec(query, g.ID, g.mxidPtr(), g.PlainName, g.Name, g.NameSet, g.Avatar, g.AvatarURL.String(), g.AvatarSet, g.BridgingMode, g.UnifiedSpace)
 	if err != nil {
 		g.log.Warnfln("Failed to insert %s: %v", g.ID, err)
 		panic(err)
@@ -175,10 +176,10 @@ func (g *Guild) Insert() {
 
 func (g *Guild) Update() {
 	query := `
-		UPDATE guild SET mxid=$1, plain_name=$2, name=$3, name_set=$4, avatar=$5, avatar_url=$6, avatar_set=$7, bridging_mode=$8
-		WHERE dcid=$9
+		UPDATE guild SET mxid=$1, plain_name=$2, name=$3, name_set=$4, avatar=$5, avatar_url=$6, avatar_set=$7, bridging_mode=$8, unified_space=$9
+		WHERE dcid=$10
 	`
-	_, err := g.db.Exec(query, g.mxidPtr(), g.PlainName, g.Name, g.NameSet, g.Avatar, g.AvatarURL.String(), g.AvatarSet, g.BridgingMode, g.ID)
+	_, err := g.db.Exec(query, g.mxidPtr(), g.PlainName, g.Name, g.NameSet, g.Avatar, g.AvatarURL.String(), g.AvatarSet, g.BridgingMode, g.UnifiedSpace, g.ID)
 	if err != nil {
 		g.log.Warnfln("Failed to update %s: %v", g.ID, err)
 		panic(err)

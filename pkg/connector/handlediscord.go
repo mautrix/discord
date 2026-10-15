@@ -413,6 +413,7 @@ func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *discordgo.C
 
 	if ch.GuildID == "" {
 		log.Debug().Msg("Private channel was created, creating portal")
+		d.queueChannelResync(ctx, ch.Channel)
 	} else {
 		if !d.shouldBridgeChannel(ctx, ch.Channel) {
 			log.Debug().Msg("Ignoring creation of guild channel that should not be bridged")
@@ -420,28 +421,33 @@ func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *discordgo.C
 		}
 
 		log.Debug().Msg("Guild channel was created")
+		d.bridgeGuildChannel(ctx, ch.Channel)
+	}
 
-		// If the newly created channel is under a category, ensure that the
-		// corresponding parent space exists first, so m.bridge is correct.
-		if ch.ParentID != "" {
-			parentCh := d.channelWithID(ctx, ch.ParentID)
-			if parentCh == nil {
-				log.Error().Msg("Newly created guild channel has a parent channel, but it's not present in cache; dropping!")
-				return nil
-			}
-			log.Debug().Msg("Ensuring parent space for the newly created channel")
-			err := d.ensurePortal(ctx, d.portalKeyForChannel(parentCh), nil)
-			if err != nil {
-				log.Err(err).Msg("Failed to ensure category space, dropping!")
-				return nil
-			}
+	return nil
+}
+
+func (d *DiscordClient) bridgeGuildChannel(ctx context.Context, ch *discordgo.Channel) {
+	log := zerolog.Ctx(ctx)
+
+	// If the channel is under a category, ensure that the corresponding parent
+	// space exists first, so m.bridge is correct.
+	if ch.ParentID != "" {
+		parentCh := d.channelWithID(ctx, ch.ParentID)
+		if parentCh == nil {
+			log.Error().Msg("Guild channel has a parent channel, but it's not present in cache; dropping!")
+			return
+		}
+		log.Debug().Msg("Ensuring parent space for the guild channel")
+		err := d.ensurePortal(ctx, d.portalKeyForChannel(parentCh), nil)
+		if err != nil {
+			log.Err(err).Msg("Failed to ensure category space, dropping!")
+			return
 		}
 	}
 
 	// This creates the portal.
-	d.queueChannelResync(ctx, ch.Channel)
-
-	return nil
+	d.queueChannelResync(ctx, ch)
 }
 
 func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.ChannelUpdate) error {
@@ -1043,6 +1049,14 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		ctx, log := messageCtx(ctx, evt.Message)
 		inBridgedChannel, route := d.channelIsBridged(ctx, evt.ChannelID)
 		isDM := route != nil && route.FromChannel != nil && channelIsPrivate(route.FromChannel)
+		if !inBridgedChannel && !isDM && route != nil {
+			portalCh := d.channelWithID(ctx, route.PortalChannelID)
+			if d.shouldBridgeChannel(ctx, portalCh) {
+				log.Debug().Str("portal_channel_id", portalCh.ID).Msg("Creating portal for guild channel that became visible")
+				d.bridgeGuildChannel(ctx, portalCh)
+				inBridgedChannel = true
+			}
+		}
 		if !inBridgedChannel && !isDM {
 			if d.connector.Config.LogWhenDroppingMessages {
 				log.Debug().

@@ -2478,9 +2478,18 @@ func (portal *Portal) UpdateParent(parentID string) bool {
 	return true
 }
 
+// spaceParent returns the category portal whose space this channel belongs in,
+// or nil if the channel goes directly in the guild space.
+func (portal *Portal) spaceParent() *Portal {
+	if portal.Guild != nil && portal.Guild.UnifiedSpace {
+		return nil
+	}
+	return portal.Parent
+}
+
 func (portal *Portal) ExpectedSpaceID() id.RoomID {
-	if portal.Parent != nil {
-		return portal.Parent.MXID
+	if parent := portal.spaceParent(); parent != nil {
+		return parent.MXID
 	} else if portal.Guild != nil {
 		return portal.Guild.MXID
 	}
@@ -2491,16 +2500,16 @@ func (portal *Portal) updateSpace(source *User) bool {
 	if portal.MXID == "" {
 		return false
 	}
-	if portal.Parent != nil {
-		if portal.Parent.MXID != "" {
+	if parent := portal.spaceParent(); parent != nil {
+		if parent.MXID != "" {
 			portal.log.Warn().Str("parent_id", portal.ParentID).Msg("Parent portal has no Matrix room, creating...")
-			err := portal.Parent.CreateMatrixRoom(source, nil)
+			err := parent.CreateMatrixRoom(source, nil)
 			if err != nil {
 				portal.log.Err(err).Str("parent_id", portal.ParentID).Msg("Failed to create Matrix room for parent")
 				return false
 			}
 		}
-		return portal.addToSpace(portal.Parent.MXID)
+		return portal.addToSpace(parent.MXID)
 	} else if portal.Guild != nil {
 		return portal.addToSpace(portal.Guild.MXID)
 	}

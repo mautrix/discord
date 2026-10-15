@@ -560,7 +560,7 @@ const fullGuildsHelp = smallGuildsHelp + `
 
 * **help** - View this help message.
 * **status** - View the list of guilds and their bridging status.
-* **bridge <_guild ID_> [--entire]** - Enable bridging for a guild. The --entire flag auto-creates portals for all channels.
+* **bridge <_guild ID_> [--entire] [--unified]** - Enable bridging for a guild. The --entire flag auto-creates portals for all channels. The --unified flag puts all channels directly in the guild space instead of a sub-space per category.
 * **bridging-mode <_guild ID_> <_mode_>** - Set the mode for bridging messages and new channels in a guild.
 * **unbridge <_guild ID_>** - Unbridge a guild and delete all channel portal rooms.`
 
@@ -598,7 +598,11 @@ func fnListGuilds(ce *WrappedCommandEvent) {
 		if !guild.AvatarURL.IsEmpty() {
 			avatarHTML = fmt.Sprintf(`<img data-mx-emoticon height="24" src="%s" alt="" title="Guild avatar"> `, guild.AvatarURL.String())
 		}
-		items = append(items, fmt.Sprintf("<li>%s%s (<code>%s</code>) - %s</li>", avatarHTML, html.EscapeString(guild.Name), guild.ID, guild.BridgingMode.Description()))
+		var unifiedNote string
+		if guild.UnifiedSpace {
+			unifiedNote = " (unified space)"
+		}
+		items = append(items, fmt.Sprintf("<li>%s%s (<code>%s</code>) - %s%s</li>", avatarHTML, html.EscapeString(guild.Name), guild.ID, guild.BridgingMode.Description(), unifiedNote))
 	}
 	if len(items) == 0 {
 		ce.Reply("No guilds found")
@@ -608,9 +612,21 @@ func fnListGuilds(ce *WrappedCommandEvent) {
 }
 
 func fnBridgeGuild(ce *WrappedCommandEvent) {
-	if len(ce.Args) == 0 || len(ce.Args) > 2 {
-		ce.Reply("**Usage**: `$cmdprefix guilds bridge <guild ID> [--entire]")
-	} else if err := ce.User.bridgeGuild(ce.Args[0], len(ce.Args) == 2 && strings.ToLower(ce.Args[1]) == "--entire"); err != nil {
+	var positional []string
+	var everything, unified bool
+	for _, arg := range ce.Args {
+		switch strings.ToLower(arg) {
+		case "--entire":
+			everything = true
+		case "--unified":
+			unified = true
+		default:
+			positional = append(positional, arg)
+		}
+	}
+	if len(positional) != 1 {
+		ce.Reply("**Usage**: `$cmdprefix guilds bridge <guild ID> [--entire] [--unified]`")
+	} else if err := ce.User.bridgeGuild(positional[0], everything, unified); err != nil {
 		ce.Reply("Error bridging guild: %v", err)
 	} else {
 		ce.Reply("Successfully bridged guild")

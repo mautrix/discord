@@ -1513,12 +1513,14 @@ func (user *User) updateDirectChats(chats map[id.UserID][]id.RoomID) {
 	}
 }
 
-func (user *User) bridgeGuild(guildID string, everything bool) error {
+func (user *User) bridgeGuild(guildID string, everything, unified bool) error {
 	guild := user.bridge.GetGuildByID(guildID, false)
 	if guild == nil {
 		return errors.New("guild not found")
 	}
 	meta, _ := user.Session.State.Guild(guildID)
+	layoutChanged := guild.UnifiedSpace != unified
+	guild.UnifiedSpace = unified
 	err := guild.CreateMatrixRoom(user, meta)
 	if err != nil {
 		return err
@@ -1526,6 +1528,9 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	log := user.log.With().Str("guild_id", guild.ID).Logger()
 	user.addGuildToSpace(guild, false, time.Now())
 	for _, ch := range meta.Channels {
+		if unified && ch.Type == discordgo.ChannelTypeGuildCategory {
+			continue
+		}
 		portal := user.GetPortalByMeta(ch)
 		if (everything && user.channelIsBridgeable(ch)) || ch.Type == discordgo.ChannelTypeGuildCategory {
 			err = portal.CreateMatrixRoom(user, ch)
@@ -1534,6 +1539,9 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 					Msg("Failed to create room for guild channel while bridging guild")
 			}
 		}
+	}
+	if layoutChanged {
+		user.moveGuildChannelSpaces(meta, unified)
 	}
 	if everything {
 		guild.BridgingMode = database.GuildBridgeEverything
@@ -1556,6 +1564,36 @@ func (user *User) bridgeGuild(guildID string, everything bool) error {
 	}
 
 	return nil
+}
+
+// moveGuildChannelSpaces moves already bridged channels after the guild's
+// unified space setting changed and removes category spaces that are no longer used.
+func (user *User) moveGuildChannelSpaces(meta *discordgo.Guild, unified bool) {
+	for _, ch := range meta.Channels {
+		portal := user.GetPortalByMeta(ch)
+		if portal.MXID == "" || ch.Type == discordgo.ChannelTypeGuildCategory {
+			continue
+		}
+		if portal.ExpectedSpaceID() != portal.InSpace && portal.updateSpace(user) {
+			portal.Update()
+		}
+	}
+	if !unified {
+		return
+	}
+	for _, ch := range meta.Channels {
+		if ch.Type != discordgo.ChannelTypeGuildCategory {
+			continue
+		}
+		category := user.GetPortalByMeta(ch)
+		category.roomCreateLock.Lock()
+		if category.MXID != "" {
+			category.removeFromSpace()
+			category.cleanup(false)
+			category.RemoveMXID()
+		}
+		category.roomCreateLock.Unlock()
+	}
 }
 
 func (user *User) unbridgeGuild(guildID string) error {

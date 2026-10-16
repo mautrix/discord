@@ -123,42 +123,66 @@ func (m *DiscordMessage) ConvertEdit(
 		}
 	}
 
+	var textPart, firstMediaPart *bridgev2.ConvertedMessagePart
+	var firstMediaDBPart *database.Message
 	var addedParts []*bridgev2.ConvertedMessagePart
 	for _, part := range newlyConverted.Parts {
-		dbPart, ok := beforePartsByID[part.ID]
-		if !ok {
-			// Part ID is new, so it's being added.
-			addedParts = append(addedParts, part)
+		if part.ID == "" {
+			textPart = part
 			continue
 		}
-
-		// TODO(skip): Stash the edited timestamp of messages so we can
-		// actually discern between link previews/embeds and the message text
-		// actually being edited. As is, this will always replace the message
-		// body.
-		if part.ID == "" {
-			edit.ModifiedParts = append(edit.ModifiedParts, part.ToEditPart(dbPart))
+		dbPart, ok := beforePartsByID[part.ID]
+		if !ok {
+			addedParts = append(addedParts, part)
+		} else if firstMediaPart == nil && part.Content.MsgType.IsMedia() {
+			firstMediaPart = part
+			firstMediaDBPart = dbPart
 		}
 	}
-	if textPart, ok := beforePartsByID[""]; ok && !afterPartIDs.Has("") && len(addedParts) == 1 {
+
+	// TODO(skip): Stash the edited timestamp of messages so we can
+	// actually discern between link previews/embeds and the message text
+	// actually being edited. As is, this will always replace the message
+	// body.
+	dbTextPart, hasDBTextPart := beforePartsByID[""]
+	// Discord can't add attachments in edits, so a single new attachment on a
+	// message stored as one text part (e.g. sent from Matrix) is that part.
+	replaceTextPart := hasDBTextPart && len(addedParts) == 1 &&
+		(textPart == nil || (len(existingParts) == 1 && m.hasAttachment(addedParts[0].ID)))
+	switch {
+	case replaceTextPart:
 		log.Debug().
 			Str("new_part_id", string(addedParts[0].ID)).
 			Msg("Replacing text part with new part in place")
 		edit.DeletedParts = slices.DeleteFunc(edit.DeletedParts, func(part *database.Message) bool {
-			return part == textPart
+			return part == dbTextPart
 		})
-		textPart.PartID = addedParts[0].ID
-		edit.ModifiedParts = append(edit.ModifiedParts, addedParts[0].ToEditPart(textPart))
+		dbTextPart.PartID = addedParts[0].ID
+		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, addedParts[0]).ToEditPart(dbTextPart))
 		addedParts = nil
+	case textPart != nil && hasDBTextPart:
+		edit.ModifiedParts = append(edit.ModifiedParts, textPart.ToEditPart(dbTextPart))
+	case textPart != nil && firstMediaPart != nil:
+		log.Debug().
+			Str("media_part_id", string(firstMediaPart.ID)).
+			Msg("Adding text to existing media part as caption")
+		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, firstMediaPart).ToEditPart(firstMediaDBPart))
+	case textPart != nil:
+		log.Debug().Msg("Ignoring text part in edit of message without text or media parts")
 	}
 	if len(addedParts) > 0 {
-		edit.AddedParts = &bridgev2.ConvertedMessage{
-			Parts:      addedParts,
-			ThreadRoot: newlyConverted.ThreadRoot,
-		}
+		log.Debug().
+			Int("added_part_count", len(addedParts)).
+			Msg("Ignoring parts added in edit")
 	}
 
 	return edit, nil
+}
+
+func (m *DiscordMessage) hasAttachment(partID networkid.PartID) bool {
+	return slices.ContainsFunc(m.Data.Attachments, func(att *discordgo.MessageAttachment) bool {
+		return discordid.MakePartID(att.ID) == partID
+	})
 }
 
 // isLegacyNumericParts reports whether the existing parts on a message were

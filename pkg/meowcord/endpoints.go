@@ -65,6 +65,9 @@ var (
 	EndpointCDNStickers     = EndpointCDN + "stickers/"
 	EndpointCDNRoleIcons    = EndpointCDN + "role-icons/"
 
+	EndpointMedia         = "https://media.discordapp.net/"
+	EndpointMediaStickers = EndpointMedia + "stickers/"
+
 	EndpointVoice        = EndpointAPI + "/voice/"
 	EndpointVoiceRegions = EndpointVoice + "regions"
 
@@ -183,7 +186,7 @@ var (
 		case StickerFormatTypeLottie:
 			ext = ".json"
 		case StickerFormatTypeGIF:
-			ext = ".gif"
+			return EndpointMediaStickers + sID + ".gif"
 		}
 		return EndpointCDNStickers + sID + ext
 	}

@@ -279,7 +279,12 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 		if err != nil {
 			return bridgev2.MatrixReactionPreResponse{}, fmt.Errorf("failed to get custom emoji by mxc: %w", err)
 		} else if customEmoji == nil || customEmoji.ID == "" || customEmoji.Name == "" {
-			return bridgev2.MatrixReactionPreResponse{}, fmt.Errorf("unknown custom emoji mxc: %q", emojiID)
+			return bridgev2.MatrixReactionPreResponse{}, bridgev2.WrapErrorInStatus(fmt.Errorf("unknown custom emoji mxc: %q", emojiID)).
+				WithMessage("that emoji can't be used on Discord").
+				WithIsCertain(true).
+				WithSendNotice(true).
+				WithErrorReason(event.MessageStatusUnsupported).
+				WithStatus(event.MessageStatusFail)
 		}
 
 		emojiID = fmt.Sprintf("%s:%s", customEmoji.Name, customEmoji.ID)

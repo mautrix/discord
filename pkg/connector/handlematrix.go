@@ -630,7 +630,7 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		return bridgev2.ErrNotLoggedIn
 	}
 	if msg.Content.ReportSpam {
-		return fmt.Errorf("spam reporting is not supported")
+		return bridgev2.WrapErrorInStatus(errors.New("reporting spam is not supported on Discord")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
 	}
 	ch, err := d.Session.State.Channel(discordid.ParseChannelPortalID(msg.Portal.ID))
 	if err != nil {

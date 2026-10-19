@@ -279,7 +279,12 @@ func (d *DiscordClient) PreHandleMatrixReaction(ctx context.Context, reaction *b
 		if err != nil {
 			return bridgev2.MatrixReactionPreResponse{}, fmt.Errorf("failed to get custom emoji by mxc: %w", err)
 		} else if customEmoji == nil || customEmoji.ID == "" || customEmoji.Name == "" {
-			return bridgev2.MatrixReactionPreResponse{}, fmt.Errorf("unknown custom emoji mxc: %q", emojiID)
+			return bridgev2.MatrixReactionPreResponse{}, bridgev2.WrapErrorInStatus(fmt.Errorf("unknown custom emoji mxc: %q", emojiID)).
+				WithMessage("that emoji can't be used on Discord").
+				WithIsCertain(true).
+				WithSendNotice(true).
+				WithErrorReason(event.MessageStatusUnsupported).
+				WithStatus(event.MessageStatusFail)
 		}
 
 		emojiID = fmt.Sprintf("%s:%s", customEmoji.Name, customEmoji.ID)
@@ -630,7 +635,7 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		return bridgev2.ErrNotLoggedIn
 	}
 	if msg.Content.ReportSpam {
-		return fmt.Errorf("spam reporting is not supported")
+		return bridgev2.WrapErrorInStatus(errors.New("reporting spam is not supported on Discord")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
 	}
 	ch, err := d.Session.State.Channel(discordid.ParseChannelPortalID(msg.Portal.ID))
 	if err != nil {

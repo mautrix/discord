@@ -202,6 +202,10 @@ func (mc *MessageConverter) ToDiscord(
 		}
 
 		req.Attachments = append(req.Attachments, att)
+	case event.MsgLocation:
+		return nil, bridgev2.ErrLocationMessagesNotAllowed
+	default:
+		return nil, bridgev2.ErrUnsupportedMessageType
 	}
 
 	return &req, nil

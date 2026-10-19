@@ -548,6 +548,8 @@ func (d *DiscordClient) viewingChannel(ctx context.Context, portal *bridgev2.Por
 func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.MatrixTyping) error {
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
+	} else if !msg.IsTyping {
+		return nil
 	}
 
 	log := zerolog.Ctx(ctx)

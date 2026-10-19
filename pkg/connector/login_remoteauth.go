@@ -52,8 +52,6 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 		return nil, fmt.Errorf("couldn't create Discord remoteauth client: %w", err)
 	}
 
-	dl.remoteAuthClient = client
-
 	dl.qrChan = make(chan string)
 	dl.doneChan = make(chan struct{})
 
@@ -65,6 +63,7 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 		close(dl.doneChan)
 		return nil, fmt.Errorf("couldn't connect to Discord remoteauth websocket: %w", err)
 	}
+	dl.remoteAuthClient = client
 
 	log.Info().Msg("Waiting for QR code to be ready")
 
@@ -138,5 +137,7 @@ func (dl *DiscordRemoteAuthLogin) Cancel() {
 
 	dl.User.Log.Debug().Msg("Discord remoteauth cancelled")
 	dl.DiscordGenericLogin.Cancel()
-	_ = dl.remoteAuthClient.Close()
+	if dl.remoteAuthClient != nil {
+		_ = dl.remoteAuthClient.Close()
+	}
 }

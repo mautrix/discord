@@ -249,12 +249,17 @@ const newLocationInstructionPreamble = "Your login was correct, but Discord " +
 	"detected Beeper as a new login location."
 const textedCodeInstruction = "Enter the code Discord just texted you."
 
-func emailVerificationStep() *bridgev2.LoginStep {
+func emailVerificationStep(retrying bool) *bridgev2.LoginStep {
 	// Forcing a dummy input like this isn't ideal by any means, but
 	// chat-command login and Beeper iOS cannot handle a user_input step with
 	// no inputs.
 	instructions := newLocationInstructionPreamble + " Check your email for a " +
 		"verification link, then choose the option below to continue."
+	if retrying {
+		instructions = "Discord hasn’t confirmed this login yet. Open the " +
+			"newest email from Discord and tap Verify Login, then choose the " +
+			"option below to continue."
+	}
 
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
@@ -619,9 +624,11 @@ func (d *DiscordMachineLogin) stepForPrompt(ctx context.Context, prompt *discord
 	switch {
 	case prompt.CredsPrompt != nil:
 		return initialCredsStep(prompt.CredsPrompt.Reason), nil
-	case prompt.EmailVerify:
-		log.Info().Msg("Prompting user to verify the IP address via email")
-		return emailVerificationStep(), nil
+	case prompt.EmailVerifyPrompt != nil:
+		log.Info().
+			Bool("retrying", prompt.EmailVerifyPrompt.Retrying).
+			Msg("Prompting user to verify the IP address via email")
+		return emailVerificationStep(prompt.EmailVerifyPrompt.Retrying), nil
 	case prompt.PhoneVerifyPrompt != nil:
 		log.Info().Msg("Prompting user to verify the IP address via SMS")
 		var instructions string

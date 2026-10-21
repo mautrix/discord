@@ -292,7 +292,18 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 		return
 	}
 
+	if retryCtx.Err() != nil {
+		log.Debug().Msg("Was told to stop connecting")
+		return
+	}
 	err := d.connect(ctx)
+	if err == nil && retryCtx.Err() != nil && d.stopConnecting.Load() == nil {
+		// Disconnect ran while Open was in progress, so its Close may have come too early.
+		// A newer connect attempt shares the session, so only close if nothing replaced us.
+		log.Debug().Msg("Disconnected while opening session, closing it again")
+		_ = d.Session.Close()
+		return
+	}
 	if err != nil {
 		log.Err(err).Msg("Couldn't connect to Discord")
 

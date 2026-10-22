@@ -59,6 +59,8 @@ type AuthMachine struct {
 	lastPrompt *Prompt           // last prompt that was shown to the user
 	mfa        *LoginMFARequired // set upon entering MFA flow
 	finished   bool
+
+	emailVerifyAnswered bool
 }
 
 func (am *AuthMachine) currentOp() *pendingRequest {
@@ -96,6 +98,9 @@ type MFAChallengePrompt struct {
 	*LoginMFARequired
 	Reason string
 }
+type EmailVerifyPrompt struct {
+	Retrying bool
+}
 type PhoneVerifyPrompt struct {
 	Phone    string // the phone number that the code was sent to
 	Retrying bool   // whether the previous attempt failed and we're asking again
@@ -106,7 +111,7 @@ type PhoneVerifyPrompt struct {
 // an [Answer]. Exactly one field is set (non-nil or non-zero).
 //
 // Most prompts are ordinary steps of the login flow, but Captcha,
-// PhoneVerifyPrompt, and EmailVerify are interruptions: they preempt whatever
+// PhoneVerifyPrompt, and EmailVerifyPrompt are interruptions: they preempt whatever
 // operation was in flight, and answering them ends up retrying it instead of
 // starting a new one.
 type Prompt struct {
@@ -131,9 +136,9 @@ type Prompt struct {
 	//
 	// The code is needed to verify our current IP address.
 	PhoneVerifyPrompt *PhoneVerifyPrompt
-	// EmailVerify is true if an email requesting IP verification has been sent
-	// to the email associated with the Discord account.
-	EmailVerify bool
+	// EmailVerifyPrompt is non-nil if an email requesting IP verification has
+	// been sent to the email associated with the Discord account.
+	EmailVerifyPrompt *EmailVerifyPrompt
 }
 
 // A CaptchaSolution contains a solution to a [Captcha].
@@ -148,7 +153,7 @@ type CaptchaSolution struct {
 //   - [Prompt.CredsPrompt]: [Answer.Creds]
 //   - [Prompt.MFAChallengePrompt]: [Answer.PickedMFAType]
 //   - [Prompt.MFACodePrompt]: [Answer.MFAContinue]
-//   - [Prompt.EmailVerify]: none (an empty Answer resumes the flow)
+//   - [Prompt.EmailVerifyPrompt]: none (an empty Answer resumes the flow)
 //   - [Prompt.PhoneVerifyPrompt]: [Answer.SMSCode]
 //   - [Prompt.Captcha]: [Answer.Solution]
 type Answer struct {
@@ -237,8 +242,9 @@ func (am *AuthMachine) advance(ctx context.Context, answer *Answer) (*Prompt, *L
 			return nil, nil, fmt.Errorf("expected mfa continue in answer")
 		}
 		am.pending = continueMFAOp(answer.MFAContinue, am.mfa)
-	case lastPrompt.EmailVerify:
+	case lastPrompt.EmailVerifyPrompt != nil:
 		// The user has authorized our IP address. Retry the last request.
+		am.emailVerifyAnswered = true
 	case lastPrompt.PhoneVerifyPrompt != nil:
 		// Our IP address needs to be verified via phone number. The user has
 		// inputted the received SMS code.
@@ -308,7 +314,9 @@ func (am *AuthMachine) pump(
 			return &Prompt{Captcha: capErr.Captcha}, nil, nil
 		case errors.As(err, &apiErr):
 			if apiErr.RequiresEmailVerification() {
-				return &Prompt{EmailVerify: true}, nil, nil
+				return &Prompt{EmailVerifyPrompt: &EmailVerifyPrompt{
+					Retrying: am.emailVerifyAnswered,
+				}}, nil, nil
 			}
 			if apiErr.RequiresPhoneVerification() {
 				// This presumes that the "code sent to phone via SMS, then IP

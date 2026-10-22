@@ -374,7 +374,7 @@ func (p *prompter) answerPrompt(ctx context.Context, prompt *discordauth.Prompt)
 			return nil, err
 		}
 		return &discordauth.Answer{Solution: solution}, nil
-	case prompt.EmailVerify:
+	case prompt.EmailVerifyPrompt != nil:
 		if err := p.WaitForEmailVerification(ctx); err != nil {
 			return nil, err
 		}

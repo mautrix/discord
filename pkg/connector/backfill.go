@@ -20,6 +20,7 @@ import (
 	"context"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -195,14 +196,16 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 		Int("provably_read_message_count", provablyReadMessageCount).
 		Msg("Finished fetching and converting, returning backfill response")
 
-	// It doesn't seem like we can express unreadness for every message, so do
-	// it for the entire batch. A single unread message makes the entire batch
-	// unread, even if some messages were actually read.
 	entireBatchWasProvablyRead := len(msgs) == provablyReadMessageCount
+	var readUpTo time.Time
+	if readState := d.readStateForID(channelID); !entireBatchWasProvablyRead && readState != nil && readState.LastMessageID != "" {
+		readUpTo, _ = discordgo.SnowflakeTimestamp(string(readState.LastMessageID))
+	}
 	return &bridgev2.FetchMessagesResponse{
 		Messages: converted,
 		Forward:  fetchParams.Forward,
 		MarkRead: entireBatchWasProvablyRead,
+		ReadUpTo: readUpTo,
 		// This might not actually be true if the channel's total number of messages is itself a multiple
 		// of `count`, but that's probably okay.
 		HasMore: len(msgs) == count,

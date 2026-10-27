@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
@@ -38,13 +39,14 @@ import (
 )
 
 var (
-	_ bridgev2.ReactionHandlingNetworkAPI    = (*DiscordClient)(nil)
-	_ bridgev2.RedactionHandlingNetworkAPI   = (*DiscordClient)(nil)
-	_ bridgev2.EditHandlingNetworkAPI        = (*DiscordClient)(nil)
-	_ bridgev2.ReadReceiptHandlingNetworkAPI = (*DiscordClient)(nil)
-	_ bridgev2.TypingHandlingNetworkAPI      = (*DiscordClient)(nil)
-	_ bridgev2.MuteHandlingNetworkAPI        = (*DiscordClient)(nil)
-	_ bridgev2.UserBlockingNetworkAPI        = (*DiscordClient)(nil)
+	_ bridgev2.ReactionHandlingNetworkAPI        = (*DiscordClient)(nil)
+	_ bridgev2.RedactionHandlingNetworkAPI       = (*DiscordClient)(nil)
+	_ bridgev2.EditHandlingNetworkAPI            = (*DiscordClient)(nil)
+	_ bridgev2.ReadReceiptHandlingNetworkAPI     = (*DiscordClient)(nil)
+	_ bridgev2.TypingHandlingNetworkAPI          = (*DiscordClient)(nil)
+	_ bridgev2.MuteHandlingNetworkAPI            = (*DiscordClient)(nil)
+	_ bridgev2.UserBlockingNetworkAPI            = (*DiscordClient)(nil)
+	_ bridgev2.MessageRequestAcceptingNetworkAPI = (*DiscordClient)(nil)
 )
 
 type contextKey int
@@ -107,7 +109,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	// Perform any required screening before making any requests to Discord at
 	// all (message conversion does).
-	if err := d.screenOutgoingMessage(ctx, ch); err != nil {
+	if err := d.screenOutgoingMessage(ctx, portal, ch); err != nil {
 		return nil, err
 	}
 
@@ -180,10 +182,23 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	}, nil
 }
 
-var errCannotDMStranger = errors.New("can't direct message a stranger")
+var (
+	errCannotDMStranger          = errors.New("can't direct message a stranger")
+	errPendingMessageRequest     = errors.New("message request hasn't been accepted")
+	errMessageRequestNotAccepted = errors.New("failed to accept message request")
+)
 
-func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *discordgo.Channel) error {
+func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, portal *bridgev2.Portal, destCh *discordgo.Channel) error {
 	log := zerolog.Ctx(ctx)
+
+	if channelIsPendingMessageRequest(destCh) {
+		log.Info().Msg("Preventing send into a message request that hasn't been accepted")
+		return bridgev2.WrapErrorInStatus(errPendingMessageRequest).
+			WithStatus(event.MessageStatusFail).
+			WithIsCertain(true).
+			WithMessage("Accept the message request before replying.").
+			WithSendNotice(true)
+	}
 
 	if d.connector.Config.ForbidDMingStrangersEnabled() {
 		dmRecipID := dmChannelRecipientID(destCh)
@@ -193,7 +208,7 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 
 			dmRecip := d.userCache.Resolve(ctx, *dmRecipID)
 
-			if dmRecip != nil && !dmRecip.Bot && !friendsWithDMRecip {
+			if dmRecip != nil && !dmRecip.Bot && !friendsWithDMRecip && !d.recipientHasMessaged(ctx, portal, *dmRecipID) {
 				loggedRelType := "none"
 				if rel != nil {
 					loggedRelType = readableRelationshipType(rel.Type)
@@ -205,12 +220,69 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 				return bridgev2.WrapErrorInStatus(errCannotDMStranger).
 					WithStatus(event.MessageStatusFail).
 					WithIsCertain(true).
-					WithMessage("You can't message users who aren't on your friends list. To continue, use the Discord app to chat or add them as a friend.").
+					WithMessage("You can't start a conversation with someone who isn't on your friends list. To continue, use the Discord app or add them as a friend.").
 					WithSendNotice(true)
 			}
 		}
 	}
 
+	return nil
+}
+
+const recipientHasMessagedLookback = 100
+
+func (d *DiscordClient) recipientHasMessaged(ctx context.Context, portal *bridgev2.Portal, recipientID string) bool {
+	msgs, err := d.connector.Bridge.DB.Message.GetLastNInPortal(ctx, portal.PortalKey, recipientHasMessagedLookback)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to check whether the DM recipient has sent messages")
+		return false
+	}
+	senderID := discordid.MakeUserID(recipientID)
+	for _, msg := range msgs {
+		if msg.SenderID == senderID {
+			return true
+		}
+	}
+	return false
+}
+
+func channelIsPendingMessageRequest(ch *discordgo.Channel) bool {
+	return ch != nil && ch.Type == discordgo.ChannelTypeDM && ch.IsMessageRequest
+}
+
+func (d *DiscordClient) HandleMatrixAcceptMessageRequest(ctx context.Context, msg *bridgev2.MatrixAcceptMessageRequest) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	ch := d.channelWithID(ctx, channelID)
+	if ch == nil || ch.Type != discordgo.ChannelTypeDM {
+		return fmt.Errorf("%w: not a direct message", errMessageRequestNotAccepted)
+	}
+	if !ch.IsMessageRequest {
+		return nil
+	}
+
+	endpoint := discordgo.EndpointChannel(channelID) + "/recipients/@me"
+	_, err := d.Session.RequestWithBucketID(
+		http.MethodPut,
+		endpoint,
+		map[string]int{"consent_status": 2},
+		endpoint,
+		discordgo.WithReferer("https://discord.com/message-requests"),
+		discordgo.WithContext(ctx),
+	)
+	if err != nil {
+		return bridgev2.WrapErrorInStatus(fmt.Errorf("%w: %w", errMessageRequestNotAccepted, err)).
+			WithStatus(event.MessageStatusRetriable).
+			WithMessage("Couldn't accept the message request on Discord.").
+			WithSendNotice(true)
+	}
+
+	d.Session.State.Lock()
+	ch.IsMessageRequest = false
+	d.Session.State.Unlock()
+	zerolog.Ctx(ctx).Info().Bool("implicit", msg.Content.IsImplicit).Msg("Accepted Discord message request")
 	return nil
 }
 
@@ -316,6 +388,13 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 			threadChannelID = thread.ThreadChannelID
 			channelID = threadChannelID
 		}
+	}
+
+	if channelIsPendingMessageRequest(d.channelWithID(ctx, channelID)) {
+		return nil, bridgev2.WrapErrorInStatus(errPendingMessageRequest).
+			WithStatus(event.MessageStatusFail).
+			WithIsCertain(true).
+			WithMessage("Accept the message request before reacting.")
 	}
 
 	return nil, d.tryWrappingError(ctx, d.Session.MessageReactionAddUser(
@@ -564,6 +643,9 @@ func (d *DiscordClient) HandleMatrixTyping(ctx context.Context, msg *bridgev2.Ma
 
 	guildID := msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID
 	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	if channelIsPendingMessageRequest(d.channelWithID(ctx, channelID)) {
+		return nil
+	}
 	err := d.Session.ChannelTyping(channelID, makeDiscordReferer(guildID, channelID, ""))
 
 	if err != nil {

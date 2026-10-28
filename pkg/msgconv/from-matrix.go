@@ -189,7 +189,7 @@ func (mc *MessageConverter) ToDiscord(
 
 		if err != nil {
 			log.Err(err).Msg("Failed to create attachment in preparation for attachment reupload")
-			return nil, bridgev2.ErrMediaReuploadFailed
+			return nil, fmt.Errorf("%w: %w", bridgev2.ErrMediaReuploadFailed, err)
 		}
 
 		prepared := prep.Attachments[0]

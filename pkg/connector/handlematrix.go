@@ -113,7 +113,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg, channelID, refererOpt)
 	if err != nil {
-		return nil, err
+		return nil, d.tryWrappingError(ctx, err)
 	}
 
 	if sendReq.Reference != nil && sendReq.Reference.ChannelID == parentChannelID && threadChannelID != "" {
@@ -656,5 +656,5 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		}
 		err = d.Session.RelationshipDelete(*recipient)
 	}
-	return err
+	return d.tryWrappingError(ctx, err)
 }

@@ -134,9 +134,19 @@ func (n *astDiscordCustomEmoji) String() string {
 	return fmt.Sprintf("<%s%d>", n.name, n.id)
 }
 
+type astDiscordChannelLink struct {
+	astDiscordTag
+
+	url       string
+	messageID int64
+}
+
+func (n *astDiscordChannelLink) String() string {
+	return n.url
+}
+
 type discordTagParser struct{}
 
-// Regex to match everything in https://discord.com/developers/docs/reference#message-formatting
 var discordTagRegex = regexp.MustCompile(`<(a?:\w+:|@[!&]?|#|t:)(\d+)(?::([tTdDfFR])|(\d+):(.+?))?>`)
 var defaultDiscordTagParser = &discordTagParser{}
 
@@ -200,6 +210,62 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 }
 
 func (s *discordTagParser) CloseBlock(parent ast.Node, pc parser.Context) {
+	// nothing to do
+}
+
+type discordChannelLinkParser struct{}
+
+// Regex to match links to Discord channels and messages, e.g. https://discord.com/channels/<guild ID>/<channel ID>/<message ID>
+var discordChannelLinkRegex = regexp.MustCompile(`^https?://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/(?:\d+|@me)/(\d+)(?:/(\d+))?$`)
+var defaultDiscordChannelLinkParser = &discordChannelLinkParser{}
+
+func (s *discordChannelLinkParser) Trigger() []byte {
+	return []byte{' ', '('}
+}
+
+func (s *discordChannelLinkParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
+	if pc.IsInLinkLabel() {
+		return nil
+	}
+	portal := pc.Get(parserContextPortal).(*Portal)
+	line, segment := block.PeekLine()
+	consumes := 0
+	if util.IsSpace(line[0]) || line[0] == '(' {
+		consumes++
+		line = line[1:]
+	}
+	loc := discordLinkRegex.FindIndex(line)
+	if loc == nil || loc[0] != 0 {
+		return nil
+	}
+	match := discordChannelLinkRegex.FindSubmatch(line[:loc[1]])
+	if match == nil {
+		return nil
+	}
+
+	channelID, err := strconv.ParseInt(string(match[1]), 10, 64)
+	if err != nil {
+		return nil
+	}
+	var messageID int64
+	if len(match[2]) > 0 {
+		messageID, err = strconv.ParseInt(string(match[2]), 10, 64)
+		if err != nil {
+			return nil
+		}
+	}
+	if consumes != 0 {
+		ast.MergeOrAppendTextSegment(parent, segment.WithStop(segment.Start+1))
+	}
+	block.Advance(consumes + loc[1])
+	return &astDiscordChannelLink{
+		astDiscordTag: astDiscordTag{id: channelID, portal: portal},
+		url:           string(match[0]),
+		messageID:     messageID,
+	}
+}
+
+func (s *discordChannelLinkParser) CloseBlock(parent ast.Node, pc parser.Context) {
 	// nothing to do
 }
 
@@ -296,6 +362,35 @@ func (r *discordTagHTMLRenderer) renderDiscordMention(w util.BufWriter, source [
 			}
 			return
 		}
+	case *astDiscordChannelLink:
+		channelID := strconv.FormatInt(node.id, 10)
+		var portal *Portal
+		var thread *Thread
+		if channelID == node.portal.Key.ChannelID {
+			portal = node.portal
+		} else if portal = node.portal.bridge.GetExistingPortalByID(database.NewPortalKey(channelID, "")); portal == nil {
+			thread = node.portal.bridge.GetThreadByID(channelID, nil)
+			if thread != nil {
+				portal = thread.Parent
+			}
+		}
+		if portal == nil || portal.MXID == "" {
+			break
+		}
+		homeserver := portal.bridge.AS.HomeserverDomain
+		if node.messageID != 0 {
+			msg := portal.bridge.DB.Message.GetFirstByDiscordID(portal.Key, strconv.FormatInt(node.messageID, 10))
+			if msg != nil {
+				_, _ = fmt.Fprintf(w, `<a href="%[1]s">%[1]s</a>`, portal.MXID.EventURI(msg.MXID, homeserver).MatrixToURL())
+				return
+			}
+		} else if thread != nil {
+			_, _ = fmt.Fprintf(w, `<a href="%[1]s">%[1]s</a>`, portal.MXID.EventURI(thread.RootMXID, homeserver).MatrixToURL())
+			return
+		} else {
+			_, _ = fmt.Fprintf(w, `<a href="%s">%s</a>`, portal.MXID.URI(homeserver).MatrixToURL(), portal.Name)
+			return
+		}
 	case *astDiscordCustomEmoji:
 		reactionMXC := node.portal.getEmojiMXCByDiscordID(strconv.FormatInt(node.id, 10), node.name, node.animated)
 		if !reactionMXC.IsEmpty() {
@@ -336,6 +431,7 @@ var ExtDiscordTag = &discordTag{}
 func (e *discordTag) Extend(m goldmark.Markdown) {
 	m.Parser().AddOptions(parser.WithInlineParsers(
 		util.Prioritized(defaultDiscordTagParser, 600),
+		util.Prioritized(defaultDiscordChannelLinkParser, 600),
 	))
 	m.Renderer().AddOptions(renderer.WithNodeRenderers(
 		util.Prioritized(defaultDiscordTagHTMLRenderer, 600),

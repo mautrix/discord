@@ -1266,6 +1266,11 @@ func (d *DiscordClient) tryWrappingError(ctx context.Context, err error) error {
 	return err
 }
 
+func isUnknownMessage(err error) bool {
+	var restErr *discordgo.RESTError
+	return errors.As(err, &restErr) && restErr.Message != nil && restErr.Message.Code == discordgo.ErrCodeUnknownMessage
+}
+
 func wrapRejection(err error, reason event.MessageStatusReason, message string) error {
 	return bridgev2.WrapErrorInStatus(err).
 		WithStatus(event.MessageStatusFail).

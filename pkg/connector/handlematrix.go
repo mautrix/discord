@@ -352,14 +352,18 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 		}
 	}
 
-	return d.tryWrappingError(ctx, d.Session.MessageReactionRemoveUser(
+	err = d.Session.MessageReactionRemoveUser(
 		guildID,
 		channelID,
 		discordid.ParseMessageID(removing.MessageID),
 		discordid.ParseEmojiID(emojiID),
 		discordid.ParseUserLoginID(d.UserLogin.ID),
 		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
-	))
+	)
+	if isUnknownMessage(err) {
+		return nil
+	}
+	return d.tryWrappingError(ctx, err)
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
@@ -381,7 +385,11 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 		}
 	}
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
-	return d.tryWrappingError(ctx, d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID)))
+	err := d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID))
+	if isUnknownMessage(err) {
+		return nil
+	}
+	return d.tryWrappingError(ctx, err)
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {

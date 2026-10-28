@@ -99,6 +99,7 @@ const formatterContextPortalKey = "fi.mau.discord.portal"
 const formatterContextAllowedMentionsKey = "fi.mau.discord.allowed_mentions"
 const formatterContextInputAllowedMentionsKey = "fi.mau.discord.input_allowed_mentions"
 const formatterContextInputAllowedLinkPreviewsKey = "fi.mau.discord.input_allowed_link_previews"
+const formatterContextMatrixLinkConverterKey = "fi.mau.discord.matrix_link_converter"
 
 func appendIfNotContains(arr []string, newItem string) []string {
 	for _, item := range arr {
@@ -181,6 +182,14 @@ var discordMarkdownEscaper = strings.NewReplacer(
 )
 
 func escapeDiscordMarkdown(s string) string {
+	return escapeDiscordMarkdownAndConvertLinks(s, nil)
+}
+
+// escapeDiscordMarkdownAndConvertLinks escapes markdown the same way as escapeDiscordMarkdown.
+//
+// Links are passed through convertLink instead of being left as-is.
+// If convertLink is nil then links are not modified.
+func escapeDiscordMarkdownAndConvertLinks(s string, convertLink func(string) string) string {
 	submatches := discordLinkRegex.FindAllStringIndex(s, -1)
 	if submatches == nil {
 		return discordMarkdownEscaper.Replace(s)
@@ -191,11 +200,31 @@ func escapeDiscordMarkdown(s string) string {
 		start := match[0]
 		end := match[1]
 		builder.WriteString(discordMarkdownEscaper.Replace(s[offset:start]))
-		builder.WriteString(s[start:end])
+		if convertLink != nil {
+			builder.WriteString(convertLink(s[start:end]))
+		} else {
+			builder.WriteString(s[start:end])
+		}
 		offset = end
 	}
 	builder.WriteString(discordMarkdownEscaper.Replace(s[offset:]))
 	return builder.String()
+}
+
+// convertMatrixLink converts a plain matrix.to link to a Discord channel mention or message link.
+//
+// Only links to rooms or events in bridged rooms are converted.
+// Any other link is returned unchanged.
+func (portal *Portal) convertMatrixLink(link string) string {
+	parsed, err := id.ParseMatrixURIOrMatrixToURL(link)
+	if err != nil || parsed == nil || (parsed.Sigil1 != '!' && parsed.Sigil1 != '#') {
+		return link
+	}
+	converted := portal.bridge.pillConverter("", parsed.PrimaryIdentifier(), parsed.SecondaryIdentifier(), format.Context{})
+	if converted == "" {
+		return link
+	}
+	return converted
 }
 
 var matrixHTMLParser = &format.HTMLParser{
@@ -213,7 +242,11 @@ var matrixHTMLParser = &format.HTMLParser{
 			// If we're in a code block, don't escape markdown
 			return s
 		}
-		return escapeDiscordMarkdown(s)
+		if ctx.TagStack.Has("a") {
+			return escapeDiscordMarkdown(s)
+		}
+		convertLink, _ := ctx.ReturnData[formatterContextMatrixLinkConverterKey].(func(string) string)
+		return escapeDiscordMarkdownAndConvertLinks(s, convertLink)
 	},
 	SpoilerConverter: func(text, reason string, ctx format.Context) string {
 		if reason != "" {
@@ -249,12 +282,13 @@ func (portal *Portal) parseMatrixHTML(content *event.MessageEventContent, allowe
 		ctx := format.NewContext()
 		ctx.ReturnData[formatterContextInputAllowedLinkPreviewsKey] = allowedLinkPreviews
 		ctx.ReturnData[formatterContextPortalKey] = portal
+		ctx.ReturnData[formatterContextMatrixLinkConverterKey] = portal.convertMatrixLink
 		ctx.ReturnData[formatterContextAllowedMentionsKey] = allowedMentions
 		if content.Mentions != nil {
 			ctx.ReturnData[formatterContextInputAllowedMentionsKey] = content.Mentions.UserIDs
 		}
 		return variationselector.FullyQualify(matrixHTMLParser.Parse(content.FormattedBody, ctx)), allowedMentions
 	} else {
-		return variationselector.FullyQualify(escapeDiscordMarkdown(content.Body)), allowedMentions
+		return variationselector.FullyQualify(escapeDiscordMarkdownAndConvertLinks(content.Body, portal.convertMatrixLink)), allowedMentions
 	}
 }

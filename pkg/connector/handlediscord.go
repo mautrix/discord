@@ -32,6 +32,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
+	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
@@ -774,11 +775,23 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 	log := zerolog.Ctx(ctx)
 
 	switch evt := rawEvt.(type) {
+	case *discordgo.Disconnect:
+		d.gatewayReady.Store(false)
+		d.UserLogin.Log.Warn().Msg("Disconnected from Discord gateway, waiting for discordgo to reconnect")
+		if d.HasToken() {
+			d.UserLogin.BridgeState.Send(status.BridgeState{
+				StateEvent: status.StateTransientDisconnect,
+				Error:      DCWebsocketDisconnected,
+			})
+		}
+	case *discordgo.Resumed:
+		d.gatewayReady.Store(true)
 	case *discordgo.ReadySupplemental:
 		log.Info().
 			Int("n_lazy_private_channels", len(evt.LazyPrivateChannels)).
 			Msg("Received supplemental READY")
 	case *discordgo.Ready:
+		d.gatewayReady.Store(true)
 		readiedBefore := d.seenReady.Swap(true)
 
 		d.applyReadyPayload(ctx, evt)

@@ -23,6 +23,7 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"math/rand/v2"
 	"net/http"
 	"regexp"
 	"slices"
@@ -166,7 +167,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 
 	d.markedOpened = make(map[string]time.Time)
 
-	d.connectRetrying(ctx, 0, nil)
+	d.connectRetrying(context.WithoutCancel(ctx), 0, nil)
 }
 
 func vitalsErrorCode(v *vitals) (code status.BridgeStateErrorCode) {
@@ -238,7 +239,14 @@ func (d *DiscordClient) sendCurrentState(ctx context.Context) {
 	})
 }
 
-const maxGatewayConnectRetries = 5
+const (
+	minGatewayRetryDelay = 2 * time.Second
+	maxGatewayRetryDelay = 5 * time.Minute
+)
+
+func gatewayRetryDelay(retryCount int) time.Duration {
+	return rand.N(min(minGatewayRetryDelay<<min(retryCount, 8), maxGatewayRetryDelay))
+}
 
 // tokenInvalidated responds to Discord invalidating our token.
 func (d *DiscordClient) tokenInvalidated(ctx context.Context, circumstance string) {
@@ -284,11 +292,27 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 		StateEvent: status.StateConnecting,
 	})
 
+	retryAfterDelay := func() {
+		sleepDuration := gatewayRetryDelay(retryCount)
+		log.Debug().Dur("retry_sleeping_seconds", sleepDuration).
+			Msg("Sleeping and retrying gateway connection")
+
+		go func() {
+			select {
+			case <-time.After(sleepDuration):
+				d.connectRetrying(ctx, retryCount+1, &cancel)
+			case <-retryCtx.Done():
+				log.Debug().Msg("Was told to stop connecting")
+			}
+		}()
+	}
+
 	if d.connector.proxyConfigured() && !d.updateProxy(ctx, "connect") {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateUnknownError,
+			StateEvent: status.StateTransientDisconnect,
 			Error:      DCProxyResolveFail,
 		})
+		retryAfterDelay()
 		return
 	}
 
@@ -314,32 +338,13 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 			//
 			// Don't retry.
 			d.tokenInvalidated(ctx, "when connecting")
-		} else if retryCount <= maxGatewayConnectRetries {
+		} else {
 			d.UserLogin.BridgeState.Send(status.BridgeState{
 				StateEvent: status.StateTransientDisconnect,
 				Error:      DCUnknownWebsocketError,
-				Message:    err.Error(),
+				Info:       map[string]any{"go_error": err.Error()},
 			})
-
-			sleepDuration := time.Second * time.Duration(2<<retryCount)
-			log.Debug().Dur("retry_sleeping_seconds", sleepDuration).
-				Msg("Sleeping and retrying gateway connection")
-
-			select {
-			case <-time.After(sleepDuration):
-			case <-retryCtx.Done():
-				log.Debug().Msg("Was told to stop connecting")
-				return
-			}
-			d.connectRetrying(ctx, retryCount+1, &cancel)
-		} else {
-			d.UserLogin.BridgeState.Send(status.BridgeState{
-				StateEvent: status.StateUnknownError,
-				Error:      DCUnknownWebsocketError,
-				Message:    err.Error(),
-			})
-
-			log.Error().Msg("Exhausted connect retries")
+			retryAfterDelay()
 		}
 	}
 }

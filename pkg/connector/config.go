@@ -73,7 +73,8 @@ type Config struct {
 
 	// ProxyMedia controls whether avatar, icon, and attachment downloads also
 	// go through the proxy. The gateway websocket and REST API always use it.
-	ProxyMedia bool `yaml:"proxy_media"`
+	ProxyMedia       bool `yaml:"proxy_media"`
+	ProxyDirectMedia bool `yaml:"proxy_direct_media"`
 
 	ReportScrubbedAccountStanding bool `yaml:"report_scrubbed_account_standing"`
 
@@ -177,6 +178,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Str, "proxy")
 	helper.Copy(up.Str, "get_proxy_from")
 	helper.Copy(up.Bool, "proxy_media")
+	helper.Copy(up.Bool, "proxy_direct_media")
 	helper.Copy(up.Bool, "proxy_login_machine")
 	helper.Copy(up.Bool, "proxy_login_remoteauth")
 	helper.Copy(up.Bool, "report_scrubbed_account_standing")

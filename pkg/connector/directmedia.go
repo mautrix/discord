@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -47,8 +48,8 @@ func (d *DiscordConnector) Download(
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse media id for download: %w", err)
 	}
-
-	return d.downloadAttachment(ctx, info)
+	forceDisableProxy := params["fi.mau.discord.force_disable_proxy"] == "true"
+	return d.downloadAttachment(ctx, info, forceDisableProxy)
 }
 
 func (d *DiscordConnector) SetUseDirectMedia() {
@@ -58,8 +59,9 @@ func (d *DiscordConnector) SetUseDirectMedia() {
 func (d *DiscordConnector) downloadAttachment(
 	ctx context.Context,
 	info *discordid.MediaInfo,
-) (*mediaproxy.GetMediaResponseURL, error) {
-	url, expiresAt, err := d.resolveAttachmentURL(ctx, info)
+	forceDisableProxy bool,
+) (mediaproxy.GetMediaResponse, error) {
+	downloadURL, expiresAt, err := d.resolveAttachmentURL(ctx, info)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh attachment url for download: %w", err)
 	}
@@ -68,9 +70,30 @@ func (d *DiscordConnector) downloadAttachment(
 		// Unknown expiry is safer as no-store for now.
 		expiresAt = time.Now()
 	}
-	return &mediaproxy.GetMediaResponseURL{
-		URL:       url,
-		ExpiresAt: expiresAt,
+	if !d.Config.ProxyDirectMedia || forceDisableProxy {
+		return &mediaproxy.GetMediaResponseURL{
+			URL:       downloadURL,
+			ExpiresAt: expiresAt,
+		}, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare attachment download request: %w", err)
+	}
+	for key, value := range discordgo.DroidDownloadHeaders {
+		req.Header.Set(key, value)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download attachment: %w", err)
+	} else if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("failed to download attachment: unexpected status code %d", resp.StatusCode)
+	}
+	return &mediaproxy.GetMediaResponseData{
+		Reader:        resp.Body,
+		ContentType:   resp.Header.Get("Content-Type"),
+		ContentLength: max(resp.ContentLength, 0),
 	}, nil
 }
 

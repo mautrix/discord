@@ -85,6 +85,9 @@ proxy_login_machine: true
 # (The "remoteauth" login flow is the QR-code-based login process that connects
 # to a WebSocket gateway entirely dedicated to this login process.)
 proxy_login_remoteauth: true
+# Should direct media be proxied through the bridge rather than redirecting the
+# client to Discord's CDN?
+proxy_direct_media: false
 
 # Should "Account Standing" information (viewable under the Account tab on
 # Discord) be fetched and incorporated into the "info" field of bridge states?

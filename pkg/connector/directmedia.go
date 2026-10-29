@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -58,19 +59,29 @@ func (d *DiscordConnector) SetUseDirectMedia() {
 func (d *DiscordConnector) downloadAttachment(
 	ctx context.Context,
 	info *discordid.MediaInfo,
-) (*mediaproxy.GetMediaResponseURL, error) {
-	url, expiresAt, err := d.resolveAttachmentURL(ctx, info)
+) (*mediaproxy.GetMediaResponseData, error) {
+	downloadURL, _, err := d.resolveAttachmentURL(ctx, info)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh attachment url for download: %w", err)
 	}
-	if expiresAt.IsZero() {
-		// A zero expiry becomes effectively immutable caching in mediaproxy.
-		// Unknown expiry is safer as no-store for now.
-		expiresAt = time.Now()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare attachment download request: %w", err)
 	}
-	return &mediaproxy.GetMediaResponseURL{
-		URL:       url,
-		ExpiresAt: expiresAt,
+	for key, value := range discordgo.DroidDownloadHeaders {
+		req.Header.Set(key, value)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download attachment: %w", err)
+	} else if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("failed to download attachment: unexpected status code %d", resp.StatusCode)
+	}
+	return &mediaproxy.GetMediaResponseData{
+		Reader:        resp.Body,
+		ContentType:   resp.Header.Get("Content-Type"),
+		ContentLength: max(resp.ContentLength, 0),
 	}, nil
 }
 

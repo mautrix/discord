@@ -141,11 +141,21 @@ func (mc *MessageConverter) ToMatrix(
 	// TODO(skip): Add extra metadata.
 	// for _, part := range parts {
 	// 	puppet.addWebhookMeta(part, msg)
-	// 	puppet.addMemberMeta(part, msg)
 	// }
 
 	var pmp *event.BeeperPerMessageProfile
-	if mc.PerMessageProfiles {
+	if msg.GuildID != "" && msg.Member != nil && msg.Member.Nick != "" {
+		pmp = &event.BeeperPerMessageProfile{
+			ID:          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
+			Displayname: msg.Member.Nick,
+		}
+		ghost, err := portal.Bridge.GetGhostByID(ctx, discordid.MakeUserID(msg.Author.ID))
+		if err != nil {
+			log.Err(err).Msg("Failed to get ghost for guild member profile")
+		} else if ghost.AvatarMXC != "" {
+			pmp.AvatarURL = &ghost.AvatarMXC
+		}
+	} else if mc.PerMessageProfiles {
 		sender := discordid.MakeUserID(msg.Author.ID)
 		var profile event.BeeperPerMessageProfile
 		ghost, err := portal.Bridge.GetGhostByID(ctx, sender)

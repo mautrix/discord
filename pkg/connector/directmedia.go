@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -173,7 +174,13 @@ func (d *DiscordConnector) refreshAttachmentURL(
 	}
 
 	for _, msg := range messages {
-		for _, att := range msg.Attachments {
+		attachments := msg.Attachments
+		for _, snapshot := range msg.MessageSnapshots {
+			if snapshot.Message != nil {
+				attachments = slices.Concat(attachments, snapshot.Message.Attachments)
+			}
+		}
+		for _, att := range attachments {
 			if att.ID == attachmentID {
 				expiresAt := normalizeAttachmentExpiry(parseAttachmentExpiryFromURL(att.URL))
 				// (Trace is not the default log level, so this is only visible

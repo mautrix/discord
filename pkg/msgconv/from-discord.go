@@ -84,50 +84,52 @@ func (mc *MessageConverter) ToMatrix(
 	log := zerolog.Ctx(ctx)
 	handledIDs := make(exmaps.Set[string])
 
-	for _, att := range msg.Attachments {
-		if !handledIDs.Add(att.ID) {
-			continue
+	for _, contentMsg := range contentMessages(msg) {
+		for _, att := range contentMsg.Attachments {
+			if !handledIDs.Add(att.ID) {
+				continue
+			}
+
+			log := log.With().Str("attachment_id", att.ID).Logger()
+			mediaInfo := discordid.NewMediaInfoV1(source.ID, msg.ChannelID, msg.ID, att.ID)
+			if part := mc.renderDiscordAttachment(log.WithContext(ctx), att, &mediaInfo); part != nil {
+				part.ID = discordid.MakePartID(att.ID)
+				parts = append(parts, part)
+			}
 		}
 
-		log := log.With().Str("attachment_id", att.ID).Logger()
-		mediaInfo := discordid.NewMediaInfoV1(source.ID, msg.ChannelID, msg.ID, att.ID)
-		if part := mc.renderDiscordAttachment(log.WithContext(ctx), att, &mediaInfo); part != nil {
-			part.ID = discordid.MakePartID(att.ID)
-			parts = append(parts, part)
-		}
-	}
+		for _, sticker := range contentMsg.StickerItems {
+			if !handledIDs.Add(sticker.ID) {
+				continue
+			}
 
-	for _, sticker := range msg.StickerItems {
-		if !handledIDs.Add(sticker.ID) {
-			continue
-		}
-
-		log := log.With().Str("sticker_id", sticker.ID).Logger()
-		if part := mc.renderDiscordSticker(log.WithContext(ctx), sticker); part != nil {
-			part.ID = discordid.MakePartID(sticker.ID)
-			parts = append(parts, part)
-		}
-	}
-
-	for i, embed := range msg.Embeds {
-		// Ignore non-video embeds, they're handled in convertDiscordTextMessage
-		if getEmbedType(msg, embed) != EmbedVideo {
-			continue
-		}
-		// Discord deduplicates embeds by URL. It makes things easier for us too.
-		if !handledIDs.Add(embed.URL) {
-			continue
+			log := log.With().Str("sticker_id", sticker.ID).Logger()
+			if part := mc.renderDiscordSticker(log.WithContext(ctx), sticker); part != nil {
+				part.ID = discordid.MakePartID(sticker.ID)
+				parts = append(parts, part)
+			}
 		}
 
-		log := log.With().
-			Str("computed_embed_type", "video").
-			Str("embed_type", string(embed.Type)).
-			Int("embed_index", i).
-			Logger()
-		part := mc.renderDiscordVideoEmbed(log.WithContext(ctx), embed)
-		if part != nil {
-			part.ID = discordid.MakePartID(videoEmbedPartIDPrefix + embed.URL)
-			parts = append(parts, part)
+		for i, embed := range contentMsg.Embeds {
+			// Ignore non-video embeds, they're handled in convertDiscordTextMessage
+			if getEmbedType(contentMsg, embed) != EmbedVideo {
+				continue
+			}
+			// Discord deduplicates embeds by URL. It makes things easier for us too.
+			if !handledIDs.Add(embed.URL) {
+				continue
+			}
+
+			log := log.With().
+				Str("computed_embed_type", "video").
+				Str("embed_type", string(embed.Type)).
+				Int("embed_index", i).
+				Logger()
+			part := mc.renderDiscordVideoEmbed(log.WithContext(ctx), embed)
+			if part != nil {
+				part.ID = discordid.MakePartID(videoEmbedPartIDPrefix + embed.URL)
+				parts = append(parts, part)
+			}
 		}
 	}
 
@@ -280,36 +282,35 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	if msg.Content != "" && !isPlainGifMessage(msg) {
 		// Bridge basic text messages.
 		htmlParts = append(htmlParts, mc.renderDiscordMarkdownOnlyHTML(ctx, portal, source, msg.Content, true))
-	} else if msg.MessageReference != nil &&
-		msg.MessageReference.Type == discordgo.MessageReferenceTypeForward &&
-		len(msg.MessageSnapshots) > 0 &&
-		msg.MessageSnapshots[0].Message != nil {
+	} else if snapshot := forwardedSnapshot(msg); snapshot != nil {
 		// Bridge forwarded messages.
-		htmlParts = append(htmlParts, mc.forwardedMessageHTMLPart(ctx, portal, source, msg))
+		htmlParts = append(htmlParts, mc.forwardedMessageHTMLPart(ctx, portal, source, msg, snapshot))
 	}
 
 	previews := make([]*event.BeeperLinkPreview, 0)
-	for i, embed := range msg.Embeds {
-		if i == 0 && msg.MessageReference == nil && isReplyEmbed(embed) {
-			continue
-		}
+	for _, contentMsg := range contentMessages(msg) {
+		for i, embed := range contentMsg.Embeds {
+			if contentMsg == msg && i == 0 && msg.MessageReference == nil && isReplyEmbed(embed) {
+				continue
+			}
 
-		with := log.With().
-			Str("embed_type", string(embed.Type)).
-			Int("embed_index", i)
+			with := log.With().
+				Str("embed_type", string(embed.Type)).
+				Int("embed_index", i)
 
-		switch getEmbedType(msg, embed) {
-		case EmbedRich:
-			log := with.Str("computed_embed_type", "rich").Logger()
-			htmlParts = append(htmlParts, mc.renderDiscordRichEmbed(log.WithContext(ctx), source, embed))
-		case EmbedLinkPreview:
-			log := with.Str("computed_embed_type", "link preview").Logger()
-			previews = append(previews, mc.renderDiscordLinkEmbed(log.WithContext(ctx), embed))
-		case EmbedVideo:
-			// Video embeds are handled as separate messages via renderDiscordVideoEmbed.
-		default:
-			log := with.Logger()
-			log.Warn().Msg("Unknown embed type in message")
+			switch getEmbedType(contentMsg, embed) {
+			case EmbedRich:
+				log := with.Str("computed_embed_type", "rich").Logger()
+				htmlParts = append(htmlParts, mc.renderDiscordRichEmbed(log.WithContext(ctx), source, embed))
+			case EmbedLinkPreview:
+				log := with.Str("computed_embed_type", "link preview").Logger()
+				previews = append(previews, mc.renderDiscordLinkEmbed(log.WithContext(ctx), embed))
+			case EmbedVideo:
+				// Video embeds are handled as separate messages via renderDiscordVideoEmbed.
+			default:
+				log := with.Logger()
+				log.Warn().Msg("Unknown embed type in message")
+			}
 		}
 	}
 
@@ -385,11 +386,14 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 	return "", fmt.Errorf("couldn't resolve forwarded message link")
 }
 
-func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, msg *discordgo.Message) string {
+func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, msg, snapshot *discordgo.Message) string {
 	log := zerolog.Ctx(ctx)
 
-	forwardedHTML := mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(ctx, portal, source, msg.MessageSnapshots[0].Message.Content, true)
-	msgTSText := msg.MessageSnapshots[0].Message.Timestamp.Format("2006-01-02 15:04 MST")
+	var forwardedHTML string
+	if !isPlainGifMessage(snapshot) {
+		forwardedHTML = mc.renderDiscordMarkdownOnlyHTMLNoUnwrap(ctx, portal, source, snapshot.Content, true)
+	}
+	msgTSText := snapshot.Timestamp.Format("2006-01-02 15:04 MST")
 	origLink, err := mc.forwardedMessageOrigLink(ctx, source, msg, msgTSText)
 	if err != nil {
 		log.Err(err).Msg("Failed to render original link to forwarded message, using generic placeholder")
@@ -397,6 +401,22 @@ func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal
 	}
 
 	return fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink)
+}
+
+func forwardedSnapshot(msg *discordgo.Message) *discordgo.Message {
+	if msg.MessageReference == nil ||
+		msg.MessageReference.Type != discordgo.MessageReferenceTypeForward ||
+		len(msg.MessageSnapshots) == 0 {
+		return nil
+	}
+	return msg.MessageSnapshots[0].Message
+}
+
+func contentMessages(msg *discordgo.Message) []*discordgo.Message {
+	if snapshot := forwardedSnapshot(msg); snapshot != nil {
+		return []*discordgo.Message{msg, snapshot}
+	}
+	return []*discordgo.Message{msg}
 }
 
 func mediaFailedMessage(err error) *event.MessageEventContent {

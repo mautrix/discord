@@ -23,6 +23,7 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"math/rand/v2"
 	"net/http"
 	"regexp"
 	"slices"
@@ -51,6 +52,7 @@ type DiscordClient struct {
 	httpClient *http.Client
 
 	stopConnecting atomic.Pointer[context.CancelFunc]
+	gatewayReady   atomic.Bool
 	fullSyncDone   atomic.Bool // inverted (i.e. not needsInitSync) so zero value is "correct"
 	// seenReady is used to discern the initial READY payload from ones
 	// received during reconnections (where resumption is not possible).
@@ -116,11 +118,13 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 	if session != nil {
 		session.RESTResponseHook = cl.tapDiscordRESTResponse
 		session.BeforeReconnect = func(*discordgo.Session) {
-			c := login.Client.(*DiscordClient)
-			if c.connector.proxyConfigured() && !c.updateProxy(c.connector.Bridge.BackgroundCtx, "reconnect") {
+			if cl.stopConnecting.Load() == nil {
+				return
+			}
+			if cl.connector.proxyConfigured() && !cl.updateProxy(cl.connector.Bridge.BackgroundCtx, "reconnect") {
 				// Failed to update the proxy. Continue reconnecting via the
 				// last good proxy, but report the failure.
-				c.UserLogin.BridgeState.Send(status.BridgeState{
+				cl.UserLogin.BridgeState.Send(status.BridgeState{
 					StateEvent: status.StateTransientDisconnect,
 					Error:      DCProxyResolveFail,
 				})
@@ -166,7 +170,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 
 	d.markedOpened = make(map[string]time.Time)
 
-	d.connectRetrying(ctx, 0, nil)
+	d.connectRetrying(context.WithoutCancel(ctx), 0, nil)
 }
 
 func vitalsErrorCode(v *vitals) (code status.BridgeStateErrorCode) {
@@ -232,13 +236,24 @@ func (d *DiscordClient) sendCurrentState(ctx context.Context) {
 		return
 	}
 
+	if !d.gatewayReady.Load() {
+		return
+	}
+
 	d.UserLogin.BridgeState.Send(status.BridgeState{
 		StateEvent: status.StateConnected,
 		Info:       info,
 	})
 }
 
-const maxGatewayConnectRetries = 5
+const (
+	minGatewayRetryDelay = 2 * time.Second
+	maxGatewayRetryDelay = 5 * time.Minute
+)
+
+func gatewayRetryDelay(retryCount int) time.Duration {
+	return rand.N(min(minGatewayRetryDelay<<min(retryCount, 8), maxGatewayRetryDelay))
+}
 
 // tokenInvalidated responds to Discord invalidating our token.
 func (d *DiscordClient) tokenInvalidated(ctx context.Context, circumstance string) {
@@ -284,11 +299,27 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 		StateEvent: status.StateConnecting,
 	})
 
+	retryAfterDelay := func() {
+		sleepDuration := gatewayRetryDelay(retryCount)
+		log.Debug().Dur("retry_sleeping_seconds", sleepDuration).
+			Msg("Sleeping and retrying gateway connection")
+
+		go func() {
+			select {
+			case <-time.After(sleepDuration):
+				d.connectRetrying(ctx, retryCount+1, &cancel)
+			case <-retryCtx.Done():
+				log.Debug().Msg("Was told to stop connecting")
+			}
+		}()
+	}
+
 	if d.connector.proxyConfigured() && !d.updateProxy(ctx, "connect") {
 		d.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateUnknownError,
+			StateEvent: status.StateTransientDisconnect,
 			Error:      DCProxyResolveFail,
 		})
+		retryAfterDelay()
 		return
 	}
 
@@ -297,13 +328,6 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 		return
 	}
 	err := d.connect(ctx)
-	if err == nil && retryCtx.Err() != nil && d.stopConnecting.Load() == nil {
-		// Disconnect ran while Open was in progress, so its Close may have come too early.
-		// A newer connect attempt shares the session, so only close if nothing replaced us.
-		log.Debug().Msg("Disconnected while opening session, closing it again")
-		_ = d.Session.Close()
-		return
-	}
 	if err != nil {
 		log.Err(err).Msg("Couldn't connect to Discord")
 
@@ -314,37 +338,29 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 			//
 			// Don't retry.
 			d.tokenInvalidated(ctx, "when connecting")
-		} else if retryCount <= maxGatewayConnectRetries {
+		} else {
 			d.UserLogin.BridgeState.Send(status.BridgeState{
 				StateEvent: status.StateTransientDisconnect,
 				Error:      DCUnknownWebsocketError,
-				Message:    err.Error(),
+				Info:       map[string]any{"go_error": err.Error()},
 			})
-
-			sleepDuration := time.Second * time.Duration(2<<retryCount)
-			log.Debug().Dur("retry_sleeping_seconds", sleepDuration).
-				Msg("Sleeping and retrying gateway connection")
-
-			select {
-			case <-time.After(sleepDuration):
-			case <-retryCtx.Done():
-				log.Debug().Msg("Was told to stop connecting")
-				return
-			}
-			d.connectRetrying(ctx, retryCount+1, &cancel)
-		} else {
-			d.UserLogin.BridgeState.Send(status.BridgeState{
-				StateEvent: status.StateUnknownError,
-				Error:      DCUnknownWebsocketError,
-				Message:    err.Error(),
-			})
-
-			log.Error().Msg("Exhausted connect retries")
+			retryAfterDelay()
 		}
 	}
 }
 
 func (d *DiscordClient) handleDiscordEventSync(event any) {
+	if d.stopConnecting.Load() == nil {
+		// discordgo's reconnect loop doesn't stop on Close, so a session can come back after Disconnect.
+		if _, ok := event.(*discordgo.Connect); ok {
+			d.UserLogin.Log.Warn().Msg("Discord session reconnected after Disconnect, closing it")
+			d.Session.ShouldReconnectOnError = false
+			// Open holds the session lock while dispatching Connect.
+			go d.Session.Close()
+		}
+		return
+	}
+
 	// Dispatch event handlers that maintain important state synchronously, or
 	// else we might end up inadvertently relying on goroutine scheduling.
 	d.handleDiscordStateEvent(event)
@@ -443,6 +459,7 @@ func (d *DiscordClient) Disconnect() {
 	if stopConnecting := d.stopConnecting.Swap(nil); stopConnecting != nil {
 		(*stopConnecting)()
 	}
+	d.gatewayReady.Store(false)
 	d.UserLogin.Log.Info().Msg("Disconnecting session")
 	if d.Session != nil {
 		d.Session.Close()

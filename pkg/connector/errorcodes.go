@@ -22,6 +22,7 @@ const (
 	DCNotLoggedIn             status.BridgeStateErrorCode = "dc-not-logged-in"
 	DCWebsocketDisconnect4004 status.BridgeStateErrorCode = "dc-websocket-disconnect-4004"
 	DCUnknownWebsocketError   status.BridgeStateErrorCode = "dc-unknown-websocket-error"
+	DCWebsocketDisconnected   status.BridgeStateErrorCode = "dc-websocket-disconnected"
 	DCHTTP40002               status.BridgeStateErrorCode = "dc-http-40002"
 	DCProxyResolveFail        status.BridgeStateErrorCode = "dc-proxy-resolve-fail"
 )
@@ -57,9 +58,9 @@ func init() {
 		DCNotLoggedIn:             "Please log in to your Discord account.",
 		DCProxyResolveFail:        "Failed to update proxy",
 		DCHTTP40002:               accountVerificationRequiredMessage,
-		// (For DCUnknownWebsocketError, provide a specific error message when
-		// sending state. If there were a generic message here, it would
-		// overwrite that.)
+		DCUnknownWebsocketError:   "Couldn't connect to Discord, retrying.",
+		DCWebsocketDisconnected:   "Lost connection to Discord, reconnecting.",
+
 		DCRequireAgreements:                       "Discord updated their terms and policies. Please open the Discord app to review them.",
 		DCRequireVerifiedEmail:                    "Please use the Discord app to add a verified email address to your account.",
 		DCRequireVerifiedPhone:                    "Please use the Discord app to add a verified phone number to your account.",

@@ -975,6 +975,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		// events will be new.)
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
 		d.refreshSafetyHub(ctx)
+		d.pokeVitals(ctx)
 		d.sendCurrentState(ctx)
 	case *discordgo.InvalidAuth:
 		log.Warn().Msg("Got logged out of Discord due to invalid token")

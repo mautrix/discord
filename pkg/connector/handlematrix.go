@@ -115,7 +115,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg, channelID, refererOpt)
 	if err != nil {
-		return nil, err
+		return nil, d.tryWrappingError(ctx, err)
 	}
 
 	if sendReq.Reference != nil && sendReq.Reference.ChannelID == parentChannelID && threadChannelID != "" {
@@ -213,6 +213,22 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, portal *bridg
 				if rel != nil {
 					loggedRelType = readableRelationshipType(rel.Type)
 				}
+
+				if d.connector.Config.AllowRepliesToMessageRequestsEnabled() && channelIsOrWasMessageRequest(destCh) {
+					log.Info().
+						Str("relationship_type", loggedRelType).
+						Bool("is_message_request", destCh.IsMessageRequest).
+						Msg("Allowing direct message send to a non-friend: channel is an incoming message request")
+					return nil
+				}
+
+				if d.connector.Config.AllowDMingStrangersWhenUnimpeded && d.peekVitals().Unimpeded() {
+					log.Info().
+						Str("relationship_type", loggedRelType).
+						Msg("Allowing direct message send to a stranger: account vitals are unimpeded")
+					return nil
+				}
+
 				log.Info().
 					Str("relationship_type", loggedRelType).
 					Msg("Preventing direct message send to a stranger")
@@ -431,14 +447,18 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 		}
 	}
 
-	return d.tryWrappingError(ctx, d.Session.MessageReactionRemoveUser(
+	err = d.Session.MessageReactionRemoveUser(
 		guildID,
 		channelID,
 		discordid.ParseMessageID(removing.MessageID),
 		discordid.ParseEmojiID(emojiID),
 		discordid.ParseUserLoginID(d.UserLogin.ID),
 		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
-	))
+	)
+	if isUnknownMessage(err) {
+		return nil
+	}
+	return d.tryWrappingError(ctx, err)
 }
 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
@@ -460,7 +480,11 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 		}
 	}
 	messageID := discordid.ParseMessageID(removal.TargetMessage.ID)
-	return d.tryWrappingError(ctx, d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID)))
+	err := d.Session.ChannelMessageDelete(channelID, messageID, makeDiscordReferer(guildID, parentChannelID, threadChannelID))
+	if isUnknownMessage(err) {
+		return nil
+	}
+	return d.tryWrappingError(ctx, err)
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {
@@ -738,5 +762,5 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		}
 		err = d.Session.RelationshipDelete(*recipient)
 	}
-	return err
+	return d.tryWrappingError(ctx, err)
 }

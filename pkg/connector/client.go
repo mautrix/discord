@@ -1240,14 +1240,44 @@ func (d *DiscordClient) tryWrappingError(ctx context.Context, err error) error {
 	}
 
 	var restErr *discordgo.RESTError
+	if !errors.As(err, &restErr) || restErr.Message == nil {
+		return err
+	}
 
-	if errors.As(err, &restErr) && restErr.Message != nil {
-		if restErr.Message.Code == discordgo.ErrCodeActionRequiredVerifiedAccount {
-			return d.wrapReceived40002(ctx, err)
-		}
+	switch restErr.Message.Code {
+	case discordgo.ErrCodeActionRequiredVerifiedAccount:
+		return d.wrapReceived40002(ctx, err)
+	case discordgo.ErrCodeCannotSendMessagesToThisUser:
+		return wrapRejection(err, event.MessageStatusNoPermission, "This user isn't accepting messages from you. They may only accept messages from friends or people they share a server with.")
+	case discordgo.ErrCodeMissingPermissions, discordgo.ErrCodeMissingAccess:
+		return wrapRejection(err, event.MessageStatusNoPermission, "You don't have permission to do that in this Discord channel.")
+	case discordgo.ErrCodeCannotReplyWithoutPermissionToReadMessageHistory:
+		return wrapRejection(err, event.MessageStatusNoPermission, "You need permission to read the message history in this channel to reply.")
+	case discordgo.ErrCodeUnknownMessage:
+		return wrapRejection(err, event.MessageStatusNetworkError, "The message this refers to no longer exists on Discord.")
+	case discordgo.ErrCodeInvalidFormBody:
+		return wrapRejection(err, event.MessageStatusNetworkError, "Discord rejected this message as invalid.")
+	case discordgo.ErrCodeRequestEntityTooLarge:
+		return wrapRejection(err, event.MessageStatusUnsupported, "This file is too large to send on Discord.")
+	case discordgo.ErrCodeCannotSendEmptyMessage:
+		return wrapRejection(err, event.MessageStatusUnsupported, "Discord doesn't allow sending empty messages.")
 	}
 
 	return err
+}
+
+func isUnknownMessage(err error) bool {
+	var restErr *discordgo.RESTError
+	return errors.As(err, &restErr) && restErr.Message != nil && restErr.Message.Code == discordgo.ErrCodeUnknownMessage
+}
+
+func wrapRejection(err error, reason event.MessageStatusReason, message string) error {
+	return bridgev2.WrapErrorInStatus(err).
+		WithStatus(event.MessageStatusFail).
+		WithErrorReason(reason).
+		WithIsCertain(true).
+		WithMessage(message).
+		WithSendNotice(true)
 }
 
 var snowflakeish = regexp.MustCompile(`\d{17,}`)
@@ -1268,6 +1298,13 @@ func dmChannelRecipientID(ch *discordgo.Channel) *string {
 	}
 
 	return &ch.Recipients[0].ID
+}
+
+func channelIsOrWasMessageRequest(ch *discordgo.Channel) bool {
+	if ch == nil {
+		return false
+	}
+	return ch.IsMessageRequest || ch.IsMessageRequestTimestamp != nil
 }
 
 func (d *DiscordClient) baseAnalyticsProps(ctx context.Context) map[string]any {

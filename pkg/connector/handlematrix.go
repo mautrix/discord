@@ -222,7 +222,9 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 					return nil
 				}
 
-				if d.connector.Config.AllowDMingStrangersWhenUnimpeded && d.peekVitals().Unimpeded() {
+				vitals := d.peekVitals()
+				standingKnown := !d.connector.Config.ReportScrubbedAccountStanding || (vitals != nil && vitals.Safety != nil)
+				if d.connector.Config.AllowDMingStrangersWhenUnimpeded && standingKnown && vitals.Unimpeded() {
 					log.Info().
 						Str("relationship_type", loggedRelType).
 						Msg("Allowing direct message send to a stranger: account vitals are unimpeded")

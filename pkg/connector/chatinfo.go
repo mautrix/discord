@@ -227,16 +227,18 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 		}
 	}
 
-	var blocked *bool
+	var blocked, messageRequest *bool
 	if ch.Type == discordgo.ChannelTypeDM {
 		rel := d.relationshipWithDMRecipient(ch)
 		blocked = ptr.Ptr(rel != nil && rel.Type == discordgo.RelationshipBlocked)
+		messageRequest = ptr.Ptr(ch.IsMessageRequest)
 	}
 	return &bridgev2.ChatInfo{
-		Name:        d.getChannelName(ch),
-		UserBlocked: blocked,
-		Topic:       &ch.Topic,
-		Avatar:      d.makeAvatarForChannel(ctx, ch),
+		Name:           d.getChannelName(ch),
+		UserBlocked:    blocked,
+		MessageRequest: messageRequest,
+		Topic:          &ch.Topic,
+		Avatar:         d.makeAvatarForChannel(ctx, ch),
 
 		Members: &memberList,
 

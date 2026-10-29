@@ -1248,7 +1248,9 @@ func (d *DiscordClient) tryWrappingError(ctx context.Context, err error) error {
 	case discordgo.ErrCodeActionRequiredVerifiedAccount:
 		return d.wrapReceived40002(ctx, err)
 	case discordgo.ErrCodeCannotSendMessagesToThisUser:
-		return wrapRejection(err, event.MessageStatusNoPermission, "This user isn't accepting messages from you. They may only accept messages from friends or people they share a server with.")
+		return wrapRejection(err, event.MessageStatusNoPermission, "Discord didn't deliver this message. This user may only accept messages from friends or people they share a server with. "+discordDMHelpURL)
+	case errCodeNoMutualGuilds:
+		return wrapRejection(err, event.MessageStatusNoPermission, "Discord doesn't allow messaging this user because you don't share a server with them. "+discordDMHelpURL)
 	case discordgo.ErrCodeMissingPermissions, discordgo.ErrCodeMissingAccess:
 		return wrapRejection(err, event.MessageStatusNoPermission, "You don't have permission to do that in this Discord channel.")
 	case discordgo.ErrCodeCannotReplyWithoutPermissionToReadMessageHistory:
@@ -1265,6 +1267,11 @@ func (d *DiscordClient) tryWrappingError(ctx context.Context, err error) error {
 
 	return err
 }
+
+const (
+	errCodeNoMutualGuilds = 50278
+	discordDMHelpURL      = "https://support.discord.com/hc/en-us/articles/360060145013"
+)
 
 func isUnknownMessage(err error) bool {
 	var restErr *discordgo.RESTError

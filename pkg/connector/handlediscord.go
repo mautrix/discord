@@ -519,6 +519,9 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 	if upd.ParentID == old.ParentID {
 		patch.ParentID = nil
 	}
+	if upd.IsMessageRequest == old.IsMessageRequest {
+		patch.MessageRequest = nil
+	}
 
 	d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
 		EventMeta: simplevent.EventMeta{

@@ -58,7 +58,7 @@ func (d *DiscordConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilitie
 }
 
 func (d *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
-	return 1, 6
+	return 1, 7
 }
 
 /*func supportedIfFFmpeg() event.CapabilitySupportLevel {
@@ -69,7 +69,7 @@ func (d *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
 }*/
 
 func capID() string {
-	base := "fi.mau.discord.capabilities.2026_10_05"
+	base := "fi.mau.discord.capabilities.2026_10_27"
 	if ffmpeg.Supported() {
 		return base + "+ffmpeg"
 	}
@@ -187,6 +187,10 @@ func init() {
 	discordDMCaps = discordCaps.Clone()
 	discordDMCaps.ID += "+dm"
 	discordDMCaps.BlockUser = true
+	discordDMCaps.MessageRequest = &event.MessageRequestFeatures{
+		AcceptWithButton:  event.CapLevelFullySupported,
+		AcceptWithMessage: event.CapLevelPartialSupport,
+	}
 	discordDMCaps.Thread = event.CapLevelUnsupported
 }
 

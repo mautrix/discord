@@ -8,10 +8,9 @@ guilds:
     # Should guild channel portals take on the guild icon as their avatars?
     guild_avatars_in_rooms: false
 
-# Should the bridge refuse to start direct message conversations with recipients
-# the user isn't friends with on Discord? Discord generally considers this to be
-# a "risky" action. Replying to someone who has already messaged the user is
-# still allowed, and message requests are accepted before replying.
+# Should the bridge refuse to send direct messages to recipients the user isn't
+# friends with on Discord? Discord generally considers this to be a "risky"
+# action.
 forbid_dming_strangers: true
 
 # Even when forbid_dming_strangers is enabled, should sends into DM channels

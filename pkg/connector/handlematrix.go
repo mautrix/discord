@@ -109,7 +109,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	// Perform any required screening before making any requests to Discord at
 	// all (message conversion does).
-	if err := d.screenOutgoingMessage(ctx, portal, ch); err != nil {
+	if err := d.screenOutgoingMessage(ctx, ch); err != nil {
 		return nil, err
 	}
 
@@ -188,7 +188,7 @@ var (
 	errMessageRequestNotAccepted = errors.New("failed to accept message request")
 )
 
-func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, portal *bridgev2.Portal, destCh *discordgo.Channel) error {
+func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *discordgo.Channel) error {
 	log := zerolog.Ctx(ctx)
 
 	if channelIsPendingMessageRequest(destCh) {
@@ -208,7 +208,7 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, portal *bridg
 
 			dmRecip := d.userCache.Resolve(ctx, *dmRecipID)
 
-			if dmRecip != nil && !dmRecip.Bot && !friendsWithDMRecip && !d.recipientHasMessaged(ctx, portal, *dmRecipID) {
+			if dmRecip != nil && !dmRecip.Bot && !friendsWithDMRecip {
 				loggedRelType := "none"
 				if rel != nil {
 					loggedRelType = readableRelationshipType(rel.Type)
@@ -236,30 +236,13 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, portal *bridg
 				return bridgev2.WrapErrorInStatus(errCannotDMStranger).
 					WithStatus(event.MessageStatusFail).
 					WithIsCertain(true).
-					WithMessage("You can't start a conversation with someone who isn't on your friends list. To continue, use the Discord app or add them as a friend.").
+					WithMessage("You can't message users who aren't on your friends list. To continue, use the Discord app to chat or add them as a friend.").
 					WithSendNotice(true)
 			}
 		}
 	}
 
 	return nil
-}
-
-const recipientHasMessagedLookback = 100
-
-func (d *DiscordClient) recipientHasMessaged(ctx context.Context, portal *bridgev2.Portal, recipientID string) bool {
-	msgs, err := d.connector.Bridge.DB.Message.GetLastNInPortal(ctx, portal.PortalKey, recipientHasMessagedLookback)
-	if err != nil {
-		zerolog.Ctx(ctx).Err(err).Msg("Failed to check whether the DM recipient has sent messages")
-		return false
-	}
-	senderID := discordid.MakeUserID(recipientID)
-	for _, msg := range msgs {
-		if msg.SenderID == senderID {
-			return true
-		}
-	}
-	return false
 }
 
 func channelIsPendingMessageRequest(ch *discordgo.Channel) bool {

@@ -408,9 +408,10 @@ func mediaFailedMessage(err error) *event.MessageEventContent {
 
 func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *discordgo.MessageEmbed) *bridgev2.ConvertedMessagePart {
 	var proxyURL string
-	if embed.Video != nil {
+	isVideo := embed.Video != nil && embed.Video.ProxyURL != ""
+	if isVideo {
 		proxyURL = embed.Video.ProxyURL
-	} else if embed.Thumbnail != nil {
+	} else if embed.Thumbnail != nil && embed.Thumbnail.ProxyURL != "" {
 		proxyURL = embed.Thumbnail.ProxyURL
 	} else {
 		zerolog.Ctx(ctx).Warn().Str("embed_url", embed.URL).Msg("No video or thumbnail proxy URL found in embed")
@@ -442,7 +443,7 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *
 		},
 	}
 
-	if embed.Video != nil {
+	if isVideo {
 		content.MsgType = event.MsgVideo
 		content.Info.Width = embed.Video.Width
 		content.Info.Height = embed.Video.Height

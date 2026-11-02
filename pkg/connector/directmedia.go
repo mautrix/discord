@@ -44,11 +44,18 @@ func (d *DiscordConnector) Download(
 	mediaID networkid.MediaID,
 	params map[string]string,
 ) (mediaproxy.GetMediaResponse, error) {
+	forceDisableProxy := params["fi.mau.discord.force_disable_proxy"] == "true"
+	if len(mediaID) > 0 && discordid.DirectMediaType(mediaID[0]) == discordid.DirectMediaTypeAvatar {
+		avatar, err := discordid.ParseAvatarMediaID(mediaID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse avatar media id for download: %w", err)
+		}
+		return d.downloadURL(ctx, avatar.URL(), time.Time{}, forceDisableProxy)
+	}
 	info, err := discordid.ParseMediaID(mediaID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse media id for download: %w", err)
 	}
-	forceDisableProxy := params["fi.mau.discord.force_disable_proxy"] == "true"
 	return d.downloadAttachment(ctx, info, forceDisableProxy)
 }
 
@@ -70,6 +77,15 @@ func (d *DiscordConnector) downloadAttachment(
 		// Unknown expiry is safer as no-store for now.
 		expiresAt = time.Now()
 	}
+	return d.downloadURL(ctx, downloadURL, expiresAt, forceDisableProxy)
+}
+
+func (d *DiscordConnector) downloadURL(
+	ctx context.Context,
+	downloadURL string,
+	expiresAt time.Time,
+	forceDisableProxy bool,
+) (mediaproxy.GetMediaResponse, error) {
 	if !d.Config.ProxyDirectMedia || forceDisableProxy {
 		return &mediaproxy.GetMediaResponseURL{
 			URL:       downloadURL,
@@ -78,17 +94,17 @@ func (d *DiscordConnector) downloadAttachment(
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare attachment download request: %w", err)
+		return nil, fmt.Errorf("failed to prepare media download request: %w", err)
 	}
 	for key, value := range discordgo.DroidDownloadHeaders {
 		req.Header.Set(key, value)
 	}
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to download attachment: %w", err)
+		return nil, fmt.Errorf("failed to download media: %w", err)
 	} else if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("failed to download attachment: unexpected status code %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to download media: unexpected status code %d", resp.StatusCode)
 	}
 	return &mediaproxy.GetMediaResponseData{
 		Reader:        resp.Body,

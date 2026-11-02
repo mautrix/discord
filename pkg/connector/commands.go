@@ -25,6 +25,7 @@ import (
 
 func (d *DiscordConnector) registerCommands() {
 	d.Bridge.Commands.(*commands.Processor).AddHandlers(
+		cmdSetRelay, cmdUnsetRelay,
 		cmdGuilds, cmdBridge, cmdCreatePortal, cmdUnbridge, cmdDeletePortal,
 		cmdLogin, cmdLoginQR, cmdLoginToken, cmdLogout, cmdPing, cmdDisconnect, cmdReconnect, cmdRejoinSpace,
 	)

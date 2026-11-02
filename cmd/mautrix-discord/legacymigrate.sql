@@ -157,8 +157,20 @@ SELECT
         WHEN p.dc_guild_id <> '' THEN ''
         ELSE ''
     END, -- parent_receiver
-    NULL, -- relay_bridge_id
-    NULL, -- relay_login_id
+    CASE WHEN COALESCE(p.relay_webhook_id, '')<>'' AND (
+        SELECT u.dcid FROM user_old AS u
+        JOIN user_portal_old AS up ON up.user_mxid=u.mxid
+        WHERE up.type='guild' AND up.discord_id=p.dc_guild_id
+          AND u.dcid IS NOT NULL AND u.dcid<>'' AND COALESCE(u.discord_token, '')<>''
+        ORDER BY u.dcid LIMIT 1
+    ) IS NOT NULL THEN '' END, -- relay_bridge_id
+    CASE WHEN COALESCE(p.relay_webhook_id, '')<>'' THEN (
+        SELECT u.dcid FROM user_old AS u
+        JOIN user_portal_old AS up ON up.user_mxid=u.mxid
+        WHERE up.type='guild' AND up.discord_id=p.dc_guild_id
+          AND u.dcid IS NOT NULL AND u.dcid<>'' AND COALESCE(u.discord_token, '')<>''
+        ORDER BY u.dcid LIMIT 1
+    ) END, -- relay_login_id
     NULLIF(p.other_user_id, ''), -- other_user_id
     p.name,
     p.topic,
@@ -176,15 +188,19 @@ SELECT
         WHEN p.type=4 THEN 'space'
         ELSE ''
     END, -- room_type
-    -- only: postgres for next 4 lines
+    -- only: postgres for next 6 lines
     jsonb_build_object(
         'guild_id', COALESCE(p.dc_guild_id, ''),
-        'channel_type', p.type
+        'channel_type', p.type,
+        'relay_webhook_id', COALESCE(p.relay_webhook_id, ''),
+        'relay_webhook_secret', COALESCE(p.relay_webhook_secret, '')
     )
-    -- only: sqlite for next 4 lines (lines commented)
+    -- only: sqlite for next 6 lines (lines commented)
 --  json_object(
 --      'guild_id', COALESCE(p.dc_guild_id, ''),
---      'channel_type', p.type
+--      'channel_type', p.type,
+--      'relay_webhook_id', COALESCE(p.relay_webhook_id, ''),
+--      'relay_webhook_secret', COALESCE(p.relay_webhook_secret, '')
 --  )
 FROM portal_old AS p;
 

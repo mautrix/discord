@@ -58,7 +58,7 @@ func (d *DiscordConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilitie
 }
 
 func (d *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
-	return 1, 7
+	return 1, 8
 }
 
 /*func supportedIfFFmpeg() event.CapabilitySupportLevel {
@@ -176,10 +176,15 @@ var discordCaps = &event.RoomFeatures{
 	Thread:          event.CapLevelPartialSupport,
 }
 
+var discordRelayCaps *event.RoomFeatures
+
 var discordNonGuildCaps *event.RoomFeatures
 var discordDMCaps *event.RoomFeatures
 
 func init() {
+	discordRelayCaps = discordCaps.Clone()
+	discordRelayCaps.ID += "+webhook"
+	discordRelayCaps.PerMessageProfileRelay = true
 	discordNonGuildCaps = discordCaps.Clone()
 	discordNonGuildCaps.ID += "+private"
 	discordNonGuildCaps.Thread = event.CapLevelUnsupported
@@ -199,6 +204,9 @@ func (d *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Po
 		return discordDMCaps
 	} else if portal.Metadata.(*discordid.PortalMetadata).GuildID == "" {
 		return discordNonGuildCaps
+	}
+	if d.connector.relayMetadata(portal).RelayWebhookID != "" {
+		return discordRelayCaps
 	}
 	return discordCaps
 }

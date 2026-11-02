@@ -83,6 +83,9 @@ func (m *DiscordMessage) ConvertEdit(
 	intent bridgev2.MatrixAPI,
 	existingParts []*database.Message,
 ) (*bridgev2.ConvertedEdit, error) {
+	if meta := m.Client.connector.relayMetadata(portal); meta.RelayWebhookID != "" && (m.Data.WebhookID == meta.RelayWebhookID || (m.Data.Author != nil && m.Data.Author.ID == meta.RelayWebhookID)) {
+		return &bridgev2.ConvertedEdit{}, nil
+	}
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "convert discord edit").Logger()
 	ctx = log.WithContext(ctx)

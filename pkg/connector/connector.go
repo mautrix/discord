@@ -19,6 +19,9 @@ package connector
 import (
 	"context"
 	"net/http"
+	"sync"
+
+	"github.com/bwmarrin/discordgo"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
@@ -38,6 +41,8 @@ type DiscordConnector struct {
 	MsgConv         *msgconv.MessageConverter
 	attachmentCache *attachmentCache
 	httpClient      *http.Client
+	relayClient     *discordgo.Session
+	relayLock       sync.RWMutex
 }
 
 var (
@@ -55,6 +60,8 @@ func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {
 	d.attachmentCache = NewAttachmentCache()
 	d.MsgConv.CacheDirectMediaAttachment = d.attachmentCache.Insert
 	d.httpClient = d.Bridge.GetHTTPClientSettings().Compile()
+	d.relayClient, _ = discordgo.New("")
+	d.relayClient.Client = d.httpClient
 }
 
 func (d *DiscordConnector) SetMaxFileSize(maxSize int64) {

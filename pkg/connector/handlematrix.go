@@ -83,6 +83,8 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		}
 		if thread != nil {
 			threadChannelID = thread.ThreadChannelID
+		} else if msg.OrigSender != nil {
+			return nil, fmt.Errorf("starting threads through a webhook is not supported")
 		} else if guildID != "" {
 			var startErr error
 			threadChannelID, startErr = d.startThreadFromMatrix(ctx, guildID, parentChannelID, threadRootRemoteID, getThreadName(msg.Content))
@@ -104,6 +106,10 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	}
 	refererOpt := makeDiscordReferer(guildID, parentChannelID, threadChannelID)
 
+	if msg.OrigSender != nil {
+		return d.sendWebhookMessage(ctx, msg, threadChannelID)
+	}
+
 	ch := d.channelWithID(ctx, channelID)
 	ctx = context.WithValue(ctx, contextKeyChannel, ch)
 
@@ -113,7 +119,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		return nil, err
 	}
 
-	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg, channelID, refererOpt)
+	sendReq, err := d.connector.MsgConv.ToDiscord(ctx, d.Session, msg, channelID, refererOpt, false)
 	if err != nil {
 		return nil, d.tryWrappingError(ctx, err)
 	}
@@ -299,6 +305,10 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 		return bridgev2.ErrNotLoggedIn
 	}
 
+	if msg.OrigSender != nil || d.connector.isWebhookMessage(msg.Portal, msg.EditTarget) {
+		return d.editWebhookMessage(ctx, msg)
+	}
+
 	log := zerolog.Ctx(ctx).With().Str("action", "matrix message edit").Logger()
 	ctx = log.WithContext(ctx)
 
@@ -449,6 +459,10 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *bridgev2.MatrixMessageRemove) error {
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
+	}
+
+	if removal.OrigSender != nil || d.connector.isWebhookMessage(removal.Portal, removal.TargetMessage) {
+		return d.deleteWebhookMessage(ctx, removal)
 	}
 
 	guildID := removal.Portal.Metadata.(*discordid.PortalMetadata).GuildID

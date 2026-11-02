@@ -93,6 +93,7 @@ func (mc *MessageConverter) ToDiscord(
 	msg *bridgev2.MatrixMessage,
 	channelID string,
 	refererOpt discordgo.RequestOption,
+	isWebhook bool,
 ) (*discordgo.MessageSend, error) {
 	ctx = context.WithValue(ctx, contextKeyPortal, msg.Portal)
 	ctx = context.WithValue(ctx, contextKeyDiscordClient, session)
@@ -116,7 +117,10 @@ func (mc *MessageConverter) ToDiscord(
 	convertMatrix := func() {
 		// TODO: Handle (silent) replies.
 		//
-		req.Content, _ = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
+		req.Content, req.AllowedMentions = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
+		if !isWebhook {
+			req.AllowedMentions = nil
+		}
 		if content.MsgType == event.MsgEmote {
 			req.Content = fmt.Sprintf("_%s_", req.Content)
 		}

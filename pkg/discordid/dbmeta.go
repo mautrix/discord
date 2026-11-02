@@ -22,6 +22,8 @@ import (
 )
 
 type PortalMetadata struct {
+	RelayWebhookID     string `json:"relay_webhook_id,omitempty"`
+	RelayWebhookSecret string `json:"relay_webhook_secret,omitempty"`
 	// The ID of the Discord guild that the channel corresponding to this portal
 	// belongs to.
 	//

@@ -200,7 +200,7 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 			WithSendNotice(true)
 	}
 
-	if d.connector.Config.ForbidDMingStrangersEnabled() {
+	if d.Session.IsUser && d.connector.Config.ForbidDMingStrangersEnabled() {
 		dmRecipID := dmChannelRecipientID(destCh)
 		if dmRecipID != nil {
 			rel := d.relationshipWithUserID(*dmRecipID)
@@ -473,6 +473,9 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 }
 
 func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridgev2.MatrixReadReceipt) error {
+	if d.Session != nil && !d.Session.IsUser {
+		return nil
+	}
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
 	}

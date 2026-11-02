@@ -116,11 +116,6 @@ func (mc *MessageConverter) ToDiscord(
 	convertMatrix := func() {
 		// TODO: Handle (silent) replies.
 		//
-		// NOTE: Real users should never send allowed_mentions (except for
-		// silent replies).
-		//
-		// Since we only support real users at the moment, always ignore the
-		// returned allowed mentions.
 		req.Content, _ = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
 		if content.MsgType == event.MsgEmote {
 			req.Content = fmt.Sprintf("_%s_", req.Content)
@@ -156,7 +151,14 @@ func (mc *MessageConverter) ToDiscord(
 			filename = "SPOILER_" + filename
 		}
 
-		// TODO: Support attachments for relay/webhook. (A branch was removed here.)
+		if !session.IsUser {
+			contentType := ""
+			if content.Info != nil {
+				contentType = content.Info.MimeType
+			}
+			req.Files = []*discordgo.File{{Name: filename, ContentType: contentType, Reader: bytes.NewReader(mediaData)}}
+			break
+		}
 		att := &discordgo.MessageAttachment{
 			ID:       "0",
 			Filename: filename,

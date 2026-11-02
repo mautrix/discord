@@ -77,7 +77,11 @@ type DiscordClient struct {
 	relationshipLock sync.RWMutex
 	relationships    map[string]*discordgo.Relationship
 
-	userCache *UserCache
+	userCache               *UserCache
+	commandsLock            sync.Mutex
+	commandCache            map[string]map[string]*discordgo.ApplicationCommand
+	pendingInteractionsLock sync.Mutex
+	pendingInteractions     map[string]*pendingInteraction
 
 	lastSendAttemptMutex sync.Mutex
 	lastSendAttempt      *SendAttempt

@@ -799,6 +799,8 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		log.Info().
 			Int("n_lazy_private_channels", len(evt.LazyPrivateChannels)).
 			Msg("Received supplemental READY")
+	case *discordgo.InteractionSuccess:
+		d.handleInteractionSuccess(evt)
 	case *discordgo.Ready:
 		d.gatewayReady.Store(true)
 		readiedBefore := d.seenReady.Swap(true)

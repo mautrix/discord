@@ -36,9 +36,10 @@ type PortalMetadata struct {
 }
 
 type UserLoginMetadata struct {
-	Token            string                     `json:"token"`
-	HeartbeatSession discordgo.HeartbeatSession `json:"heartbeat_session"`
-	BridgedGuildIDs  map[string]bool            `json:"bridged_guild_ids,omitempty"`
+	Token              string                       `json:"token"`
+	HeartbeatSession   discordgo.HeartbeatSession   `json:"heartbeat_session"`
+	GuildBridgingModes map[string]GuildBridgingMode `json:"guild_bridging_modes,omitempty"`
+	BridgedGuildIDs    map[string]bool              `json:"bridged_guild_ids,omitempty"`
 }
 
 var _ database.MetaMerger = (*UserLoginMetadata)(nil)

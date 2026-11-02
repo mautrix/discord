@@ -65,6 +65,7 @@ type DiscordClient struct {
 	// to its corresponding UserGuildSettings.
 	guildSettings     map[string]*discordgo.UserGuildSettings
 	guildSettingsLock sync.RWMutex
+	guildModesLock    sync.RWMutex
 
 	// A map of resource (e.g. channel) ID to its corresponding read state.
 	//
@@ -727,19 +728,24 @@ func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Ava
 // presence in the returned set does not imply anything about the corresponding
 // portals and rooms.
 func (d *DiscordClient) bridgedGuildIDs() map[string]struct{} {
-	meta := d.UserLogin.Metadata.(*discordid.UserLoginMetadata)
+	d.guildModesLock.RLock()
+	defer d.guildModesLock.RUnlock()
+	meta := d.userLoginMetadata()
 	bridgingGuildIDs := map[string]struct{}{}
-
-	// guilds that were bridged via the provisioning api
 	for guildID, bridged := range meta.BridgedGuildIDs {
 		if bridged {
 			bridgingGuildIDs[guildID] = struct{}{}
 		}
 	}
-
-	// guilds that were declared in the configuration file
 	for _, guildID := range d.connector.Config.Guilds.BridgingGuildIDs {
 		bridgingGuildIDs[guildID] = struct{}{}
+	}
+	for guildID, mode := range meta.GuildBridgingModes {
+		if mode == discordid.GuildBridgeNothing {
+			delete(bridgingGuildIDs, guildID)
+		} else {
+			bridgingGuildIDs[guildID] = struct{}{}
+		}
 	}
 
 	return bridgingGuildIDs
@@ -932,6 +938,15 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 	for _, guildCh := range guild.Channels {
 		if !d.shouldBridgeChannel(ctx, guildCh) {
 			continue
+		}
+		if d.guildBridgingMode(guildID) != discordid.GuildBridgeEverything {
+			existing, err := d.connector.Bridge.GetExistingPortalByKey(ctx, d.portalKeyForChannel(guildCh))
+			if err != nil {
+				return err
+			}
+			if existing == nil || existing.MXID == "" {
+				continue
+			}
 		}
 		visibleChannels = append(visibleChannels, guildCh)
 		if guildCh.ParentID != "" {

@@ -417,7 +417,7 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 		Str("guild_id", guildID).
 		Str("action", "unbridge guild").
 		Logger()
-	ctx := log.WithContext(r.Context())
+	ctx := log.WithContext(context.WithoutCancel(r.Context()))
 
 	log.Info().Msg("Unbridging guild via provisioning API")
 

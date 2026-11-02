@@ -18,6 +18,7 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strconv"
 	"time"
@@ -91,7 +92,15 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	count := min(fetchParams.Count, 100)
 	log.Debug().Msg("Fetching channel history for backfill")
 	msgs, err := d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
-	if err != nil {
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) && restErr.Message != nil &&
+		(restErr.Message.Code == discordgo.ErrCodeMissingAccess || restErr.Message.Code == discordgo.ErrCodeUnknownChannel) {
+		log.Warn().Err(err).Msg("Channel history is inaccessible, nothing to backfill")
+		return &bridgev2.FetchMessagesResponse{
+			Forward: fetchParams.Forward,
+			HasMore: false,
+		}, nil
+	} else if err != nil {
 		return nil, d.tryWrappingError(ctx, err)
 	}
 

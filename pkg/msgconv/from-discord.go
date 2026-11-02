@@ -18,6 +18,8 @@ package msgconv
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"html"
 	"net/url"
@@ -33,6 +35,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
+	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 	"go.mau.fi/mautrix-discord/pkg/router"
@@ -140,14 +143,12 @@ func (mc *MessageConverter) ToMatrix(
 		}})
 	}
 
-	// TODO(skip): Add extra metadata.
-	// for _, part := range parts {
-	// 	puppet.addWebhookMeta(part, msg)
-	// 	puppet.addMemberMeta(part, msg)
-	// }
-
 	var pmp *event.BeeperPerMessageProfile
-	if mc.PerMessageProfiles {
+	if msg.WebhookID != "" {
+		pmp = mc.webhookProfile(ctx, msg)
+	} else if msg.GuildID != "" && msg.Member != nil && (msg.Member.Nick != "" || (msg.Member.Avatar != "" && mc.DirectMedia)) {
+		pmp = mc.guildMemberProfile(ctx, portal, msg)
+	} else if mc.PerMessageProfiles {
 		sender := discordid.MakeUserID(msg.Author.ID)
 		var profile event.BeeperPerMessageProfile
 		ghost, err := portal.Bridge.GetGhostByID(ctx, sender)
@@ -419,6 +420,62 @@ func contentMessages(msg *discordgo.Message) []*discordgo.Message {
 	return []*discordgo.Message{msg}
 }
 
+func (mc *MessageConverter) guildMemberProfile(ctx context.Context, portal *bridgev2.Portal, msg *discordgo.Message) *event.BeeperPerMessageProfile {
+	profile := &event.BeeperPerMessageProfile{
+		ID:          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
+		Displayname: msg.Member.Nick,
+	}
+	ghost, err := portal.Bridge.GetGhostByID(ctx, discordid.MakeUserID(msg.Author.ID))
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to get ghost for guild member profile")
+	} else {
+		if profile.Displayname == "" {
+			profile.Displayname = ghost.Name
+		}
+		if ghost.AvatarMXC != "" {
+			profile.AvatarURL = &ghost.AvatarMXC
+		}
+	}
+	if msg.Member.Avatar != "" {
+		if mxc := mc.avatarMXC(ctx, &discordid.AvatarInfo{GuildID: msg.GuildID, UserID: msg.Author.ID, Avatar: msg.Member.Avatar}); mxc != "" {
+			profile.AvatarURL = &mxc
+		}
+	}
+	return profile
+}
+
+func (mc *MessageConverter) webhookProfile(ctx context.Context, msg *discordgo.Message) *event.BeeperPerMessageProfile {
+	profileID := sha256.Sum256(fmt.Appendf(nil, "%s:%s", msg.Author.Username, msg.Author.Avatar))
+	profile := &event.BeeperPerMessageProfile{
+		ID:          hex.EncodeToString(profileID[:]),
+		Displayname: msg.Author.Username,
+	}
+	if msg.Author.Avatar != "" {
+		if mxc := mc.avatarMXC(ctx, &discordid.AvatarInfo{UserID: msg.Author.ID, Avatar: msg.Author.Avatar}); mxc != "" {
+			profile.AvatarURL = &mxc
+		}
+	}
+	return profile
+}
+
+func (mc *MessageConverter) avatarMXC(ctx context.Context, info *discordid.AvatarInfo) id.ContentURIString {
+	if !mc.DirectMedia {
+		return ""
+	}
+	log := zerolog.Ctx(ctx)
+	mediaID, err := info.Encode()
+	if err != nil {
+		log.Err(err).Msg("Failed to encode avatar media ID")
+		return ""
+	}
+	mxc, err := mc.Bridge.Matrix.GenerateContentURI(ctx, mediaID)
+	if err != nil {
+		log.Err(err).Msg("Failed to generate avatar content URI")
+		return ""
+	}
+	return mxc
+}
+
 func mediaFailedMessage(err error) *event.MessageEventContent {
 	return &event.MessageEventContent{
 		Body:    fmt.Sprintf("Failed to bridge media: %v", err),
@@ -428,9 +485,10 @@ func mediaFailedMessage(err error) *event.MessageEventContent {
 
 func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *discordgo.MessageEmbed) *bridgev2.ConvertedMessagePart {
 	var proxyURL string
-	if embed.Video != nil {
+	isVideo := embed.Video != nil && embed.Video.ProxyURL != ""
+	if isVideo {
 		proxyURL = embed.Video.ProxyURL
-	} else if embed.Thumbnail != nil {
+	} else if embed.Thumbnail != nil && embed.Thumbnail.ProxyURL != "" {
 		proxyURL = embed.Thumbnail.ProxyURL
 	} else {
 		zerolog.Ctx(ctx).Warn().Str("embed_url", embed.URL).Msg("No video or thumbnail proxy URL found in embed")
@@ -462,7 +520,7 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *
 		},
 	}
 
-	if embed.Video != nil {
+	if isVideo {
 		content.MsgType = event.MsgVideo
 		content.Info.Width = embed.Video.Width
 		content.Info.Height = embed.Video.Height

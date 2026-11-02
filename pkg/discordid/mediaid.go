@@ -21,13 +21,15 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
 type DirectMediaType byte
 
 const (
-	DirectMediaTypeV1 DirectMediaType = 1
+	DirectMediaTypeV1     DirectMediaType = 1
+	DirectMediaTypeAvatar DirectMediaType = 2
 
 	encodedSnowflakeSize = 8
 	encodedMediaIDV1Size = 1 + 4*encodedSnowflakeSize
@@ -163,4 +165,63 @@ func ParseMediaID(mediaID networkid.MediaID) (*MediaInfo, error) {
 	}
 
 	return &info, nil
+}
+
+type AvatarInfo struct {
+	GuildID string
+	UserID  string
+	Avatar  string
+}
+
+func (ai *AvatarInfo) URL() string {
+	user := &discordgo.User{ID: ai.UserID, Avatar: ai.Avatar}
+	if ai.GuildID != "" {
+		member := &discordgo.Member{GuildID: ai.GuildID, User: user, Avatar: ai.Avatar}
+		return member.AvatarURL("256")
+	}
+	return user.AvatarURL("256")
+}
+
+func (ai *AvatarInfo) Encode() (networkid.MediaID, error) {
+	if len(ai.Avatar) == 0 || len(ai.Avatar) > 255 {
+		return nil, fmt.Errorf("invalid avatar hash length %d", len(ai.Avatar))
+	}
+	var guildID uint64
+	if ai.GuildID != "" {
+		var err error
+		guildID, err = strconv.ParseUint(ai.GuildID, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid guild id: %w", err)
+		}
+	}
+	userID, err := strconv.ParseUint(ai.UserID, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
+	buf := make([]byte, 1, 1+2*encodedSnowflakeSize+1+len(ai.Avatar))
+	buf[0] = byte(DirectMediaTypeAvatar)
+	buf = binary.BigEndian.AppendUint64(buf, guildID)
+	buf = binary.BigEndian.AppendUint64(buf, userID)
+	buf = append(buf, byte(len(ai.Avatar)))
+	buf = append(buf, ai.Avatar...)
+	return buf, nil
+}
+
+func ParseAvatarMediaID(mediaID networkid.MediaID) (*AvatarInfo, error) {
+	const headerSize = 1 + 2*encodedSnowflakeSize + 1
+	if len(mediaID) < headerSize || DirectMediaType(mediaID[0]) != DirectMediaTypeAvatar {
+		return nil, fmt.Errorf("not an avatar media ID")
+	}
+	avatarLen := int(mediaID[headerSize-1])
+	if len(mediaID) != headerSize+avatarLen {
+		return nil, fmt.Errorf("avatar media ID has wrong length %d", len(mediaID))
+	}
+	info := &AvatarInfo{
+		UserID: strconv.FormatUint(binary.BigEndian.Uint64(mediaID[1+encodedSnowflakeSize:]), 10),
+		Avatar: string(mediaID[headerSize:]),
+	}
+	if guildID := binary.BigEndian.Uint64(mediaID[1:]); guildID != 0 {
+		info.GuildID = strconv.FormatUint(guildID, 10)
+	}
+	return info, nil
 }

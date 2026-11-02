@@ -7,6 +7,7 @@ toolchain go1.27.0
 require (
 	github.com/bwmarrin/discordgo v0.27.0
 	github.com/coder/websocket v1.8.15
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/google/uuid v1.6.0
 	github.com/imroc/req/v3 v3.57.0
 	github.com/refraction-networking/utls v1.8.2

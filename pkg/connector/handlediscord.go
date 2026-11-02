@@ -440,7 +440,7 @@ func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *discordgo.C
 		log.Debug().Msg("Private channel was created, creating portal")
 		d.queueChannelResync(ctx, ch.Channel)
 	} else {
-		if !d.shouldBridgeChannel(ctx, ch.Channel) {
+		if !d.shouldBridgeChannel(ctx, ch.Channel) || d.guildBridgingMode(ch.GuildID) != discordid.GuildBridgeEverything {
 			log.Debug().Msg("Ignoring creation of guild channel that should not be bridged")
 			return nil
 		}
@@ -737,6 +737,9 @@ func (d *DiscordClient) channelIsBridged(ctx context.Context, channelID string) 
 	if err != nil {
 		log.Err(err).Msg("Failed to route channel when determining channel bridgedness")
 		return false, nil
+	}
+	if ch := route.FromChannel; ch != nil && ch.GuildID != "" && d.guildBridgingMode(ch.GuildID) == discordid.GuildBridgeNothing {
+		return false, route
 	}
 	existingPortal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, route.PortalKey)
 	if err != nil {
@@ -1097,7 +1100,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		isDM := route != nil && route.FromChannel != nil && channelIsPrivate(route.FromChannel)
 		if !inBridgedChannel && !isDM && route != nil {
 			portalCh := d.channelWithID(ctx, route.PortalChannelID)
-			if d.shouldBridgeChannel(ctx, portalCh) {
+			if d.shouldBridgeChannel(ctx, portalCh) && d.guildBridgingMode(portalCh.GuildID) >= discordid.GuildBridgeCreateOnMessage {
 				log.Debug().Str("portal_channel_id", portalCh.ID).Msg("Creating portal for guild channel that became visible")
 				d.bridgeGuildChannel(ctx, portalCh)
 				inBridgedChannel = true

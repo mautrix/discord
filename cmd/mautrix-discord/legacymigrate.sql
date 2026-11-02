@@ -18,10 +18,10 @@ SELECT
     jsonb_build_object(
         'token', uo.discord_token,
         'heartbeat_session', COALESCE(uo.heartbeat_session, '{}'::jsonb),
-        'bridged_guild_ids', COALESCE((
-            SELECT jsonb_object_agg(bg.guild_id, true)
+        'guild_bridging_modes', COALESCE((
+            SELECT jsonb_object_agg(bg.guild_id, bg.bridging_mode)
             FROM (
-                SELECT DISTINCT up.discord_id AS guild_id
+                SELECT DISTINCT up.discord_id AS guild_id, g.bridging_mode
                 FROM user_portal_old AS up
                 JOIN guild_old AS g ON g.dcid=up.discord_id
                 WHERE up.user_mxid=uo.mxid AND up.type='guild' AND g.bridging_mode > 0
@@ -35,10 +35,10 @@ SELECT
 --          WHEN uo.heartbeat_session IS NULL OR uo.heartbeat_session='' THEN json('{}')
 --          ELSE json(uo.heartbeat_session)
 --      END,
---      'bridged_guild_ids', COALESCE((
---          SELECT json_group_object(bg.guild_id, json('true'))
+--      'guild_bridging_modes', COALESCE((
+--          SELECT json_group_object(bg.guild_id, bg.bridging_mode)
 --          FROM (
---              SELECT DISTINCT up.discord_id AS guild_id
+--              SELECT DISTINCT up.discord_id AS guild_id, g.bridging_mode
 --              FROM user_portal_old AS up
 --              JOIN guild_old AS g ON g.dcid=up.discord_id
 --              WHERE up.user_mxid=uo.mxid AND up.type='guild' AND g.bridging_mode > 0

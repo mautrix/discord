@@ -94,6 +94,7 @@ func (d *DiscordClient) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 		var err error
 		ch, err = d.Session.UserChannelCreate(userID, discordgo.WithContext(ctx))
 		if err != nil {
+			zerolog.Ctx(ctx).Err(err).Msg("Failed to create DM channel")
 			var restErr *discordgo.RESTError
 			if errors.As(err, &restErr) && restErr.Response != nil {
 				switch restErr.Response.StatusCode {

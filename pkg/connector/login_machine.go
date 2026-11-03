@@ -521,6 +521,7 @@ func (d *DiscordMachineLogin) captchaStep(ctx context.Context, cap *discordauth.
 
 func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
 	if err := d.Machine.Prepare(ctx); err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to prepare Discord login")
 		return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to prepare Discord login")).WithInternalError(err)
 	}
 

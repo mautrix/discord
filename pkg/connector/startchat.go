@@ -18,12 +18,15 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
@@ -91,7 +94,16 @@ func (d *DiscordClient) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 		var err error
 		ch, err = d.Session.UserChannelCreate(userID, discordgo.WithContext(ctx))
 		if err != nil {
-			return nil, fmt.Errorf("failed to create DM channel: %w", err)
+			var restErr *discordgo.RESTError
+			if errors.As(err, &restErr) && restErr.Response != nil {
+				switch restErr.Response.StatusCode {
+				case http.StatusForbidden:
+					return nil, bridgev2.RespError(mautrix.MForbidden.WithMessage("Discord doesn't allow starting a DM with this user")).WithInternalError(err)
+				case http.StatusNotFound:
+					return nil, bridgev2.RespError(mautrix.MNotFound.WithMessage("User not found on Discord")).WithInternalError(err)
+				}
+			}
+			return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to create DM channel")).WithInternalError(err)
 		}
 		if err = d.Session.State.ChannelAdd(ch); err != nil {
 			zerolog.Ctx(ctx).Warn().Err(err).

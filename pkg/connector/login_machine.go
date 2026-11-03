@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
@@ -103,7 +104,7 @@ func userVisibleRESTError(ctx context.Context, err error) error {
 		return bridgev2.RespError{
 			ErrCode:    "FI.MAU.DISCORD.RATE_LIMITED",
 			Err:        "Discord is rate limiting the sign-in. Please wait a few minutes and try again.",
-			StatusCode: http.StatusTooManyRequests,
+			StatusCode: http.StatusBadRequest,
 		}
 	}
 
@@ -520,7 +521,7 @@ func (d *DiscordMachineLogin) captchaStep(ctx context.Context, cap *discordauth.
 
 func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
 	if err := d.Machine.Prepare(ctx); err != nil {
-		return nil, fmt.Errorf("failed to prepare login: %w", err)
+		return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to prepare Discord login")).WithInternalError(err)
 	}
 
 	prompt, done, err := d.Machine.Advance(ctx, nil)

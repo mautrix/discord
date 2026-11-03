@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
 	"go.mau.fi/mautrix-discord/pkg/remoteauth"
@@ -61,7 +62,7 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 		log.Err(err).Msg("Couldn't connect to Discord remoteauth websocket")
 		close(dl.qrChan)
 		close(dl.doneChan)
-		return nil, fmt.Errorf("couldn't connect to Discord remoteauth websocket: %w", err)
+		return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to connect to Discord for QR login")).WithInternalError(err)
 	}
 	dl.remoteAuthClient = client
 

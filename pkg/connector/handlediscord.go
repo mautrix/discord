@@ -1031,10 +1031,11 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Msg("Failed to handle channel update")
 		}
 	case *discordgo.ChannelDelete:
-		// The route computed by channelIsBridged will always be uncertain
-		// because the channel has already disappeared from discordgo's state.
-		bridged, _ := d.channelIsBridged(ctx, evt.ID)
-		if !bridged {
+		existingPortal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, d.portalKeyForChannel(evt.Channel))
+		if err != nil {
+			log.Err(err).Msg("Failed to look up existing portal for deleted channel")
+			return
+		} else if existingPortal == nil || existingPortal.MXID == "" {
 			return
 		}
 		if err := d.handleChannelDelete(ctx, evt); err != nil {

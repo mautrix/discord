@@ -28,7 +28,6 @@ import (
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -90,24 +89,18 @@ type provHandler func(http.ResponseWriter, *http.Request, *bridgev2.UserLogin, *
 
 func (p *ProvisioningAPI) makeHandler(handler provHandler, enforceLoggedIn bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user := p.prov.GetUser(r)
-
-		logins := user.GetUserLogins()
-		if len(logins) < 1 {
+		login, failed := p.prov.GetExplicitLoginForRequest(w, r)
+		if failed {
+			return
+		} else if login == nil {
+			login = p.prov.GetUser(r).GetDefaultLogin()
+		}
+		if login == nil {
 			mautrix.RespError{
 				ErrCode: ErrCodeNotConnected,
 				Err:     "user has no logins",
 			}.Write(w)
 			return
-		}
-
-		login := logins[0]
-		if loginID := r.URL.Query().Get("login_id"); loginID != "" {
-			login = p.connector.Bridge.GetCachedUserLoginByID(networkid.UserLoginID(loginID))
-			if login == nil || login.UserMXID != user.MXID {
-				mautrix.MNotFound.WithMessage("Login not found").Write(w)
-				return
-			}
 		}
 		client := login.Client.(*DiscordClient)
 

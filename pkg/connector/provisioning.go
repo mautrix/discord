@@ -89,18 +89,10 @@ type provHandler func(http.ResponseWriter, *http.Request, *bridgev2.UserLogin, *
 
 func (p *ProvisioningAPI) makeHandler(handler provHandler, enforceLoggedIn bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user := p.prov.GetUser(r)
-
-		logins := user.GetUserLogins()
-		if len(logins) < 1 {
-			mautrix.RespError{
-				ErrCode: ErrCodeNotConnected,
-				Err:     "user has no logins",
-			}.Write(w)
+		login := p.prov.GetLoginForRequest(w, r)
+		if login == nil {
 			return
 		}
-
-		login := logins[0]
 		client := login.Client.(*DiscordClient)
 
 		if !client.IsLoggedIn() && enforceLoggedIn {

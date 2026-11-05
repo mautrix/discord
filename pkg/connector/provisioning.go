@@ -28,6 +28,7 @@ import (
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
@@ -101,6 +102,13 @@ func (p *ProvisioningAPI) makeHandler(handler provHandler, enforceLoggedIn bool)
 		}
 
 		login := logins[0]
+		if loginID := r.URL.Query().Get("login_id"); loginID != "" {
+			login = p.connector.Bridge.GetCachedUserLoginByID(networkid.UserLoginID(loginID))
+			if login == nil || login.UserMXID != user.MXID {
+				mautrix.MNotFound.WithMessage("Login not found").Write(w)
+				return
+			}
+		}
 		client := login.Client.(*DiscordClient)
 
 		if !client.IsLoggedIn() && enforceLoggedIn {

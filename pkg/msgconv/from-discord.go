@@ -143,6 +143,23 @@ func (mc *MessageConverter) ToMatrix(
 		}})
 	}
 
+	if len(parts) == 0 {
+		log.Warn().
+			Int("message_type", int(msg.Type)).
+			Uint32("message_flags", uint32(msg.Flags)).
+			Int("content_length", len(msg.Content)).
+			Int("embed_count", len(msg.Embeds)).
+			Int("attachment_count", len(msg.Attachments)).
+			Int("sticker_count", len(msg.StickerItems)).
+			Int("component_count", len(msg.Components)).
+			Int("snapshot_count", len(msg.MessageSnapshots)).
+			Bool("has_poll", msg.Poll != nil).
+			Bool("has_interaction", msg.Interaction != nil).
+			Bool("has_interaction_metadata", msg.InteractionMetadata != nil).
+			Bool("from_webhook", msg.WebhookID != "").
+			Msg("Discord message converted to no parts")
+	}
+
 	var pmp *event.BeeperPerMessageProfile
 	if msg.WebhookID != "" {
 		pmp = mc.webhookProfile(ctx, msg)

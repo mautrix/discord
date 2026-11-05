@@ -16,7 +16,7 @@ require (
 	golang.org/x/net v0.61.0
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
-	maunium.net/go/mautrix v0.32.1-0.20261105142629-7fc8528973a9
+	maunium.net/go/mautrix v0.32.1-0.20261105143402-e3fedf60df37
 )
 
 require (

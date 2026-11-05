@@ -2492,7 +2492,7 @@ func (portal *Portal) updateSpace(source *User) bool {
 		return false
 	}
 	if portal.Parent != nil {
-		if portal.Parent.MXID != "" {
+		if portal.Parent.MXID == "" {
 			portal.log.Warn().Str("parent_id", portal.ParentID).Msg("Parent portal has no Matrix room, creating...")
 			err := portal.Parent.CreateMatrixRoom(source, nil)
 			if err != nil {

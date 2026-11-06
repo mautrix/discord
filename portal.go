@@ -1229,6 +1229,7 @@ var (
 	errRelationshipsNotReady       = errors.New("can't direct message before receiving relationships")
 	errDMingStranger               = errors.New("can't direct message a stranger")
 	errCantStartThread             = errors.New("can't create thread without being logged into Discord")
+	errEmptyMatrixMessage          = errors.New("matrix message has no bridgeable content")
 )
 
 func errorToStatusReason(err error) (reason event.MessageStatusReason, status event.MessageStatus, isCertain, sendNotice bool, humanMessage string, checkpointError error) {
@@ -1253,6 +1254,8 @@ func errorToStatusReason(err error) (reason event.MessageStatusReason, status ev
 		return event.MessageStatusUndecryptable, event.MessageStatusFail, true, true, "", nil
 	case errors.Is(err, errUserNotReceiver), errors.Is(err, errUserNotLoggedIn):
 		return event.MessageStatusNoPermission, event.MessageStatusFail, true, false, "", nil
+	case errors.Is(err, errEmptyMatrixMessage):
+		return event.MessageStatusUnsupported, event.MessageStatusFail, true, false, "", nil
 	case errors.Is(err, errUnknownEditTarget):
 		return event.MessageStatusGenericError, event.MessageStatusFail, true, false, "", nil
 	case errors.Is(err, errTargetNotFound):
@@ -1656,6 +1659,18 @@ func (portal *Portal) handleMatrixMessage(sender *User, evt *event.Event) {
 		sendReq.Content, sendReq.AllowedMentions = portal.parseMatrixHTML(content, parseAllowedLinkPreviews(evt.Content.Raw))
 		if content.MsgType == event.MsgEmote {
 			sendReq.Content = fmt.Sprintf("_%s_", sendReq.Content)
+		}
+		// Discord rejects empty Content with HTTP 400 / code 50006
+		// ("Cannot send an empty message"). Reaching that code path
+		// produces a user-facing error notice in Matrix even though the
+		// user couldn't have done much about an accidentally-empty
+		// message, which doubles the room's message count for the same
+		// content (see #186). Drop the event silently before making the
+		// API call, unless we still have something else to send such as
+		// a reply embed.
+		if strings.TrimSpace(sendReq.Content) == "" && len(sendReq.Embeds) == 0 {
+			go portal.sendMessageMetrics(evt, errEmptyMatrixMessage, "Ignoring")
+			return
 		}
 	case event.MsgAudio, event.MsgFile, event.MsgImage, event.MsgVideo:
 		data, err := downloadMatrixAttachment(portal.MainIntent(), content)

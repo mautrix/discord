@@ -48,6 +48,8 @@ type MessageConverter struct {
 
 	nextDiscordUploadID atomic.Int32
 
+	unencryptedReuploads reuploadCache
+
 	MaxFileSize int64
 }
 

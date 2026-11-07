@@ -286,7 +286,7 @@ func (puppet *Puppet) UpdateInfo(source *User, info *discordgo.User, message *di
 	defer puppet.syncLock.Unlock()
 
 	if info == nil || len(info.Username) == 0 || len(info.Discriminator) == 0 {
-		if puppet.Name != "" || source == nil {
+		if puppet.Name != "" || source == nil || source.Session == nil {
 			return
 		}
 		var err error

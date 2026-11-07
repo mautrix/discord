@@ -32,6 +32,7 @@ import (
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/appservice"
+	"maunium.net/go/mautrix/bridge"
 	"maunium.net/go/mautrix/bridge/bridgeconfig"
 	"maunium.net/go/mautrix/bridge/commands"
 	"maunium.net/go/mautrix/event"
@@ -56,6 +57,8 @@ func (br *DiscordBridge) RegisterCommands() {
 		cmdLoginToken,
 		cmdLoginQR,
 		cmdLogout,
+		cmdLink,
+		cmdUnlink,
 		cmdPing,
 		cmdReconnect,
 		cmdDisconnect,
@@ -289,6 +292,81 @@ func fnLogout(ce *WrappedCommandEvent) {
 	} else {
 		ce.Reply("You weren't logged in, but data was re-cleared just to be safe.")
 	}
+}
+
+var cmdLink = &commands.FullHandler{
+	Func: wrapCommand(fnLink),
+	Name: "link",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionAuth,
+		Description: "Link a Discord user to a Matrix user for Discord→Matrix double puppeting.",
+		Args:        "<discord_id> <matrix_user> [access_token]",
+	},
+	RequiresAdmin: true,
+}
+
+func fnLink(ce *WrappedCommandEvent) {
+	if len(ce.Args) < 2 {
+		ce.Reply("**Usage**: `$cmdprefix link <discord_id> <matrix_user> [access_token]`")
+		return
+	}
+
+	discordID := ce.Args[0]
+	if !isNumber(discordID) {
+		ce.Reply("Invalid Discord user ID: must be a numeric snowflake")
+		return
+	}
+	mxid := id.UserID(ce.Args[1])
+	var accessToken string
+	if len(ce.Args) >= 3 {
+		accessToken = ce.Args[2]
+	}
+
+	if _, _, err := mxid.Parse(); err != nil {
+		ce.Reply("Invalid Matrix user ID: %v", err)
+		return
+	}
+
+	puppet := ce.Bridge.GetPuppetByID(discordID)
+	err := puppet.SwitchCustomMXID(accessToken, mxid)
+	if errors.Is(err, bridge.ErrNoAccessToken) {
+		ce.Reply("Linked Discord user %s to Matrix user %s, but double puppeting could not be activated: no access token or shared secret available. The link is saved and will be retried automatically.", discordID, mxid)
+		return
+	} else if err != nil {
+		ce.Reply("Failed to link Discord user %s to Matrix user %s: %v", discordID, mxid, err)
+		return
+	} else {
+		ce.Reply("Successfully linked Discord user %s to Matrix user %s", discordID, mxid)
+	}
+}
+
+var cmdUnlink = &commands.FullHandler{
+	Func: wrapCommand(fnUnlink),
+	Name: "unlink",
+	Help: commands.HelpMeta{
+		Section:     commands.HelpSectionAuth,
+		Description: "Remove the link between a Discord user and their Matrix user.",
+		Args:        "<discord_id>",
+	},
+	RequiresAdmin: true,
+}
+
+func fnUnlink(ce *WrappedCommandEvent) {
+	if len(ce.Args) < 1 {
+		ce.Reply("**Usage**: `$cmdprefix unlink <discord_id>`")
+		return
+	}
+
+	discordID := ce.Args[0]
+	puppet := ce.Bridge.GetPuppetByID(discordID)
+	if puppet.CustomMXID == "" {
+		ce.Reply("Discord user %s is not linked to any Matrix user", discordID)
+		return
+	}
+
+	oldMXID := puppet.CustomMXID
+	puppet.ClearCustomMXID()
+	ce.Reply("Successfully unlinked Discord user %s from Matrix user %s", discordID, oldMXID)
 }
 
 var cmdPing = &commands.FullHandler{

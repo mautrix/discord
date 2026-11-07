@@ -488,7 +488,7 @@ func (user *User) Logout(isOverwriting bool) {
 
 	if user.DiscordID != "" {
 		puppet := user.bridge.GetPuppetByID(user.DiscordID)
-		if puppet.CustomMXID != "" {
+		if puppet.CustomMXID == user.MXID {
 			err := puppet.SwitchCustomMXID("", "")
 			if err != nil {
 				user.log.Warn().Err(err).Msg("Failed to disable custom puppet while logging out of Discord")

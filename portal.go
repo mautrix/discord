@@ -2517,6 +2517,10 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		Logger()
 
 	if meta == nil {
+		if source.Session == nil {
+			log.Warn().Msg("UpdateInfo called without metadata and source has no Discord session, skipping")
+			return nil
+		}
 		log.Debug().Msg("UpdateInfo called without metadata, fetching from user's state cache")
 		meta, _ = source.Session.State.Channel(portal.Key.ChannelID)
 		if meta == nil {
@@ -2539,7 +2543,7 @@ func (portal *Portal) UpdateInfo(source *User, meta *discordgo.Channel) *discord
 		changed = true
 	}
 	if portal.OtherUserID == "" && portal.IsPrivateChat() {
-		if len(meta.Recipients) == 0 {
+		if source.Session != nil && len(meta.Recipients) == 0 {
 			var err error
 			meta, err = source.Session.Channel(meta.ID)
 			if err != nil {

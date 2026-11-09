@@ -169,11 +169,11 @@ func (m *DiscordMessage) ConvertEdit(
 	case textPart != nil && hasDBTextPart:
 		edit.ModifiedParts = append(edit.ModifiedParts, textPart.ToEditPart(dbTextPart))
 	case textPart != nil && firstMediaPart != nil:
+		captionedMediaPart = firstMediaDBPart
 		log.Debug().
 			Str("media_part_id", string(firstMediaPart.ID)).
 			Msg("Adding text to existing media part as caption")
 		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, firstMediaPart).ToEditPart(firstMediaDBPart))
-		captionedMediaPart = firstMediaDBPart
 	case textPart != nil:
 		log.Debug().Msg("Ignoring text part in edit of message without text or media parts")
 	}

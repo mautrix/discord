@@ -22,6 +22,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -320,7 +321,44 @@ var (
 	_ bridgev2.RemoteEventWithUncertainPortalReceiver = (*DiscordReaction)(nil)
 	_ bridgev2.RemoteReactionRemove                   = (*DiscordReaction)(nil)
 	_ bridgev2.RemoteReactionWithExtraContent         = (*DiscordReaction)(nil)
+	_ bridgev2.RemotePreHandlerWithResult             = (*DiscordReaction)(nil)
 )
+
+func (r *DiscordReaction) PreHandleWithResult(ctx context.Context, portal *bridgev2.Portal) *bridgev2.EventHandlingResult {
+	if r.Type != bridgev2.RemoteEventReactionRemove || r.Reaction.Emoji.ID == "" {
+		return nil
+	}
+	stored, err := portal.Bridge.DB.Reaction.GetAllToMessageBySender(ctx, portal.Receiver, r.GetTargetMessage(), r.GetSender().Sender)
+	if err != nil {
+		result := bridgev2.EventHandlingResultFailed.WithError(err)
+		return &result
+	}
+	for _, reaction := range stored {
+		if reaction.EmojiID == r.EmojiID {
+			return nil
+		}
+	}
+	prefix := strings.TrimSuffix(string(r.EmojiID), r.Reaction.Emoji.Name+":"+r.Reaction.Emoji.ID)
+	if prefix != "" && prefix != "burst:" {
+		return nil
+	}
+	var matched networkid.EmojiID
+	for _, reaction := range stored {
+		key, hasPrefix := strings.CutPrefix(string(reaction.EmojiID), prefix)
+		_, emojiID, hasID := strings.Cut(key, ":")
+		if !hasPrefix || !hasID || emojiID != r.Reaction.Emoji.ID {
+			continue
+		}
+		if matched != "" && matched != reaction.EmojiID {
+			return nil
+		}
+		matched = reaction.EmojiID
+	}
+	if matched != "" {
+		r.EmojiID = matched
+	}
+	return nil
+}
 
 func (r *DiscordReaction) GetReactionEmoji() (string, networkid.EmojiID) {
 	return r.Emoji, r.EmojiID

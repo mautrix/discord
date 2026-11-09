@@ -47,6 +47,7 @@ var (
 	_ bridgev2.MuteHandlingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.UserBlockingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.MessageRequestAcceptingNetworkAPI = (*DiscordClient)(nil)
+	_ bridgev2.DeleteChatHandlingNetworkAPI      = (*DiscordClient)(nil)
 )
 
 type contextKey int
@@ -747,5 +748,21 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		}
 		err = d.Session.RelationshipDelete(*recipient)
 	}
+	return d.tryWrappingError(ctx, err)
+}
+
+func (d *DiscordClient) HandleMatrixDeleteChat(ctx context.Context, msg *bridgev2.MatrixDeleteChat) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+	if msg.Content.DeleteForEveryone {
+		return bridgev2.WrapErrorInStatus(errors.New("deleting chats for everyone is not supported on Discord")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	ch := d.channelWithID(ctx, channelID)
+	if ch == nil || ch.Type != discordgo.ChannelTypeDM {
+		return bridgev2.WrapErrorInStatus(errors.New("only direct messages can be closed")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
+	_, err := d.Session.ChannelDelete(channelID, makeDiscordReferer("", channelID, ""))
 	return d.tryWrappingError(ctx, err)
 }

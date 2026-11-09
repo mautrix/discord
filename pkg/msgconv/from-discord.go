@@ -185,8 +185,10 @@ func (mc *MessageConverter) ToMatrix(
 		pmp = &profile
 	}
 
-	if pmp != nil {
-		for _, part := range parts {
+	dbMeta := discordid.NewMessageMetadata(msg)
+	for _, part := range parts {
+		part.DBMetadata = dbMeta
+		if pmp != nil {
 			part.Content.BeeperPerMessageProfile = pmp
 		}
 	}

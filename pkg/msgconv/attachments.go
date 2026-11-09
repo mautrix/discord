@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -31,6 +33,37 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
+
+type ExternalMediaGoneError struct {
+	StatusCode int
+}
+
+func (e ExternalMediaGoneError) Error() string {
+	return fmt.Sprintf("external media is no longer available (status code %d)", e.StatusCode)
+}
+
+func (e ExternalMediaGoneError) Unwrap() error {
+	return bridgev2.ErrMediaDownloadFailed
+}
+
+func isGoneExternalMedia(downloadURL string, statusCode int) bool {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusNotFound && statusCode != http.StatusUnsupportedMediaType {
+		return false
+	}
+	parsed, err := url.Parse(downloadURL)
+	return err == nil &&
+		strings.HasPrefix(parsed.Host, "images-ext-") &&
+		strings.HasSuffix(parsed.Host, ".discordapp.net") &&
+		strings.HasPrefix(parsed.Path, "/external/")
+}
+
+func logReuploadError(ctx context.Context, err error, msg string) {
+	if errors.As(err, &ExternalMediaGoneError{}) {
+		zerolog.Ctx(ctx).Debug().Err(err).Msg(msg)
+	} else {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg(msg)
+	}
+}
 
 type ReuploadedAttachment struct {
 	MXC      id.ContentURIString
@@ -82,7 +115,13 @@ func (mc *MessageConverter) ReuploadMedia(
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode > 300 {
+	if resp.StatusCode > 300 && isGoneExternalMedia(downloadURL, resp.StatusCode) {
+		zerolog.Ctx(ctx).Debug().
+			Str("media_url", downloadURL).
+			Int("status_code", resp.StatusCode).
+			Msg("External media is no longer available")
+		return nil, ExternalMediaGoneError{StatusCode: resp.StatusCode}
+	} else if resp.StatusCode > 300 {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		logEvt := zerolog.Ctx(ctx).Error().
 			Str("media_url", downloadURL).

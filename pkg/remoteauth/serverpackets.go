@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 type serverPacket interface {
@@ -211,22 +209,14 @@ type serverPendingLogin struct {
 }
 
 func (p *serverPendingLogin) process(client *Client) error {
-	sess, err := discordgo.New("")
+	token, err := client.ExchangeTicket(p.Ticket)
 	if err != nil {
-		return err
-	}
-	sess.Client = client.restHTTPClient
-	encryptedToken, err := sess.RemoteAuthLogin(p.Ticket)
-	if err != nil {
-		return err
+		return &TicketExchangeError{Ticket: p.Ticket, Err: err}
 	}
 
-	plaintext, err := client.decrypt(encryptedToken)
-	if err != nil {
-		return err
-	}
-
-	client.user.Token = string(plaintext)
+	client.Lock()
+	client.user.Token = token
+	client.Unlock()
 
 	client.Close()
 

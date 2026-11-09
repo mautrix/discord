@@ -18,16 +18,26 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
+	"go.mau.fi/mautrix-discord/pkg/discordauth"
 	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 )
 
 const LoginFlowIDRemoteAuth = "qr"
+
+var ErrQRLoginUnsupportedCaptcha = bridgev2.RespError{
+	ErrCode:    "FI.MAU.DISCORD.QR_LOGIN_CAPTCHA_UNSUPPORTED",
+	Err:        "Discord asked for a CAPTCHA that can't be shown here. Try logging in with your email and password instead.",
+	StatusCode: http.StatusBadRequest,
+}
 
 type DiscordRemoteAuthLogin struct {
 	*DiscordGenericLogin
@@ -36,7 +46,13 @@ type DiscordRemoteAuthLogin struct {
 	remoteAuthClient *remoteauth.Client
 	qrChan           chan string
 	doneChan         chan struct{}
+
+	pendingUser    remoteauth.User
+	pendingTicket  string
+	pendingCaptcha *discordauth.Captcha
 }
+
+var _ bridgev2.LoginProcessCookies = (*DiscordRemoteAuthLogin)(nil)
 
 var _ bridgev2.LoginProcessDisplayAndWait = (*DiscordRemoteAuthLogin)(nil)
 
@@ -99,7 +115,9 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 	select {
 	case <-dl.doneChan:
 		user, err := dl.remoteAuthClient.Result()
-		if err != nil {
+		if step, captchaErr := dl.handleTicketCaptcha(ctx, user, err); step != nil || captchaErr != nil {
+			return step, captchaErr
+		} else if err != nil {
 			log.Err(err).Msg("Discord remoteauth failed")
 			return nil, userVisibleLoginError(ctx, fmt.Errorf("discord remoteauth failed: %w", err))
 		}
@@ -110,6 +128,56 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 		log.Debug().Msg("Cancelled while waiting for remoteauth to complete")
 		return nil, ctx.Err()
 	}
+}
+
+func (dl *DiscordRemoteAuthLogin) handleTicketCaptcha(ctx context.Context, user remoteauth.User, err error) (*bridgev2.LoginStep, error) {
+	var exchangeErr *remoteauth.TicketExchangeError
+	var restErr *discordgo.RESTError
+	if !errors.As(err, &exchangeErr) || !errors.As(err, &restErr) || restErr.Response == nil {
+		return nil, nil
+	}
+	captcha := discordauth.CheckCaptcha(ctx, restErr.Response, restErr.ResponseBody)
+	if captcha == nil {
+		return nil, nil
+	}
+	dl.pendingUser = user
+	dl.pendingTicket = exchangeErr.Ticket
+	dl.pendingCaptcha = captcha
+	step, err := captchaStep(ctx, captcha)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Can't present CAPTCHA for QR login")
+		return nil, ErrQRLoginUnsupportedCaptcha
+	}
+	return step, nil
+}
+
+func (dl *DiscordRemoteAuthLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
+	solution := cookies[CaptchaExtractionField]
+	if solution == "" {
+		return nil, ErrMissingLoginInput.AppendMessage(": captcha solution")
+	} else if dl.pendingCaptcha == nil || dl.pendingTicket == "" {
+		return nil, fmt.Errorf("no CAPTCHA is pending for this QR login")
+	}
+
+	options := []discordgo.RequestOption{discordgo.WithHeader(discordauth.HeaderCaptchaKey, solution)}
+	if dl.pendingCaptcha.SessionID != nil {
+		options = append(options, discordgo.WithHeader(discordauth.HeaderCaptchaSessionID, *dl.pendingCaptcha.SessionID))
+	}
+	if dl.pendingCaptcha.RqToken != nil {
+		options = append(options, discordgo.WithHeader(discordauth.HeaderCaptchaRqToken, *dl.pendingCaptcha.RqToken))
+	}
+	token, err := dl.remoteAuthClient.ExchangeTicket(dl.pendingTicket, options...)
+	if err != nil {
+		err = &remoteauth.TicketExchangeError{Ticket: dl.pendingTicket, Err: err}
+		if step, captchaErr := dl.handleTicketCaptcha(ctx, dl.pendingUser, err); step != nil || captchaErr != nil {
+			return step, captchaErr
+		}
+		zerolog.Ctx(ctx).Err(err).Msg("Discord remoteauth failed after CAPTCHA")
+		return nil, userVisibleLoginError(ctx, fmt.Errorf("discord remoteauth failed: %w", err))
+	}
+	user := dl.pendingUser
+	user.Token = token
+	return dl.finalizeSuccessfulLogin(ctx, user)
 }
 
 func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, user remoteauth.User) (*bridgev2.LoginStep, error) {

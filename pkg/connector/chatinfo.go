@@ -231,7 +231,7 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 	if ch.Type == discordgo.ChannelTypeDM {
 		rel := d.relationshipWithDMRecipient(ch)
 		blocked = ptr.Ptr(rel != nil && rel.Type == discordgo.RelationshipBlocked)
-		messageRequest = ptr.Ptr(ch.IsMessageRequest || (rel != nil && rel.Type == discordgo.RelationshipIncomingFriendRequest))
+		messageRequest = ptr.Ptr(ch.IsMessageRequest || isPendingFriendRequest(rel))
 	}
 	return &bridgev2.ChatInfo{
 		Name:           d.getChannelName(ch),

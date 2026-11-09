@@ -1410,6 +1410,10 @@ func (d *DiscordClient) relationshipWithUserID(userID string) *discordgo.Relatio
 	return d.relationships[userID]
 }
 
+func isPendingFriendRequest(rel *discordgo.Relationship) bool {
+	return rel != nil && rel.Type == discordgo.RelationshipIncomingFriendRequest && !rel.IsSpamRequest
+}
+
 func (d *DiscordClient) relationshipWithDMRecipient(ch *discordgo.Channel) *discordgo.Relationship {
 	if ch == nil {
 		return nil

@@ -285,7 +285,7 @@ func (d *DiscordClient) HandleMatrixAcceptMessageRequest(ctx context.Context, ms
 	}
 
 	if recipient := dmChannelRecipientID(ch); recipient != nil {
-		if rel := d.relationshipWithUserID(*recipient); rel != nil && rel.Type == discordgo.RelationshipIncomingFriendRequest {
+		if isPendingFriendRequest(d.relationshipWithUserID(*recipient)) {
 			return d.acceptFriendRequest(ctx, *recipient, msg.Content.IsImplicit)
 		}
 	}

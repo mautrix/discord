@@ -874,7 +874,7 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 
 func (d *DiscordClient) handleRelationshipChange(ctx context.Context, userID, nickname string) {
 	rel := d.relationshipWithUserID(userID)
-	friendRequest := rel != nil && rel.Type == discordgo.RelationshipIncomingFriendRequest
+	friendRequest := isPendingFriendRequest(rel)
 	ch := d.dmChannelForUserID(userID)
 	if ch == nil && friendRequest {
 		ch = d.openFriendRequestDM(ctx, userID)

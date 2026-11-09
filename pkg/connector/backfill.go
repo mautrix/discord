@@ -245,10 +245,6 @@ func (d *DiscordClient) GetBackfillMaxBatchCount(
 	}
 }
 
-func snowflakeAfter(id, other string) bool {
-	return len(id) > len(other) || (len(id) == len(other) && id > other)
-}
-
 func (d *DiscordClient) fetchMessagesNewerThan(channelID, afterID string, count int, opts ...discordgo.RequestOption) ([]*discordgo.Message, error) {
 	if afterID != "" {
 		limit := min(count, 100)
@@ -266,7 +262,7 @@ func (d *DiscordClient) fetchMessagesNewerThan(channelID, afterID string, count 
 			return msgs, err
 		}
 		for _, msg := range page {
-			if afterID != "" && !snowflakeAfter(msg.ID, afterID) {
+			if afterID != "" && compareMessageIDs(msg.ID, afterID) <= 0 {
 				return msgs, nil
 			}
 			msgs = append(msgs, msg)

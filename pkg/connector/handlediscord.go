@@ -89,7 +89,7 @@ func (m *DiscordMessage) ConvertEdit(
 	ctx = log.WithContext(ctx)
 
 	newMeta := discordid.NewMessageMetadata(m.Data)
-	contentUnchanged := len(newMeta.ContentHash) > 0
+	contentUnchanged := len(newMeta.ContentHash) > 0 && len(existingParts) > 0
 	var lastEditTS time.Time
 	for _, part := range existingParts {
 		meta, _ := part.Metadata.(*discordid.MessageMetadata)

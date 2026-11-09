@@ -937,12 +937,16 @@ func MergeCaption(cm *bridgev2.ConvertedMessage) {
 		mediaPart.Type != event.EventMessage || !mediaPart.Content.MsgType.IsMedia() {
 		return
 	}
+	cm.Parts = []*bridgev2.ConvertedMessagePart{MergeCaptionPart(textPart, mediaPart)}
+}
+
+func MergeCaptionPart(textPart, mediaPart *bridgev2.ConvertedMessagePart) *bridgev2.ConvertedMessagePart {
 	merged := bridgev2.MergeCaption(textPart, mediaPart)
-	if len(textPart.Extra) > 0 {
+	if textPart != nil && mediaPart != nil && len(textPart.Extra) > 0 {
 		extra := make(map[string]any, len(mediaPart.Extra)+len(textPart.Extra))
 		maps.Copy(extra, textPart.Extra)
 		maps.Copy(extra, mediaPart.Extra)
 		merged.Extra = extra
 	}
-	cm.Parts = []*bridgev2.ConvertedMessagePart{merged}
+	return merged
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -238,8 +239,8 @@ func (p *serverPendingLogin) process(client *Client) error {
 // /////////////////////////////////////////////////////////////////////////////
 type serverCancel struct{}
 
-func (c *serverCancel) process(client *Client) error {
-	client.Close()
+var ErrCancelled = errors.New("login was cancelled on the phone")
 
-	return nil
+func (c *serverCancel) process(client *Client) error {
+	return ErrCancelled
 }

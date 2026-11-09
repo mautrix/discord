@@ -282,6 +282,10 @@ func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.M
 		msg = &discordgo.Message{}
 	}
 
+	threadRootID := route.FromThreadRootMessageID()
+	if threadRootID != nil && discordid.ParseMessageID(*threadRootID) == msg.ID {
+		threadRootID = nil
+	}
 	return DiscordMessage{
 		DiscordEventMeta: &DiscordEventMeta{
 			Type:  typ,
@@ -289,7 +293,7 @@ func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.M
 		},
 		Data:         msg,
 		Client:       d,
-		ThreadRootID: route.FromThreadRootMessageID(),
+		ThreadRootID: threadRootID,
 	}
 }
 

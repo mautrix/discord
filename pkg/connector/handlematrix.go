@@ -107,6 +107,14 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	ch := d.channelWithID(ctx, channelID)
 	ctx = context.WithValue(ctx, contextKeyChannel, ch)
 
+	if isPostChannel(ch) {
+		return nil, bridgev2.WrapErrorInStatus(errNotInPost).
+			WithStatus(event.MessageStatusFail).
+			WithErrorReason(event.MessageStatusUnsupported).
+			WithIsCertain(true).
+			WithMessage("Reply in a post's thread. New posts can only be started from Discord.")
+	}
+
 	// Perform any required screening before making any requests to Discord at
 	// all (message conversion does).
 	if err := d.screenOutgoingMessage(ctx, ch); err != nil {
@@ -186,6 +194,7 @@ var (
 	errCannotDMStranger          = errors.New("can't direct message a stranger")
 	errPendingMessageRequest     = errors.New("message request hasn't been accepted")
 	errMessageRequestNotAccepted = errors.New("failed to accept message request")
+	errNotInPost                 = errors.New("messages in forum channels must be in a post")
 )
 
 func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *discordgo.Channel) error {
@@ -315,8 +324,8 @@ func (d *DiscordClient) HandleMatrixEdit(ctx context.Context, msg *bridgev2.Matr
 	parentChannelID := discordid.ParseChannelPortalID(msg.Portal.ID)
 	channelID := parentChannelID
 	threadChannelID := ""
-	if msg.EditTarget != nil && msg.EditTarget.ThreadRoot != "" {
-		thread, err := d.getThreadByRootMessageID(ctx, discordid.ParseMessageID(msg.EditTarget.ThreadRoot))
+	if rootID := d.targetThreadRootID(ctx, parentChannelID, msg.EditTarget); rootID != "" {
+		thread, err := d.getThreadByRootMessageID(ctx, rootID)
 		if err != nil {
 			return fmt.Errorf("failed to resolve target thread for message edit: %w", err)
 		} else if thread != nil {
@@ -381,8 +390,8 @@ func (d *DiscordClient) HandleMatrixReaction(ctx context.Context, reaction *brid
 	parentChannelID := discordid.ParseChannelPortalID(portal.ID)
 	channelID := parentChannelID
 	threadChannelID := ""
-	if reaction.TargetMessage != nil && reaction.TargetMessage.ThreadRoot != "" {
-		thread, err := d.getThreadByRootMessageID(ctx, discordid.ParseMessageID(reaction.TargetMessage.ThreadRoot))
+	if rootID := d.targetThreadRootID(ctx, parentChannelID, reaction.TargetMessage); rootID != "" {
+		thread, err := d.getThreadByRootMessageID(ctx, rootID)
 		if err != nil {
 			return nil, err
 		} else if thread != nil {
@@ -422,8 +431,8 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 	if err != nil {
 		return err
 	}
-	if targetMessage != nil && targetMessage.ThreadRoot != "" {
-		thread, err := d.getThreadByRootMessageID(ctx, discordid.ParseMessageID(targetMessage.ThreadRoot))
+	if rootID := d.targetThreadRootID(ctx, parentChannelID, targetMessage); rootID != "" {
+		thread, err := d.getThreadByRootMessageID(ctx, rootID)
 		if err != nil {
 			return err
 		} else if thread != nil {
@@ -455,8 +464,8 @@ func (d *DiscordClient) HandleMatrixMessageRemove(ctx context.Context, removal *
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
 	channelID := parentChannelID
 	threadChannelID := ""
-	if removal.TargetMessage != nil && removal.TargetMessage.ThreadRoot != "" {
-		thread, err := d.getThreadByRootMessageID(ctx, discordid.ParseMessageID(removal.TargetMessage.ThreadRoot))
+	if rootID := d.targetThreadRootID(ctx, parentChannelID, removal.TargetMessage); rootID != "" {
+		thread, err := d.getThreadByRootMessageID(ctx, rootID)
 		if err != nil {
 			return err
 		} else if thread != nil {

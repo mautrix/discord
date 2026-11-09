@@ -44,6 +44,9 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 
 	parentChannelID := discordid.ParseChannelPortalID(fetchParams.Portal.ID)
 	channelID := parentChannelID
+	if fetchParams.ThreadRoot == "" && isPostChannel(d.channelWithID(ctx, parentChannelID)) {
+		return &bridgev2.FetchMessagesResponse{Forward: fetchParams.Forward}, nil
+	}
 	threadChannelID := ""
 	var knownThreadRootID *networkid.MessageID
 

@@ -35,6 +35,10 @@ func isThread(ch *discordgo.Channel) bool {
 		ch.Type == discordgo.ChannelTypeGuildNewsThread
 }
 
+func isPostChannel(ch *discordgo.Channel) bool {
+	return ch != nil && (ch.Type == discordgo.ChannelTypeGuildForum || ch.Type == discordgo.ChannelTypeGuildMedia)
+}
+
 func defaultThreadRootMessageID(ch *discordgo.Channel) string {
 	if ch == nil || !isThread(ch) {
 		return ""
@@ -102,6 +106,17 @@ func (d *DiscordClient) getThreadByRootMessageID(ctx context.Context, rootMessag
 	}
 
 	return nil, nil
+}
+
+func (d *DiscordClient) targetThreadRootID(ctx context.Context, parentChannelID string, target *database.Message) string {
+	if target == nil {
+		return ""
+	} else if target.ThreadRoot != "" {
+		return discordid.ParseMessageID(target.ThreadRoot)
+	} else if isPostChannel(d.channelWithID(ctx, parentChannelID)) {
+		return discordid.ParseMessageID(target.ID)
+	}
+	return ""
 }
 
 func getMatrixThreadRootRemoteMessageID(threadRoot *database.Message) string {

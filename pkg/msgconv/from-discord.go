@@ -662,7 +662,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 		var authorHTML string
 		authorNameHTML := html.EscapeString(embed.Author.Name)
 		if embed.Author.URL != "" {
-			authorNameHTML = fmt.Sprintf(embedHTMLAuthorLink, embed.Author.URL, authorNameHTML)
+			authorNameHTML = fmt.Sprintf(embedHTMLAuthorLink, html.EscapeString(embed.Author.URL), authorNameHTML)
 		}
 		authorHTML = fmt.Sprintf(embedHTMLAuthorPlain, authorNameHTML)
 		if embed.Author.ProxyIconURL != "" {

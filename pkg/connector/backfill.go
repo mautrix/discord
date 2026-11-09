@@ -89,6 +89,9 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 			beforeID = anchorID
 		}
 	}
+	if !fetchParams.Forward && fetchParams.Cursor != "" {
+		beforeID = string(fetchParams.Cursor)
+	}
 
 	// ChannelMessages returns messages ordered from newest to oldest.
 	count := min(fetchParams.Count, 100)
@@ -218,8 +221,13 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	if readState := d.readStateForID(channelID); !entireBatchWasProvablyRead && readState != nil && readState.LastMessageID != "" {
 		readUpTo, _ = discordgo.SnowflakeTimestamp(string(readState.LastMessageID))
 	}
+	var cursor networkid.PaginationCursor
+	if !fetchParams.Forward && len(msgs) > 0 {
+		cursor = networkid.PaginationCursor(msgs[len(msgs)-1].ID)
+	}
 	return &bridgev2.FetchMessagesResponse{
 		Messages: converted,
+		Cursor:   cursor,
 		Forward:  fetchParams.Forward,
 		MarkRead: entireBatchWasProvablyRead,
 		ReadUpTo: readUpTo,

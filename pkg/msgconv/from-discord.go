@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"maps"
 	"net/url"
 	"path"
 	"strconv"
@@ -925,4 +926,23 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	}
 
 	return part
+}
+
+func MergeCaption(cm *bridgev2.ConvertedMessage) {
+	if len(cm.Parts) != 2 {
+		return
+	}
+	textPart, mediaPart := cm.Parts[0], cm.Parts[1]
+	if textPart.ID != "" || textPart.Type != event.EventMessage || textPart.Content.MsgType != event.MsgText ||
+		mediaPart.Type != event.EventMessage || !mediaPart.Content.MsgType.IsMedia() {
+		return
+	}
+	merged := bridgev2.MergeCaption(textPart, mediaPart)
+	if len(textPart.Extra) > 0 {
+		extra := make(map[string]any, len(mediaPart.Extra)+len(textPart.Extra))
+		maps.Copy(extra, textPart.Extra)
+		maps.Copy(extra, mediaPart.Extra)
+		merged.Extra = extra
+	}
+	cm.Parts = []*bridgev2.ConvertedMessagePart{merged}
 }

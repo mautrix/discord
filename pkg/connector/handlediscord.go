@@ -36,6 +36,7 @@ import (
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
@@ -261,7 +262,9 @@ func (m *DiscordMessage) GetTransactionID() networkid.TransactionID {
 }
 
 func (m *DiscordMessage) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI) (*bridgev2.ConvertedMessage, error) {
-	return m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data, m.ThreadRootID), nil
+	converted := m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data, m.ThreadRootID)
+	msgconv.MergeCaption(converted)
+	return converted, nil
 }
 
 func (m *DiscordMessage) GetID() networkid.MessageID {

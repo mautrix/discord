@@ -412,8 +412,25 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 		Logger()
 	ctx = log.WithContext(ctx)
 
-	// Make sure we have this user's info in case we haven't seen them at all yet.
-	_ = d.userCache.Resolve(ctx, typing.UserID)
+	portal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, route.PortalKey)
+	if err != nil || portal == nil || portal.MXID == "" {
+		return
+	}
+	ghostMXID := d.connector.Bridge.Matrix.FormatGhostMXID(discordid.MakeUserID(typing.UserID))
+	member, err := d.connector.Bridge.Matrix.GetMemberInfo(ctx, portal.MXID, ghostMXID)
+	if err != nil {
+		log.Err(err).Msg("Failed to check whether typing user is in the room")
+		return
+	} else if member == nil || member.Membership != event.MembershipJoin {
+		log.Trace().Msg("Dropping typing from user who isn't in the room")
+		return
+	}
+
+	if typing.Member != nil && typing.Member.User != nil {
+		d.userCache.MergePartialUser(typing.Member.User)
+	} else {
+		_ = d.userCache.Resolve(ctx, typing.UserID)
+	}
 
 	d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Typing{
 		EventMeta: simplevent.EventMeta{

@@ -56,6 +56,8 @@ type Config struct {
 
 	LogWhenDroppingMessages bool `yaml:"log_when_dropping_messages"`
 
+	ExtEvPolls bool `yaml:"extev_polls"`
+
 	// Proxy is a static proxy address (HTTP or SOCKS5) for connecting to
 	// Discord. Ignored when GetProxyFrom is set.
 	Proxy string `yaml:"proxy"`
@@ -175,6 +177,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "custom_emoji_reactions")
 	helper.Copy(up.Bool, "per_message_profiles_on_every_message_hack")
 	helper.Copy(up.Bool, "log_when_dropping_messages")
+	helper.Copy(up.Bool, "extev_polls")
 	helper.Copy(up.Str, "proxy")
 	helper.Copy(up.Str, "get_proxy_from")
 	helper.Copy(up.Bool, "proxy_media")

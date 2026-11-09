@@ -197,14 +197,16 @@ func (mc *MessageConverter) ToMatrix(
 		converted.ThreadRoot = &threadRoot
 	}
 
-	// TODO This is sorta gross; it might be worth bundling these parameters
-	// into a struct.
-	mc.addReplyToConvertedMessage(
-		ctx,
-		converted,
-		source,
-		msg,
-	)
+	if len(parts) != 1 || parts[0].Type != event.EventUnstablePollEnd {
+		// TODO This is sorta gross; it might be worth bundling these parameters
+		// into a struct.
+		mc.addReplyToConvertedMessage(
+			ctx,
+			converted,
+			source,
+			msg,
+		)
+	}
 
 	return converted
 }
@@ -283,6 +285,12 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 			MsgType: event.MsgEmote,
 			Body:    "(Joined the server.)",
 		}}
+	case MessageTypePollResult:
+		return mc.renderDiscordPollResult(ctx, portal, msg)
+	}
+
+	if msg.Poll != nil {
+		return mc.renderDiscordPoll(msg)
 	}
 
 	var htmlParts []string

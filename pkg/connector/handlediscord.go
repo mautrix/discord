@@ -664,7 +664,8 @@ func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo
 
 	// We only care about profile updates, so bail if it's just the
 	// status/activity that changed.
-	if user.Username == "" && user.GlobalName == "" && user.Discriminator == "" && user.Avatar == "" {
+	if user.Username == "" && user.GlobalName == "" && user.Discriminator == "" && user.Avatar == "" &&
+		!evt.UserAvatarPresent && !evt.UserGlobalNamePresent {
 		return
 	}
 
@@ -675,7 +676,7 @@ func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo
 	ctx = log.WithContext(ctx)
 
 	// Incorporate the user delta into the cache.
-	merged := d.userCache.MergePartialUser(user)
+	merged := d.userCache.MergePresenceUser(evt)
 	if merged == nil {
 		// The user wasn't cached in the first place, so this presence update
 		// is likely irrelevant to us.

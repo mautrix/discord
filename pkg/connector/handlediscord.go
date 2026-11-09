@@ -127,6 +127,7 @@ func (m *DiscordMessage) ConvertEdit(
 	var textPart, firstMediaPart *bridgev2.ConvertedMessagePart
 	var firstMediaDBPart *database.Message
 	var addedParts []*bridgev2.ConvertedMessagePart
+	var mediaEdits []*bridgev2.ConvertedEditPart
 	for _, part := range newlyConverted.Parts {
 		if part.ID == "" {
 			textPart = part
@@ -135,9 +136,12 @@ func (m *DiscordMessage) ConvertEdit(
 		dbPart, ok := beforePartsByID[part.ID]
 		if !ok {
 			addedParts = append(addedParts, part)
-		} else if firstMediaPart == nil && part.Content.MsgType.IsMedia() {
-			firstMediaPart = part
-			firstMediaDBPart = dbPart
+		} else if part.Content.MsgType.IsMedia() {
+			mediaEdits = append(mediaEdits, part.ToEditPart(dbPart))
+			if firstMediaPart == nil {
+				firstMediaPart = part
+				firstMediaDBPart = dbPart
+			}
 		}
 	}
 
@@ -150,6 +154,7 @@ func (m *DiscordMessage) ConvertEdit(
 	// message stored as one text part (e.g. sent from Matrix) is that part.
 	replaceTextPart := hasDBTextPart && len(addedParts) == 1 &&
 		(textPart == nil || (len(existingParts) == 1 && m.hasAttachment(addedParts[0].ID)))
+	var captionedMediaPart *database.Message
 	switch {
 	case replaceTextPart:
 		log.Debug().
@@ -168,8 +173,14 @@ func (m *DiscordMessage) ConvertEdit(
 			Str("media_part_id", string(firstMediaPart.ID)).
 			Msg("Adding text to existing media part as caption")
 		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, firstMediaPart).ToEditPart(firstMediaDBPart))
+		captionedMediaPart = firstMediaDBPart
 	case textPart != nil:
 		log.Debug().Msg("Ignoring text part in edit of message without text or media parts")
+	}
+	for _, mediaEdit := range mediaEdits {
+		if mediaEdit.Part != captionedMediaPart {
+			edit.ModifiedParts = append(edit.ModifiedParts, mediaEdit)
+		}
 	}
 	if len(addedParts) > 0 {
 		log.Debug().

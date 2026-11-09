@@ -250,6 +250,13 @@ func snowflakeAfter(id, other string) bool {
 }
 
 func (d *DiscordClient) fetchMessagesNewerThan(channelID, afterID string, count int, opts ...discordgo.RequestOption) ([]*discordgo.Message, error) {
+	if afterID != "" {
+		limit := min(count, 100)
+		page, err := d.Session.ChannelMessages(channelID, limit, "", afterID, "", opts...)
+		if err != nil || len(page) < limit {
+			return page, err
+		}
+	}
 	var msgs []*discordgo.Message
 	beforeID := ""
 	for len(msgs) < count {

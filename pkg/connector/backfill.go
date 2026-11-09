@@ -37,6 +37,8 @@ var (
 	_ bridgev2.BackfillingNetworkAPIWithLimits = (*DiscordClient)(nil)
 )
 
+const maxConcurrentHistoryFetches = 4
+
 func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	if !d.IsLoggedIn() {
 		return nil, bridgev2.ErrNotLoggedIn
@@ -90,8 +92,14 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 
 	// ChannelMessages returns messages ordered from newest to oldest.
 	count := min(fetchParams.Count, 100)
+	select {
+	case d.historyFetchSem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	log.Debug().Msg("Fetching channel history for backfill")
 	msgs, err := d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
+	<-d.historyFetchSem
 	var restErr *discordgo.RESTError
 	if errors.As(err, &restErr) && restErr.Message != nil &&
 		(restErr.Message.Code == discordgo.ErrCodeMissingAccess || restErr.Message.Code == discordgo.ErrCodeUnknownChannel) {

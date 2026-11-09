@@ -81,6 +81,8 @@ type DiscordClient struct {
 	lastSendAttemptMutex sync.Mutex
 	lastSendAttempt      *SendAttempt
 
+	bridgedGuildsLock sync.RWMutex
+
 	vitalsMu  sync.Mutex // guards vitals and safetyHub
 	vitals    *vitals
 	safetyHub *discordgo.SafetyHub // last fetched safety hub information when permitted
@@ -365,7 +367,60 @@ func (d *DiscordClient) handleDiscordEventSync(event any) {
 	// else we might end up inadvertently relying on goroutine scheduling.
 	d.handleDiscordStateEvent(event)
 
+	if d.isUnbridgedGuildEvent(event) {
+		return
+	}
 	go d.handleDiscordEvent(event)
+}
+
+func (d *DiscordClient) isUnbridgedGuildEvent(event any) bool {
+	var guildID string
+	switch evt := event.(type) {
+	case *discordgo.Event:
+		return true
+	case *discordgo.MessageCreate:
+		if evt.Message == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageUpdate:
+		if evt.Message == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageDelete:
+		if evt.Message == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageReactionAdd:
+		if evt.MessageReaction == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageReactionRemove:
+		if evt.MessageReaction == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.TypingStart:
+		guildID = evt.GuildID
+	case *discordgo.ThreadCreate:
+		if evt.Channel == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.ThreadUpdate:
+		if evt.Channel == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.ThreadListSync:
+		guildID = evt.GuildID
+	default:
+		return false
+	}
+	return guildID != "" && !d.guildIsBridged(guildID)
 }
 
 func (d *DiscordClient) connect(ctx context.Context) error {
@@ -731,11 +786,13 @@ func (d *DiscordClient) bridgedGuildIDs() map[string]struct{} {
 	bridgingGuildIDs := map[string]struct{}{}
 
 	// guilds that were bridged via the provisioning api
+	d.bridgedGuildsLock.RLock()
 	for guildID, bridged := range meta.BridgedGuildIDs {
 		if bridged {
 			bridgingGuildIDs[guildID] = struct{}{}
 		}
 	}
+	d.bridgedGuildsLock.RUnlock()
 
 	// guilds that were declared in the configuration file
 	for _, guildID := range d.connector.Config.Guilds.BridgingGuildIDs {
@@ -743,6 +800,29 @@ func (d *DiscordClient) bridgedGuildIDs() map[string]struct{} {
 	}
 
 	return bridgingGuildIDs
+}
+
+func (d *DiscordClient) guildIsBridged(guildID string) bool {
+	d.bridgedGuildsLock.RLock()
+	bridged := d.userLoginMetadata().BridgedGuildIDs[guildID]
+	d.bridgedGuildsLock.RUnlock()
+	return bridged || slices.Contains(d.connector.Config.Guilds.BridgingGuildIDs, guildID)
+}
+
+func (d *DiscordClient) setGuildBridged(guildID string, bridged bool) (wasBridged bool) {
+	d.bridgedGuildsLock.Lock()
+	defer d.bridgedGuildsLock.Unlock()
+	meta := d.userLoginMetadata()
+	_, wasBridged = meta.BridgedGuildIDs[guildID]
+	if bridged {
+		if meta.BridgedGuildIDs == nil {
+			meta.BridgedGuildIDs = map[string]bool{}
+		}
+		meta.BridgedGuildIDs[guildID] = true
+	} else {
+		delete(meta.BridgedGuildIDs, guildID)
+	}
+	return
 }
 
 func (d *DiscordClient) syncGuilds(ctx context.Context) {

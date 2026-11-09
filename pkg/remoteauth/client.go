@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -143,6 +144,53 @@ func (c *Client) write(p clientPacket) error {
 	}
 
 	return c.conn.Write(c.connCtx, websocket.MessageText, payload)
+}
+
+// TicketExchangeError is returned by [Client.Result] when Discord accepted the
+// QR login on the phone but refused to exchange the login ticket for a token.
+// The ticket can be passed to [Client.ExchangeTicket] to retry.
+type TicketExchangeError struct {
+	Ticket string
+	Err    error
+}
+
+func (e *TicketExchangeError) Error() string {
+	return fmt.Sprintf("failed to exchange login ticket: %v", e.Err)
+}
+
+func (e *TicketExchangeError) Unwrap() error {
+	return e.Err
+}
+
+// ExchangeTicket trades a login ticket for the user's token.
+func (c *Client) ExchangeTicket(ticket string, options ...discordgo.RequestOption) (string, error) {
+	sess, err := discordgo.New("")
+	if err != nil {
+		return "", err
+	}
+	sess.Client = c.restHTTPClient
+
+	data := struct {
+		Ticket string `json:"ticket"`
+	}{ticket}
+	resp, err := sess.RequestWithBucketID("POST", discordgo.EndpointRemoteAuthLogin, data, discordgo.EndpointRemoteAuthLogin, options...)
+	if err != nil {
+		return "", err
+	}
+
+	var body struct {
+		EncryptedToken string `json:"encrypted_token"`
+	}
+	if err = json.Unmarshal(resp, &body); err != nil {
+		return "", err
+	}
+
+	plaintext, err := c.decrypt(body.EncryptedToken)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
 }
 
 func (c *Client) decrypt(payload string) ([]byte, error) {

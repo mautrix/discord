@@ -330,6 +330,8 @@ func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
 	return r.Extra
 }
 
+const superReactionEmojiIDPrefix = "burst:"
+
 func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, route *router.Route, beingAdded bool) (*DiscordReaction, error) {
 	if reaction == nil {
 		return nil, nil
@@ -385,6 +387,9 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 		// A Unicode emoji.
 		emojiID = reaction.Emoji.Name
 		matrixEmoji = variationselector.Add(reaction.Emoji.Name)
+	}
+	if reaction.Burst {
+		emojiID = superReactionEmojiIDPrefix + emojiID
 	}
 
 	return &DiscordReaction{

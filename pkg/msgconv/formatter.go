@@ -19,26 +19,32 @@ package msgconv
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/format/mdext"
 )
 
-// escapeFixer is a hacky partial fix for the difference in escaping markdown, used with escapeReplacement
-//
-// Discord allows escaping with just one backslash, e.g. \__a__,
-// but standard markdown requires both to be escaped (\_\_a__)
-var escapeFixer = regexp.MustCompile(`\\(__[^_]|\*\*[^*])`)
+type discordEscapeParser struct{}
 
-func escapeReplacement(s string) string {
-	return s[:2] + `\` + s[2:]
+func (s *discordEscapeParser) Trigger() []byte {
+	return []byte{'\\'}
+}
+
+func (s *discordEscapeParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
+	line, _ := block.PeekLine()
+	if len(line) < 4 || line[1] != line[2] || line[1] == line[3] || (line[1] != '_' && line[1] != '*') {
+		return nil
+	}
+	block.Advance(3)
+	return ast.NewString(line[1:3])
 }
 
 // indentableParagraphParser is the default paragraph parser with CanAcceptIndentedLine.
@@ -59,16 +65,19 @@ var removeFeaturesExceptLinks = []any{
 	parser.NewCodeBlockParser(),
 }
 var removeFeaturesAndLinks = append(removeFeaturesExceptLinks, parser.NewLinkParser())
-var fixIndentedParagraphs = goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(defaultIndentableParagraphParser, 500)))
+var discordParserOptions = goldmark.WithParserOptions(
+	parser.WithBlockParsers(util.Prioritized(defaultIndentableParagraphParser, 500)),
+	parser.WithInlineParsers(util.Prioritized(&discordEscapeParser{}, 100)),
+)
 var discordExtensions = goldmark.WithExtensions(extension.Strikethrough, mdext.SimpleSpoiler, mdext.DiscordUnderline, ExtDiscordEveryone, ExtDiscordTag)
 
 var discordRenderer = goldmark.New(
 	goldmark.WithParser(mdext.ParserWithoutFeatures(removeFeaturesAndLinks...)),
-	fixIndentedParagraphs, format.HTMLOptions, discordExtensions,
+	discordParserOptions, format.HTMLOptions, discordExtensions,
 )
 var discordRendererWithInlineLinks = goldmark.New(
 	goldmark.WithParser(mdext.ParserWithoutFeatures(removeFeaturesExceptLinks...)),
-	fixIndentedParagraphs, format.HTMLOptions, discordExtensions,
+	discordParserOptions, format.HTMLOptions, discordExtensions,
 )
 
 // renderDiscordMarkdownOnlyHTML converts Discord-flavored Markdown text to HTML.
@@ -81,8 +90,6 @@ func (mc *MessageConverter) renderDiscordMarkdownOnlyHTML(ctx context.Context, p
 
 // renderDiscordMarkdownOnlyHTMLNoUnwrap converts Discord-flavored Markdown text to HTML.
 func (mc *MessageConverter) renderDiscordMarkdownOnlyHTMLNoUnwrap(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, text string, allowInlineLinks bool) string {
-	text = escapeFixer.ReplaceAllStringFunc(text, escapeReplacement)
-
 	var buf strings.Builder
 	pc := parser.NewContext()
 	pc.Set(parserContextGoContext, ctx)

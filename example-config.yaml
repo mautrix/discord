@@ -167,6 +167,9 @@ bridge:
     prefix_webhook_messages: true
     # Bridge webhook avatars?
     enable_webhook_avatars: false
+    # Suppress all mentions when sending messages via webhook (relay mode)?
+    # This prevents the webhook from pinging users, roles, or @everyone/@here.
+    suppress_webhook_mentions: false
     # Should the bridge upload media to the Discord CDN directly before sending the message when using a user token,
     # like the official client does? The other option is sending the media in the message send request as a form part
     # (which is always used by bots and webhooks).

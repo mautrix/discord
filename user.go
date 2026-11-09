@@ -1269,7 +1269,8 @@ func (user *User) findPortal(channelID string) (*Portal, *Thread) {
 }
 
 func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildID string) {
-	if user.getGuildBridgingMode(guildID) <= database.GuildBridgeNothing {
+	incomingMode := user.getGuildBridgingMode(guildID)
+	if incomingMode <= database.GuildBridgeNothing {
 		// If guild bridging mode is nothing, don't even check if the portal exists
 		return
 	}
@@ -1283,7 +1284,8 @@ func (user *User) pushPortalMessage(msg interface{}, typeName, channelID, guildI
 			Msg("Dropping event in unknown channel")
 		return
 	}
-	if mode := user.getGuildBridgingMode(portal.GuildID); mode <= database.GuildBridgeNothing || (portal.MXID == "" && mode <= database.GuildBridgeIfPortalExists) {
+	mode := user.getGuildBridgingMode(portal.GuildID)
+	if mode <= database.GuildBridgeNothing || (portal.MXID == "" && mode <= database.GuildBridgeIfPortalExists) {
 		return
 	}
 

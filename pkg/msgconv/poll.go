@@ -25,12 +25,15 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
 const MessageTypePollResult discordgo.MessageType = 46
+
+const pollPartID networkid.PartID = "poll"
 
 func PollAnswerID(answerID int) string {
 	return strconv.Itoa(answerID)
@@ -128,7 +131,7 @@ func (mc *MessageConverter) renderDiscordPollResult(ctx context.Context, portal 
 	if !mc.ExtEvPolls || ref == nil || ref.MessageID == "" {
 		return part
 	}
-	pollMsg, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, portal.Receiver, discordid.MakeMessageID(ref.MessageID))
+	pollMsg, err := mc.Bridge.DB.Message.GetPartByID(ctx, portal.Receiver, discordid.MakeMessageID(ref.MessageID), pollPartID)
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to get ended poll message")
 		return part

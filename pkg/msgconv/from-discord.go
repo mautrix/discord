@@ -79,6 +79,11 @@ func (mc *MessageConverter) ToMatrix(
 	if textPart := mc.renderDiscordTextMessage(ctx, intent, portal, msg, source); textPart != nil {
 		parts = append(parts, textPart)
 	}
+	if msg.Poll != nil {
+		pollPart := mc.renderDiscordPoll(msg)
+		pollPart.ID = pollPartID
+		parts = append(parts, pollPart)
+	}
 
 	ctx = zerolog.Ctx(ctx).With().
 		Str("action", "convert discord message to matrix").
@@ -287,10 +292,6 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 		}}
 	case MessageTypePollResult:
 		return mc.renderDiscordPollResult(ctx, portal, msg)
-	}
-
-	if msg.Poll != nil {
-		return mc.renderDiscordPoll(msg)
 	}
 
 	var htmlParts []string

@@ -227,6 +227,9 @@ func (mc *MessageConverter) renderDiscordComponentsHTML(
 				parts = append(parts, row)
 			}
 			interactive = interactive || rowInteractive
+		case *discordgo.Thumbnail, *discordgo.MediaGallery, *discordgo.FileComponent:
+		default:
+			interactive = true
 		}
 	}
 	return strings.Join(parts, ""), interactive

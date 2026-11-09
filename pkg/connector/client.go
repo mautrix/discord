@@ -893,11 +893,7 @@ func (d *DiscordClient) shouldBridgeChannel(
 		return false
 	}
 
-	if !d.canSeeGuildChannel(ctx, ch) {
-		return false
-	}
-
-	return true
+	return d.canSeeGuildChannel(ctx, ch)
 }
 
 func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {

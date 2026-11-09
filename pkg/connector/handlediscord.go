@@ -974,7 +974,6 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		// (All missed gateway events have been replayed, and all subsequent
 		// events will be new.)
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
-		d.refreshSafetyHub(ctx)
 		d.pokeVitals(ctx)
 		d.sendCurrentState(ctx)
 	case *discordgo.InvalidAuth:

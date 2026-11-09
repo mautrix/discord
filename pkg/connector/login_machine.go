@@ -720,7 +720,7 @@ func mfaCodeFromInput(input map[string]string) (discordauth.AuthenticatorType, s
 }
 
 func (d *DiscordMachineLogin) finalize(ctx context.Context, done *discordauth.LoginCompleted) (*bridgev2.LoginStep, error) {
-	ul, err := d.FinalizeCreatingLogin(ctx, done.Token.UnwrapSensitive())
+	ul, err := d.FinalizeCreatingLogin(ctx, done.Token.UnwrapSensitive(), true)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't log in via machine: %w", err)
 	}

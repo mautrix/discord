@@ -1126,6 +1126,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Msg("Failed to persist thread info from message create")
 		}
 		d.userCache.UpdateWithMessage(evt.Message)
+		d.queueMissingPostStarter(ctx, evt.Message, route)
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessage)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)

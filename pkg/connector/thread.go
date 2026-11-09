@@ -22,11 +22,14 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
 func isThread(ch *discordgo.Channel) bool {
@@ -201,4 +204,37 @@ func (d *DiscordClient) startThreadFromMatrix(
 		return "", upsertErr
 	}
 	return ch.ID, nil
+}
+
+func (d *DiscordClient) queueMissingPostStarter(ctx context.Context, msg *discordgo.Message, route *router.Route) {
+	thread := route.FromThread
+	if thread == nil || thread.RootMessageID == "" || thread.RootMessageID == msg.ID {
+		return
+	}
+	parent := d.channelWithID(ctx, route.PortalChannelID)
+	if !isPostChannel(parent) {
+		return
+	}
+	log := zerolog.Ctx(ctx).With().Str("post_channel_id", thread.ThreadChannelID).Logger()
+	existing, err := d.connector.Bridge.DB.Message.GetFirstPartByID(ctx, route.PortalKey.Receiver, discordid.MakeMessageID(thread.RootMessageID))
+	if err != nil {
+		log.Err(err).Msg("Failed to check for post starter message")
+		return
+	} else if existing != nil {
+		return
+	}
+	msgs, err := d.Session.ChannelMessages(thread.ThreadChannelID, 1, "", "", thread.RootMessageID,
+		makeDiscordReferer(parent.GuildID, parent.ID, thread.ThreadChannelID))
+	if err != nil {
+		log.Err(err).Msg("Failed to fetch post starter message")
+		return
+	}
+	for _, starter := range msgs {
+		if starter.ID == thread.RootMessageID {
+			log.Debug().Msg("Bridging starter message of a post that wasn't bridged yet")
+			d.userCache.UpdateWithMessage(starter)
+			wrappedEvt := d.wrapDiscordMessage(ctx, starter, route, bridgev2.RemoteEventMessage)
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+		}
+	}
 }

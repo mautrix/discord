@@ -183,6 +183,7 @@ func init() {
 	discordNonGuildCaps = discordCaps.Clone()
 	discordNonGuildCaps.ID += "+private"
 	discordNonGuildCaps.Thread = event.CapLevelUnsupported
+	discordNonGuildCaps.DeleteChat = true
 
 	discordDMCaps = discordCaps.Clone()
 	discordDMCaps.ID += "+dm"

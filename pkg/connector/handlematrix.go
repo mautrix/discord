@@ -760,9 +760,9 @@ func (d *DiscordClient) HandleMatrixDeleteChat(ctx context.Context, msg *bridgev
 	}
 	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
 	ch := d.channelWithID(ctx, channelID)
-	if ch == nil || ch.Type != discordgo.ChannelTypeDM {
-		return bridgev2.WrapErrorInStatus(errors.New("only direct messages can be closed")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	if ch == nil || (ch.Type != discordgo.ChannelTypeDM && ch.Type != discordgo.ChannelTypeGroupDM) {
+		return bridgev2.WrapErrorInStatus(errors.New("only direct messages and group DMs can be deleted")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
 	}
-	_, err := d.Session.ChannelDelete(channelID, makeDiscordReferer("", channelID, ""))
+	_, err := d.Session.ChannelDelete(channelID, makeDiscordReferer("", channelID, ""), discordgo.WithQueryParam("silent", "false"))
 	return d.tryWrappingError(ctx, err)
 }

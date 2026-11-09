@@ -869,6 +869,8 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		d.upsertRelationship(evt.Relationship)
 	case *discordgo.RelationshipRemove:
 		d.removeRelationship(evt.ID)
+	case *discordgo.ChannelRecipientAdd:
+		d.userCache.UpdateWithUser(evt.User)
 	}
 }
 
@@ -1152,7 +1154,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			*d.Session.State.User = *evt.User
 			state.Unlock()
 		}
-		d.userCache.UpdateWithUserUpdate(evt)
+		d.userCache.UpdateWithUser(evt.User)
 		user := evt.User
 
 		if oldFlags != user.Flags {

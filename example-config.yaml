@@ -119,6 +119,9 @@ bridge:
 
     portal_message_buffer: 128
 
+    # Should the bridge create portals and forward messages for Discord DMs and group DMs?
+    # If false, private chats are not bridged in either direction.
+    bridge_private_chat: true
     # Number of private channel portals to create on bridge startup.
     # Other portals will be created when receiving messages.
     startup_private_channel_create_limit: 5

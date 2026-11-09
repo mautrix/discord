@@ -290,6 +290,10 @@ func (d *DiscordClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 			return nil, fmt.Errorf("couldn't get channel: %w", err)
 		}
 
-		return d.getChannelChatInfo(ctx, ch)
+		info, err := d.getChannelChatInfo(ctx, ch)
+		if err == nil && portal.MXID != "" {
+			info.UserLocal = nil
+		}
+		return info, err
 	}
 }

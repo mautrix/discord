@@ -519,6 +519,8 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 	}
 	if upd.ParentID == old.ParentID {
 		patch.ParentID = nil
+	} else if mutedUntil := d.channelMutedUntil(upd.GuildID, upd.ParentID, upd.ID); !mutedUntil.Equal(d.channelMutedUntil(upd.GuildID, old.ParentID, upd.ID)) {
+		patch.UserLocal = &bridgev2.UserLocalPortalInfo{MutedUntil: &mutedUntil}
 	}
 	if upd.IsMessageRequest == old.IsMessageRequest {
 		patch.MessageRequest = nil
@@ -749,7 +751,35 @@ func (d *DiscordClient) channelIsBridged(ctx context.Context, channelID string) 
 func (d *DiscordClient) handleUserGuildSettingsUpdate(ctx context.Context, evt *discordgo.UserGuildSettingsUpdate) {
 	log := zerolog.Ctx(ctx)
 	log.Debug().Msg("Handling user guild settings update")
+	oldSettings := d.guildSettingsForGuildID(evt.GuildID)
 	d.applySingleGuildSettings(evt.UserGuildSettings)
+
+	for portal := range d.existingPortals(ctx) {
+		if portal.MXID == "" || portal.Metadata.(*discordid.PortalMetadata).GuildID != evt.GuildID {
+			continue
+		}
+		channelID := discordid.ParseChannelPortalID(portal.ID)
+		ch := d.channelWithID(ctx, channelID)
+		if ch == nil {
+			continue
+		}
+		mutedUntil := d.mutedUntilWithSettings(evt.UserGuildSettings, ch.ParentID, ch.ID)
+		if mutedUntil.Equal(d.mutedUntilWithSettings(oldSettings, ch.ParentID, ch.ID)) {
+			continue
+		}
+		d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
+			EventMeta: simplevent.EventMeta{
+				Type:      bridgev2.RemoteEventChatInfoChange,
+				PortalKey: portal.PortalKey,
+				Timestamp: time.Now(),
+			},
+			ChatInfoChange: &bridgev2.ChatInfoChange{
+				ChatInfo: &bridgev2.ChatInfo{
+					UserLocal: &bridgev2.UserLocalPortalInfo{MutedUntil: &mutedUntil},
+				},
+			},
+		})
+	}
 }
 
 func messageCtx(ctx context.Context, msg *discordgo.Message) (context.Context, *zerolog.Logger) {

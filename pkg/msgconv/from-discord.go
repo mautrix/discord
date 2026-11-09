@@ -208,15 +208,6 @@ func (mc *MessageConverter) ToMatrix(
 		source,
 		msg,
 	)
-	if msg.Type == discordgo.MessageTypeThreadCreated && msg.MessageReference != nil && msg.MessageReference.ChannelID != "" {
-		rootID := discordid.MakeMessageID(msg.MessageReference.ChannelID)
-		root, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, portal.Receiver, rootID)
-		if err != nil {
-			log.Err(err).Msg("Failed to get thread root message")
-		} else if root != nil {
-			converted.ReplyTo = &networkid.MessageOptionalPartID{MessageID: rootID, PartID: &root.PartID}
-		}
-	}
 
 	return converted
 }

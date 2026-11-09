@@ -756,7 +756,7 @@ func (d *DiscordClient) HandleMarkedUnread(ctx context.Context, msg *bridgev2.Ma
 	if !d.IsLoggedIn() {
 		return bridgev2.ErrNotLoggedIn
 	}
-	latest, err := d.connector.Bridge.DB.Message.GetLastNonFakePartAtOrBeforeTime(ctx, msg.Portal.PortalKey, time.Now())
+	latest, prev, err := d.lastTopLevelMessages(ctx, msg.Portal.PortalKey)
 	if err != nil {
 		return err
 	} else if latest == nil {
@@ -769,10 +769,7 @@ func (d *DiscordClient) HandleMarkedUnread(ctx context.Context, msg *bridgev2.Ma
 		return d.tryWrappingError(ctx, err)
 	}
 	var readUpTo string
-	prev, err := d.connector.Bridge.DB.Message.GetLastNonFakePartAtOrBeforeTime(ctx, msg.Portal.PortalKey, latest.Timestamp.Add(-time.Nanosecond))
-	if err != nil {
-		return err
-	} else if prev != nil {
+	if prev != nil {
 		readUpTo = discordid.ParseMessageID(prev.ID)
 	} else {
 		latestID, err := strconv.ParseUint(discordid.ParseMessageID(latest.ID), 10, 64)
@@ -782,4 +779,25 @@ func (d *DiscordClient) HandleMarkedUnread(ctx context.Context, msg *bridgev2.Ma
 		readUpTo = strconv.FormatUint(latestID-1, 10)
 	}
 	return d.tryWrappingError(ctx, d.Session.ChannelMessageAckManual(channelID, readUpTo, 0, referer))
+}
+
+func (d *DiscordClient) lastTopLevelMessages(ctx context.Context, portalKey networkid.PortalKey) (latest, prev *database.Message, err error) {
+	before := time.Now()
+	for range 100 {
+		var part *database.Message
+		part, err = d.connector.Bridge.DB.Message.GetLastNonFakePartAtOrBeforeTime(ctx, portalKey, before)
+		if err != nil || part == nil {
+			return
+		}
+		before = part.Timestamp.Add(-time.Nanosecond)
+		if part.ThreadRoot != "" {
+			continue
+		} else if latest == nil {
+			latest = part
+		} else {
+			prev = part
+			return
+		}
+	}
+	return
 }

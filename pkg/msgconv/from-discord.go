@@ -71,6 +71,9 @@ func (mc *MessageConverter) ToMatrix(
 	ctx = context.WithValue(ctx, contextKeyIntent, intent)
 	ctx = context.WithValue(ctx, contextKeyPortal, portal)
 	ctx = context.WithValue(ctx, contextKeyDiscordClient, session)
+	if msg.Type == discordgo.MessageTypeThreadStarterMessage {
+		return &bridgev2.ConvertedMessage{}
+	}
 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
 	if msg.Content != "" {
 		predictedLength++
@@ -205,8 +208,24 @@ func (mc *MessageConverter) ToMatrix(
 		source,
 		msg,
 	)
+	if msg.Type == discordgo.MessageTypeThreadCreated && msg.MessageReference != nil && msg.MessageReference.ChannelID != "" {
+		rootID := discordid.MakeMessageID(msg.MessageReference.ChannelID)
+		root, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, portal.Receiver, rootID)
+		if err != nil {
+			log.Err(err).Msg("Failed to get thread root message")
+		} else if root != nil {
+			converted.ReplyTo = &networkid.MessageOptionalPartID{MessageID: rootID, PartID: &root.PartID}
+		}
+	}
 
 	return converted
+}
+
+func systemMessagePart(text string) *bridgev2.ConvertedMessagePart {
+	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
+		MsgType: event.MsgEmote,
+		Body:    text,
+	}}
 }
 
 const forwardTemplateHTML = `<blockquote>
@@ -283,6 +302,22 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 			MsgType: event.MsgEmote,
 			Body:    "(Joined the server.)",
 		}}
+	case discordgo.MessageTypeChannelPinnedMessage:
+		return systemMessagePart("pinned a message to this channel.")
+	case discordgo.MessageTypeThreadCreated:
+		return systemMessagePart(fmt.Sprintf("started a thread: %s", msg.Content))
+	case discordgo.MessageTypeUserPremiumGuildSubscription:
+		if times, err := strconv.Atoi(msg.Content); err == nil && times > 1 {
+			return systemMessagePart(fmt.Sprintf("just boosted the server %d times!", times))
+		}
+		return systemMessagePart("just boosted the server!")
+	case discordgo.MessageTypeUserPremiumGuildSubscriptionTierOne,
+		discordgo.MessageTypeUserPremiumGuildSubscriptionTierTwo,
+		discordgo.MessageTypeUserPremiumGuildSubscriptionTierThree:
+		level := int(msg.Type-discordgo.MessageTypeUserPremiumGuildSubscriptionTierOne) + 1
+		return systemMessagePart(fmt.Sprintf("just boosted the server! The server has achieved Level %d!", level))
+	case discordgo.MessageTypeChannelFollowAdd:
+		return systemMessagePart(fmt.Sprintf("added %s to this channel. Its most important updates will show up here.", msg.Content))
 	}
 
 	var htmlParts []string
@@ -379,7 +414,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 	if origMessage != nil {
 		// We've bridged the message that was forwarded, so we can link to it directly.
 		return fmt.Sprintf(
-			`<a href="%s">#%s • %s</a>`,
+			`<a href="%s">%s • %s</a>`,
 			forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.Bridge.Matrix.ServerName()),
 			forwardedFromPortal.Name,
 			msgTSText,
@@ -390,7 +425,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 		// We don't have the message but we have the portal (and it has a room),
 		// so link to that.
 		return fmt.Sprintf(
-			`<a href="%s">#%s</a> • %s`,
+			`<a href="%s">%s</a> • %s`,
 			forwardedFromPortal.MXID.URI(mc.Bridge.Matrix.ServerName()),
 			forwardedFromPortal.Name,
 			msgTSText,

@@ -899,9 +899,9 @@ func (mc *MessageConverter) renderDiscordAttachment(
 		if att.Waveform != nil {
 			// Bridge a voice message.
 
-			// TODO convert waveform
 			extra["org.matrix.msc1767.audio"] = map[string]any{
 				"duration": int(att.DurationSeconds * 1000),
+				"waveform": discordWaveformToMatrix(att.Waveform),
 			}
 			extra["org.matrix.msc3245.voice"] = map[string]any{}
 		}

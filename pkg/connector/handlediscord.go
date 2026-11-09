@@ -1200,10 +1200,10 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 					GuildID:   evt.GuildID,
 				}, route, true)
 				if err != nil {
-					log.Err(err).Msg("Dropping incoming reaction due to error")
-				} else {
-					d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+					log.Err(err).Msg("Dropping incoming reaction batch due to error")
+					break
 				}
+				d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 			}
 		}
 	// TODO case *discordgo.MessageReactionRemoveAll:

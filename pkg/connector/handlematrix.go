@@ -23,6 +23,7 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ var (
 	_ bridgev2.MuteHandlingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.UserBlockingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.MessageRequestAcceptingNetworkAPI = (*DiscordClient)(nil)
+	_ bridgev2.MarkedUnreadHandlingNetworkAPI    = (*DiscordClient)(nil)
 )
 
 type contextKey int
@@ -748,4 +750,36 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		err = d.Session.RelationshipDelete(*recipient)
 	}
 	return d.tryWrappingError(ctx, err)
+}
+
+func (d *DiscordClient) HandleMarkedUnread(ctx context.Context, msg *bridgev2.MatrixMarkedUnread) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+	latest, err := d.connector.Bridge.DB.Message.GetLastNonFakePartAtOrBeforeTime(ctx, msg.Portal.PortalKey, time.Now())
+	if err != nil {
+		return err
+	} else if latest == nil {
+		return nil
+	}
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	referer := makeDiscordReferer(msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID, channelID, "")
+	if !msg.Content.Unread {
+		_, err = d.Session.ChannelMessageAckNoToken(channelID, discordid.ParseMessageID(latest.ID), referer)
+		return d.tryWrappingError(ctx, err)
+	}
+	var readUpTo string
+	prev, err := d.connector.Bridge.DB.Message.GetLastNonFakePartAtOrBeforeTime(ctx, msg.Portal.PortalKey, latest.Timestamp.Add(-time.Nanosecond))
+	if err != nil {
+		return err
+	} else if prev != nil {
+		readUpTo = discordid.ParseMessageID(prev.ID)
+	} else {
+		latestID, err := strconv.ParseUint(discordid.ParseMessageID(latest.ID), 10, 64)
+		if err != nil {
+			return err
+		}
+		readUpTo = strconv.FormatUint(latestID-1, 10)
+	}
+	return d.tryWrappingError(ctx, d.Session.ChannelMessageAckManual(channelID, readUpTo, 0, referer))
 }

@@ -374,6 +374,15 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 
 	d.Session.EventHandler = d.handleDiscordEventSync
 
+	if d.Session.IsUser {
+		loadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := d.Session.LoadMainPage(loadCtx)
+		cancel()
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to load Discord main page, using fallback build number")
+		}
+	}
+
 	// Open() returns once the first frame after IDENTIFY has been processed.
 	// In the common case that's READY (or RESUMED), which is dispatched to our
 	// synchronous handler before Open() returns, so State is populated by the

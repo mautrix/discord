@@ -74,6 +74,7 @@ type SuperProperties struct {
 	OS                     string                    `json:"os"`
 	Browser                string                    `json:"browser"`
 	Device                 string                    `json:"device"`
+	DeviceModelName        string                    `json:"device_model_name"`
 	SystemLocale           string                    `json:"system_locale"`
 	HasClientMods          bool                      `json:"has_client_mods"`
 	BrowserUserAgent       string                    `json:"browser_user_agent"`

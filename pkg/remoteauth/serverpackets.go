@@ -24,9 +24,7 @@ func (c *Client) processMessages() {
 	defer c.Close()
 
 	for {
-		c.Lock()
 		_, packet, err := c.conn.Read(c.connCtx)
-		c.Unlock()
 
 		if err != nil {
 			if code := websocket.CloseStatus(err); code != -1 && code != websocket.StatusNormalClosure {
@@ -128,8 +126,8 @@ func (h *serverHello) process(client *Client) error {
 
 		client.Lock()
 		client.err = fmt.Errorf("timed out after %s", duration)
-		client.Close()
 		client.Unlock()
+		client.Close()
 	}()
 
 	i := clientInit{}

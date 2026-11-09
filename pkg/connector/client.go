@@ -1286,8 +1286,9 @@ func (d *DiscordClient) tryWrappingError(ctx context.Context, err error) error {
 }
 
 const (
-	errCodeNoMutualGuilds = 50278
-	discordDMHelpURL      = "https://support.discord.com/hc/en-us/articles/360060145013"
+	errCodeNoMutualGuilds                 = 50278
+	errCodeFriendRequestNeedsConfirmation = 80013
+	discordDMHelpURL                      = "https://support.discord.com/hc/en-us/articles/360060145013"
 )
 
 func isUnknownMessage(err error) bool {

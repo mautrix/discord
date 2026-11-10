@@ -81,6 +81,10 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 				Data: qrCode,
 			},
 		}, nil
+	case <-dl.doneChan:
+		_, err = dl.remoteAuthClient.Result()
+		log.Err(err).Msg("Discord remoteauth ended before QR code was ready")
+		return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to connect to Discord for QR login"))
 	case <-ctx.Done():
 		log.Debug().Msg("Cancelled while waiting for QR code")
 		return nil, ctx.Err()

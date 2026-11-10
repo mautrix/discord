@@ -218,6 +218,10 @@ func (mc *MessageConverter) ConvertMatrixMessageContent(ctx context.Context, por
 		RepliedUser: true,
 	}
 
+	if content.MsgType.IsMedia() && content.GetCaption() == "" {
+		return "", allowedMentions
+	}
+
 	if content.Format == event.FormatHTML && len(content.FormattedBody) > 0 {
 		ctx := format.NewContext(ctx)
 		ctx.ReturnData[formatterContextInputAllowedLinkPreviewsKey] = allowedLinkPreviews

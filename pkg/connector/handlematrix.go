@@ -557,9 +557,9 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 		}
 	}
 
-	if targetMessage != nil {
+	if threadScoped && targetMessage != nil {
 		targetMsgThreadRoot := discordid.ParseMessageID(targetMessage.ThreadRoot)
-		if targetMsgThreadRoot == "" && threadScoped {
+		if targetMsgThreadRoot == "" {
 			targetMsgThreadRoot = discordid.ParseMessageID(targetMessage.ID)
 		}
 		if threadRootRemoteID != "" && targetMsgThreadRoot != threadRootRemoteID {

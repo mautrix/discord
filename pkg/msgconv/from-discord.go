@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"mime"
 	"net/url"
 	"path"
 	"strconv"
@@ -851,6 +852,9 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	}
 
 	if mc.DirectMedia {
+		if content.Info.MimeType == "" {
+			content.Info.MimeType = mime.TypeByExtension(strings.ToLower(path.Ext(fileName)))
+		}
 		if mc.CacheDirectMediaAttachment != nil {
 			mc.CacheDirectMediaAttachment(mediaInfo, att.URL)
 		}

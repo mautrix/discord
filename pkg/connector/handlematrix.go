@@ -527,13 +527,10 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 	} else {
 		var err error
 		if threadScoped && threadRootRemoteID != "" {
-			targetMessage, err = d.UserLogin.Bridge.DB.Message.GetLastThreadMessage(ctx, msg.Portal.PortalKey, discordid.MakeMessageID(threadRootRemoteID))
+			targetMessage, err = d.UserLogin.Bridge.DB.Message.GetLastPartAtOrBeforeTimeInThread(ctx, msg.Portal.PortalKey, discordid.MakeMessageID(threadRootRemoteID), msg.ReadUpTo)
 			if err != nil {
 				log.Err(err).Msg("Failed to find latest thread message")
 				return err
-			}
-			if targetMessage != nil && targetMessage.Timestamp.After(msg.ReadUpTo) {
-				targetMessage = nil
 			}
 		} else {
 			targetMessage, err = d.UserLogin.Bridge.DB.Message.GetLastPartAtOrBeforeTime(ctx, msg.Portal.PortalKey, msg.ReadUpTo)

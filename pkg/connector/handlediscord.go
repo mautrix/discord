@@ -412,8 +412,11 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 		Logger()
 	ctx = log.WithContext(ctx)
 
-	// Make sure we have this user's info in case we haven't seen them at all yet.
-	_ = d.userCache.Resolve(ctx, typing.UserID)
+	if typing.Member != nil && typing.Member.User != nil {
+		d.userCache.UpdateWithUserUpdate(&discordgo.UserUpdate{User: typing.Member.User})
+	} else {
+		_ = d.userCache.Resolve(ctx, typing.UserID)
+	}
 
 	d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Typing{
 		EventMeta: simplevent.EventMeta{

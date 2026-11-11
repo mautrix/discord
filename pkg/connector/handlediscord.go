@@ -27,6 +27,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
+	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -246,8 +247,30 @@ var (
 	_ bridgev2.RemoteMessageRemove                    = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventThatMayCreatePortal         = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventWithUncertainPortalReceiver = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithTimestamp               = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithStreamOrder             = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEdit                             = (*DiscordMessage)(nil)
 )
+
+func (m *DiscordMessage) GetTimestamp() time.Time {
+	if m.Type == bridgev2.RemoteEventMessage {
+		if !m.Data.Timestamp.IsZero() {
+			return m.Data.Timestamp
+		}
+		if timestamp, err := discordgo.SnowflakeTimestamp(m.Data.ID); err == nil {
+			return timestamp
+		}
+	}
+	return time.Now()
+}
+
+func (m *DiscordMessage) GetStreamOrder() int64 {
+	if m.Type != bridgev2.RemoteEventMessage {
+		return 0
+	}
+	messageID, _ := strconv.ParseInt(m.Data.ID, 10, 64)
+	return messageID
+}
 
 func (m *DiscordMessage) GetTargetMessage() networkid.MessageID {
 	return discordid.MakeMessageID(m.Data.ID)
@@ -413,7 +436,7 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 	ctx = log.WithContext(ctx)
 
 	if typing.Member != nil && typing.Member.User != nil {
-		d.userCache.UpdateWithUserUpdate(&discordgo.UserUpdate{User: typing.Member.User})
+		d.userCache.UpdateWithUser(typing.Member.User)
 	} else {
 		_ = d.userCache.Resolve(ctx, typing.UserID)
 	}
@@ -637,6 +660,48 @@ func (d *DiscordClient) queueIndividualMembershipChange(
 	})
 }
 
+func (d *DiscordClient) handleGuildUpdate(ctx context.Context, guild *discordgo.Guild) {
+	log := zerolog.Ctx(ctx)
+	if _, bridged := d.bridgedGuildIDs()[guild.ID]; !bridged {
+		return
+	}
+	guildKey := d.guildPortalKey(guild.ID)
+	for portal := range d.existingPortals(ctx) {
+		if portal.MXID == "" {
+			continue
+		}
+		var info bridgev2.ChatInfo
+		if portal.PortalKey == guildKey {
+			info.Name = &guild.Name
+			info.Avatar = d.makeAvatarForGuild(guild)
+		} else {
+			if portal.Metadata.(*discordid.PortalMetadata).GuildID != guild.ID {
+				continue
+			}
+			ch, err := d.Session.State.Channel(discordid.ParseChannelPortalID(portal.ID))
+			if err != nil {
+				log.Err(err).Stringer("portal_key", portal.PortalKey).Msg("Failed to get channel for guild metadata update")
+				continue
+			}
+			if ch.GuildID != guild.ID {
+				continue
+			}
+			info.Name = d.getChannelName(ch)
+			if d.connector.Config.GuildAvatarsInRoomsEnabled() {
+				info.Avatar = d.makeAvatarForGuild(guild)
+			}
+		}
+		d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
+			EventMeta: simplevent.EventMeta{
+				Type:      bridgev2.RemoteEventChatInfoChange,
+				PortalKey: portal.PortalKey,
+				Timestamp: time.Now(),
+			},
+			ChatInfoChange: &bridgev2.ChatInfoChange{ChatInfo: &info},
+		})
+	}
+}
+
 func (d *DiscordClient) handleRecipientAdd(ctx context.Context, evt *discordgo.ChannelRecipientAdd, route *router.Route) error {
 	d.queueIndividualMembershipChange(ctx, route.PortalKey, evt.User, event.MembershipJoin, time.Now())
 	return nil
@@ -702,6 +767,17 @@ func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo
 	ghost.UpdateInfo(ctx, d.getUserInfo(ctx, merged))
 }
 
+type DiscordReadReceipt struct {
+	*simplevent.Receipt
+	ThreadRoot networkid.MessageID
+}
+
+var _ bridgev2.RemoteReadReceiptWithThread = (*DiscordReadReceipt)(nil)
+
+func (r *DiscordReadReceipt) GetReceiptThread() networkid.MessageID {
+	return r.ThreadRoot
+}
+
 func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck, bridged bool, route *router.Route) {
 	d.readStatesLock.Lock()
 	zerolog.Ctx(ctx).Trace().
@@ -719,14 +795,17 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 	d.readStatesLock.Unlock()
 
 	if bridged {
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Receipt{
-			EventMeta: simplevent.EventMeta{
-				Type:              bridgev2.RemoteEventReadReceipt,
-				PortalKey:         route.PortalKey,
-				Sender:            d.selfEventSender(),
-				UncertainReceiver: route.Uncertain,
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordReadReceipt{
+			Receipt: &simplevent.Receipt{
+				EventMeta: simplevent.EventMeta{
+					Type:              bridgev2.RemoteEventReadReceipt,
+					PortalKey:         route.PortalKey,
+					Sender:            d.selfEventSender(),
+					UncertainReceiver: route.Uncertain,
+				},
+				LastTarget: discordid.MakeMessageID(ack.MessageID),
 			},
-			LastTarget: discordid.MakeMessageID(ack.MessageID),
+			ThreadRoot: ptr.Val(route.FromThreadRootMessageID()),
 		})
 	}
 }
@@ -872,6 +951,8 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		d.upsertRelationship(evt.Relationship)
 	case *discordgo.RelationshipRemove:
 		d.removeRelationship(evt.ID)
+	case *discordgo.ChannelRecipientAdd:
+		d.userCache.UpdateWithUser(evt.User)
 	}
 }
 
@@ -997,6 +1078,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild create event")
 		}
 	case *discordgo.GuildUpdate:
+		d.handleGuildUpdate(ctx, evt.Guild)
 		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild update event")
 		}
@@ -1155,7 +1237,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			*d.Session.State.User = *evt.User
 			state.Unlock()
 		}
-		d.userCache.UpdateWithUserUpdate(evt)
+		d.userCache.UpdateWithUser(evt.User)
 		user := evt.User
 
 		if oldFlags != user.Flags {

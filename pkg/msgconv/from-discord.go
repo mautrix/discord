@@ -144,6 +144,13 @@ func (mc *MessageConverter) ToMatrix(
 		}})
 	}
 
+	if len(parts) == 0 && msg.Flags&discordgo.MessageFlagsLoading != 0 {
+		parts = append(parts, &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
+			MsgType: event.MsgNotice,
+			Body:    "Thinking…",
+		}})
+	}
+
 	if len(parts) == 0 {
 		log.Warn().
 			Int("message_type", int(msg.Type)).

@@ -247,8 +247,30 @@ var (
 	_ bridgev2.RemoteMessageRemove                    = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventThatMayCreatePortal         = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventWithUncertainPortalReceiver = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithTimestamp               = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithStreamOrder             = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEdit                             = (*DiscordMessage)(nil)
 )
+
+func (m *DiscordMessage) GetTimestamp() time.Time {
+	if m.Type == bridgev2.RemoteEventMessage {
+		if !m.Data.Timestamp.IsZero() {
+			return m.Data.Timestamp
+		}
+		if timestamp, err := discordgo.SnowflakeTimestamp(m.Data.ID); err == nil {
+			return timestamp
+		}
+	}
+	return time.Now()
+}
+
+func (m *DiscordMessage) GetStreamOrder() int64 {
+	if m.Type != bridgev2.RemoteEventMessage {
+		return 0
+	}
+	messageID, _ := strconv.ParseInt(m.Data.ID, 10, 64)
+	return messageID
+}
 
 func (m *DiscordMessage) GetTargetMessage() networkid.MessageID {
 	return discordid.MakeMessageID(m.Data.ID)
@@ -638,6 +660,48 @@ func (d *DiscordClient) queueIndividualMembershipChange(
 	})
 }
 
+func (d *DiscordClient) handleGuildUpdate(ctx context.Context, guild *discordgo.Guild) {
+	log := zerolog.Ctx(ctx)
+	if _, bridged := d.bridgedGuildIDs()[guild.ID]; !bridged {
+		return
+	}
+	guildKey := d.guildPortalKey(guild.ID)
+	for portal := range d.existingPortals(ctx) {
+		if portal.MXID == "" {
+			continue
+		}
+		var info bridgev2.ChatInfo
+		if portal.PortalKey == guildKey {
+			info.Name = &guild.Name
+			info.Avatar = d.makeAvatarForGuild(guild)
+		} else {
+			if portal.Metadata.(*discordid.PortalMetadata).GuildID != guild.ID {
+				continue
+			}
+			ch, err := d.Session.State.Channel(discordid.ParseChannelPortalID(portal.ID))
+			if err != nil {
+				log.Err(err).Stringer("portal_key", portal.PortalKey).Msg("Failed to get channel for guild metadata update")
+				continue
+			}
+			if ch.GuildID != guild.ID {
+				continue
+			}
+			info.Name = d.getChannelName(ch)
+			if d.connector.Config.GuildAvatarsInRoomsEnabled() {
+				info.Avatar = d.makeAvatarForGuild(guild)
+			}
+		}
+		d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
+			EventMeta: simplevent.EventMeta{
+				Type:      bridgev2.RemoteEventChatInfoChange,
+				PortalKey: portal.PortalKey,
+				Timestamp: time.Now(),
+			},
+			ChatInfoChange: &bridgev2.ChatInfoChange{ChatInfo: &info},
+		})
+	}
+}
+
 func (d *DiscordClient) handleRecipientAdd(ctx context.Context, evt *discordgo.ChannelRecipientAdd, route *router.Route) error {
 	d.queueIndividualMembershipChange(ctx, route.PortalKey, evt.User, event.MembershipJoin, time.Now())
 	return nil
@@ -1015,6 +1079,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild create event")
 		}
 	case *discordgo.GuildUpdate:
+		d.handleGuildUpdate(ctx, evt.Guild)
 		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild update event")
 		}

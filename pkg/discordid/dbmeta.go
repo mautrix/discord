@@ -18,11 +18,13 @@ package discordid
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/event"
 )
 
 type PortalMetadata struct {
@@ -62,8 +64,75 @@ func (ulm *UserLoginMetadata) CopyFrom(incoming any) {
 }
 
 type MessageMetadata struct {
-	EditedTimestamp time.Time `json:"edited_timestamp,omitzero"`
-	ContentHash     []byte    `json:"content_hash,omitempty"`
+	EditedTimestamp time.Time      `json:"edited_timestamp,omitzero"`
+	ContentHash     []byte         `json:"content_hash,omitempty"`
+	Media           *MediaMetadata `json:"media,omitempty"`
+	Text            *MediaCaption  `json:"text,omitempty"`
+	NonMedia        bool           `json:"non_media,omitempty"`
+}
+
+type MediaCaption struct {
+	Body          string       `json:"body"`
+	Format        event.Format `json:"format,omitempty"`
+	FormattedBody string       `json:"formatted_body,omitempty"`
+	ExtraHash     string       `json:"extra_hash,omitempty"`
+}
+
+func NewMediaCaption(content *event.MessageEventContent, extra ...map[string]any) *MediaCaption {
+	caption := &MediaCaption{Body: content.Body, Format: content.Format, FormattedBody: content.FormattedBody}
+	if caption.Format == event.FormatHTML && caption.FormattedBody == event.TextToHTML(caption.Body) {
+		caption.Format = ""
+		caption.FormattedBody = ""
+	}
+	if len(extra) > 0 {
+		data, err := json.Marshal(extra[0]["com.beeper.linkpreviews"])
+		var value any
+		if err == nil {
+			err = json.Unmarshal(data, &value)
+		}
+		if err == nil {
+			data, err = json.Marshal(value)
+		}
+		if err == nil && string(data) != "null" && string(data) != "[]" {
+			hash := sha256.Sum256(data)
+			caption.ExtraHash = hex.EncodeToString(hash[:])
+		}
+	}
+	return caption
+}
+
+type MediaMetadata struct {
+	SourceID    string                     `json:"source_id"`
+	Filename    string                     `json:"filename"`
+	Description string                     `json:"description,omitempty"`
+	Spoiler     bool                       `json:"spoiler,omitempty"`
+	Caption     *MediaCaption              `json:"caption,omitempty"`
+	Content     *event.MessageEventContent `json:"content"`
+	Legacy      bool                       `json:"-"`
+	LegacyExtra map[string]any             `json:"-"`
+	Unavailable bool                       `json:"-"`
+}
+
+func (meta *MessageMetadata) CopyFrom(incoming any) {
+	other, ok := incoming.(*MessageMetadata)
+	if !ok || other == nil {
+		return
+	}
+	meta.EditedTimestamp = other.EditedTimestamp
+	meta.ContentHash = other.ContentHash
+	if other.Media != nil || other.Text == nil {
+		meta.Media = other.Media
+		meta.Text = nil
+		meta.NonMedia = other.NonMedia
+	}
+	if other.Text != nil {
+		if meta.Media != nil {
+			meta.Media.Caption = other.Text
+		} else {
+			meta.Text = other.Text
+			meta.NonMedia = true
+		}
+	}
 }
 
 func NewMessageMetadata(msg *discordgo.Message) *MessageMetadata {

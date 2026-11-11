@@ -23,11 +23,13 @@ import (
 	"runtime/debug"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
+	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -37,6 +39,7 @@ import (
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
@@ -104,8 +107,15 @@ func (m *DiscordMessage) ConvertEdit(
 		return nil, fmt.Errorf("%w (content hash didn't change)", bridgev2.ErrIgnoringRemoteEvent)
 	}
 	hideEdited := !newMeta.EditedTimestamp.After(lastEditTS)
+	legacy := isLegacyNumericParts(existingParts)
+	if legacy && (m.Data.Type == discordgo.MessageTypeDefault || m.Data.Type == discordgo.MessageTypeReply) &&
+		m.Data.Content == "" && len(m.Data.Embeds) == 0 && len(m.Data.Components) == 0 &&
+		len(m.Data.MessageSnapshots) == 0 && m.Data.Thread == nil && m.Data.Poll == nil &&
+		m.Data.Flags&discordgo.MessageFlagsLoading == 0 && len(existingParts) != len(m.Data.Attachments)+len(m.Data.StickerItems) {
+		return nil, fmt.Errorf("%w (legacy message part count changed)", bridgev2.ErrIgnoringRemoteEvent)
+	}
+	metadataUpdates := m.loadExistingMedia(ctx, portal, intent, existingParts)
 
-	// FIXME(skip): This will always reupload attachments, super wasteful.
 	newlyConverted := m.Client.connector.MsgConv.ToMatrix(
 		ctx,
 		portal,
@@ -114,13 +124,17 @@ func (m *DiscordMessage) ConvertEdit(
 		m.Client.Session,
 		m.Data,
 		m.ThreadRootID,
+		existingParts...,
 	)
 
 	// Detect the legacy scheme of naively assigning incrementing part IDs
 	// without using stable identifiers, so we don't cause churn on previously
 	// bridged messages that are edited.
-	if isLegacyNumericParts(existingParts) {
+	if legacy {
 		edit, err := legacyConvertEdit(ctx, newlyConverted, existingParts)
+		if edit != nil {
+			addMetadataUpdates(edit, metadataUpdates, newMeta)
+		}
 		if edit != nil && hideEdited {
 			hideEditedParts(edit)
 		}
@@ -149,6 +163,7 @@ func (m *DiscordMessage) ConvertEdit(
 	var textPart, firstMediaPart *bridgev2.ConvertedMessagePart
 	var firstMediaDBPart *database.Message
 	var addedParts []*bridgev2.ConvertedMessagePart
+	var mediaEdits []*bridgev2.ConvertedMessagePart
 	for _, part := range newlyConverted.Parts {
 		if part.ID == "" {
 			textPart = part
@@ -157,9 +172,12 @@ func (m *DiscordMessage) ConvertEdit(
 		dbPart, ok := beforePartsByID[part.ID]
 		if !ok {
 			addedParts = append(addedParts, part)
-		} else if firstMediaPart == nil && part.Content.MsgType.IsMedia() {
-			firstMediaPart = part
-			firstMediaDBPart = dbPart
+		} else if part.Content.MsgType.IsMedia() {
+			mediaEdits = append(mediaEdits, part)
+			if firstMediaPart == nil {
+				firstMediaPart = part
+				firstMediaDBPart = dbPart
+			}
 		}
 	}
 
@@ -172,6 +190,7 @@ func (m *DiscordMessage) ConvertEdit(
 	// message stored as one text part (e.g. sent from Matrix) is that part.
 	replaceTextPart := hasDBTextPart && len(addedParts) == 1 &&
 		(textPart == nil || (len(existingParts) == 1 && m.hasAttachment(addedParts[0].ID)))
+	var captionedMediaPart *database.Message
 	switch {
 	case replaceTextPart:
 		log.Debug().
@@ -181,17 +200,30 @@ func (m *DiscordMessage) ConvertEdit(
 			return part == dbTextPart
 		})
 		dbTextPart.PartID = addedParts[0].ID
-		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, addedParts[0]).ToEditPart(dbTextPart))
+		if part := mediaEditPart(bridgev2.MergeCaption(textPart, addedParts[0]), dbTextPart); part != nil {
+			edit.ModifiedParts = append(edit.ModifiedParts, part)
+		}
 		addedParts = nil
 	case textPart != nil && hasDBTextPart:
-		edit.ModifiedParts = append(edit.ModifiedParts, textPart.ToEditPart(dbTextPart))
+		edit.ModifiedParts = append(edit.ModifiedParts, textEditPart(textPart, dbTextPart))
 	case textPart != nil && firstMediaPart != nil:
+		captionedMediaPart = firstMediaDBPart
 		log.Debug().
 			Str("media_part_id", string(firstMediaPart.ID)).
 			Msg("Adding text to existing media part as caption")
-		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, firstMediaPart).ToEditPart(firstMediaDBPart))
+		if part := mediaEditPart(bridgev2.MergeCaption(textPart, firstMediaPart), firstMediaDBPart); part != nil {
+			edit.ModifiedParts = append(edit.ModifiedParts, part)
+		}
 	case textPart != nil:
 		log.Debug().Msg("Ignoring text part in edit of message without text or media parts")
+	}
+	for _, mediaEdit := range mediaEdits {
+		dbPart := beforePartsByID[mediaEdit.ID]
+		if dbPart != captionedMediaPart {
+			if part := mediaEditPart(mediaEdit, dbPart); part != nil {
+				edit.ModifiedParts = append(edit.ModifiedParts, part)
+			}
+		}
 	}
 	if len(addedParts) > 0 {
 		log.Debug().
@@ -201,8 +233,135 @@ func (m *DiscordMessage) ConvertEdit(
 	if hideEdited {
 		hideEditedParts(edit)
 	}
+	addMetadataUpdates(edit, metadataUpdates, newMeta)
 
 	return edit, nil
+}
+
+func (m *DiscordMessage) loadExistingMedia(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, parts []*database.Message) []*database.Message {
+	if !msgconv.HasMedia(m.Data) {
+		return nil
+	}
+	var updates []*database.Message
+	legacy := isLegacyNumericParts(parts)
+	for _, part := range parts {
+		meta, _ := part.Metadata.(*discordid.MessageMetadata)
+		if (meta != nil && (meta.Media != nil || meta.Text != nil || meta.NonMedia)) || part.HasFakeMXID() {
+			if meta != nil && meta.NonMedia {
+				updates = append(updates, part)
+			}
+			continue
+		}
+		if !legacy && !m.hasAttachment(part.PartID) && !strings.HasPrefix(string(part.PartID), "video_") {
+			continue
+		}
+		var updated discordid.MessageMetadata
+		if meta != nil {
+			updated = *meta
+		}
+		unavailable := func(err error) {
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("part_mxid", part.MXID).Msg("Could not recover media reference for edit part")
+			updated.Media = &discordid.MediaMetadata{Unavailable: true}
+			part.Metadata = &updated
+		}
+		evt, err := intent.GetEvent(ctx, portal.MXID, part.MXID)
+		if err != nil {
+			unavailable(err)
+			continue
+		}
+		if latest := evt.Unsigned.Relations.GetLatestEdit(); latest != nil {
+			evt, err = intent.GetEvent(ctx, portal.MXID, latest.ID)
+			if err != nil {
+				unavailable(err)
+				continue
+			}
+		}
+		content := evt.Content.AsMessage()
+		raw := evt.Content.Raw
+		if content.NewContent != nil {
+			content = content.NewContent
+			raw, _ = raw["m.new_content"].(map[string]any)
+		}
+		if !content.MsgType.IsMedia() {
+			if content.MsgType == event.MsgText || content.MsgType == event.MsgNotice || content.MsgType == event.MsgEmote {
+				updated.NonMedia = true
+				updated.Media = nil
+				part.Metadata = &updated
+				updates = append(updates, part)
+			} else {
+				unavailable(fmt.Errorf("existing part has no recoverable media content"))
+			}
+			continue
+		}
+		if content.URL == "" && content.File == nil {
+			unavailable(fmt.Errorf("existing media part has no media reference"))
+			continue
+		}
+		updated.Media = &discordid.MediaMetadata{Content: content, Legacy: true, LegacyExtra: raw, Spoiler: raw["page.codeberg.everypizza.msc4193.spoiler"] == true}
+		part.Metadata = &updated
+	}
+	return updates
+}
+
+func addMetadataUpdates(edit *bridgev2.ConvertedEdit, updates []*database.Message, meta *discordid.MessageMetadata) {
+	handled := make(map[*database.Message]bool, len(edit.ModifiedParts)+len(edit.DeletedParts))
+	for _, part := range edit.ModifiedParts {
+		handled[part.Part] = true
+	}
+	for _, part := range edit.DeletedParts {
+		handled[part] = true
+	}
+	for _, part := range updates {
+		if !handled[part] {
+			partMeta := part.Metadata.(*discordid.MessageMetadata)
+			partMeta.EditedTimestamp = meta.EditedTimestamp
+			partMeta.ContentHash = meta.ContentHash
+			edit.ModifiedParts = append(edit.ModifiedParts, &bridgev2.ConvertedEditPart{Part: part, Type: event.EventMessage, Content: &event.MessageEventContent{MsgType: event.MsgNotice}, DontBridge: true})
+		}
+	}
+}
+
+func textEditPart(converted *bridgev2.ConvertedMessagePart, existing *database.Message) *bridgev2.ConvertedEditPart {
+	if meta, ok := existing.Metadata.(*discordid.MessageMetadata); ok && meta.Media != nil && meta.Media.Unavailable {
+		meta.Media = nil
+	}
+	return converted.ToEditPart(existing)
+}
+
+func mediaEditPart(converted *bridgev2.ConvertedMessagePart, existing *database.Message) *bridgev2.ConvertedEditPart {
+	before, _ := existing.Metadata.(*discordid.MessageMetadata)
+	after, _ := converted.DBMetadata.(*discordid.MessageMetadata)
+	if after != nil && after.Media != nil && after.Media.Unavailable {
+		converted.DBMetadata = &discordid.MessageMetadata{EditedTimestamp: after.EditedTimestamp, ContentHash: after.ContentHash}
+		part := converted.ToEditPart(existing)
+		part.DontBridge = true
+		return part
+	}
+	if before == nil || before.Media == nil || after == nil || after.Media == nil {
+		return converted.ToEditPart(existing)
+	}
+	old, next := before.Media, after.Media
+	if next.Caption != nil {
+		caption := *next.Caption
+		caption.ExtraHash = discordid.NewMediaCaption(converted.Content, converted.Extra).ExtraHash
+		next.Caption = &caption
+	}
+	unchanged := false
+	if old.Legacy {
+		unchanged = *discordid.NewMediaCaption(old.Content, old.LegacyExtra) == *discordid.NewMediaCaption(converted.Content, converted.Extra) && old.Content.GetFileName() == converted.Content.GetFileName() && old.Spoiler == next.Spoiler
+	} else {
+		captionsEqual := old.Caption == nil && next.Caption == nil
+		if old.Caption != nil && next.Caption != nil {
+			captionsEqual = *old.Caption == *next.Caption
+		}
+		unchanged = old.SourceID == next.SourceID && old.Filename == next.Filename && old.Description == next.Description && old.Spoiler == next.Spoiler && old.Content.MsgType == next.Content.MsgType && captionsEqual
+	}
+	if unchanged && !old.Legacy && before.EditedTimestamp.Equal(after.EditedTimestamp) && bytes.Equal(before.ContentHash, after.ContentHash) {
+		return nil
+	}
+	part := converted.ToEditPart(existing)
+	part.DontBridge = unchanged
+	return part
 }
 
 func hideEditedParts(edit *bridgev2.ConvertedEdit) {
@@ -215,9 +374,18 @@ func hideEditedParts(edit *bridgev2.ConvertedEdit) {
 }
 
 func (m *DiscordMessage) hasAttachment(partID networkid.PartID) bool {
-	return slices.ContainsFunc(m.Data.Attachments, func(att *discordgo.MessageAttachment) bool {
-		return discordid.MakePartID(att.ID) == partID
-	})
+	matches := func(att *discordgo.MessageAttachment) bool {
+		return partID == "" || discordid.MakePartID(att.ID) == partID
+	}
+	if slices.ContainsFunc(m.Data.Attachments, matches) {
+		return true
+	}
+	for _, snapshot := range m.Data.MessageSnapshots {
+		if snapshot.Message != nil && slices.ContainsFunc(snapshot.Message.Attachments, matches) {
+			return true
+		}
+	}
+	return false
 }
 
 // isLegacyNumericParts reports whether the existing parts on a message were
@@ -266,7 +434,13 @@ func legacyConvertEdit(ctx context.Context, converted *bridgev2.ConvertedMessage
 
 	parts := make([]*bridgev2.ConvertedEditPart, 0, len(existing))
 	for pi, part := range converted.Parts {
-		parts = append(parts, part.ToEditPart(existing[pi]))
+		if part.Content.MsgType.IsMedia() {
+			if edit := mediaEditPart(part, existing[pi]); edit != nil {
+				parts = append(parts, edit)
+			}
+		} else {
+			parts = append(parts, textEditPart(part, existing[pi]))
+		}
 	}
 
 	return &bridgev2.ConvertedEdit{
@@ -280,8 +454,30 @@ var (
 	_ bridgev2.RemoteMessageRemove                    = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventThatMayCreatePortal         = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventWithUncertainPortalReceiver = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithTimestamp               = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithStreamOrder             = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEdit                             = (*DiscordMessage)(nil)
 )
+
+func (m *DiscordMessage) GetTimestamp() time.Time {
+	if m.Type == bridgev2.RemoteEventMessage {
+		if !m.Data.Timestamp.IsZero() {
+			return m.Data.Timestamp
+		}
+		if timestamp, err := discordgo.SnowflakeTimestamp(m.Data.ID); err == nil {
+			return timestamp
+		}
+	}
+	return time.Now()
+}
+
+func (m *DiscordMessage) GetStreamOrder() int64 {
+	if m.Type != bridgev2.RemoteEventMessage {
+		return 0
+	}
+	messageID, _ := strconv.ParseInt(m.Data.ID, 10, 64)
+	return messageID
+}
 
 func (m *DiscordMessage) GetTargetMessage() networkid.MessageID {
 	return discordid.MakeMessageID(m.Data.ID)
@@ -446,8 +642,11 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 		Logger()
 	ctx = log.WithContext(ctx)
 
-	// Make sure we have this user's info in case we haven't seen them at all yet.
-	_ = d.userCache.Resolve(ctx, typing.UserID)
+	if typing.Member != nil && typing.Member.User != nil {
+		d.userCache.UpdateWithUser(typing.Member.User)
+	} else {
+		_ = d.userCache.Resolve(ctx, typing.UserID)
+	}
 
 	d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Typing{
 		EventMeta: simplevent.EventMeta{
@@ -668,6 +867,48 @@ func (d *DiscordClient) queueIndividualMembershipChange(
 	})
 }
 
+func (d *DiscordClient) handleGuildUpdate(ctx context.Context, guild *discordgo.Guild) {
+	log := zerolog.Ctx(ctx)
+	if _, bridged := d.bridgedGuildIDs()[guild.ID]; !bridged {
+		return
+	}
+	guildKey := d.guildPortalKey(guild.ID)
+	for portal := range d.existingPortals(ctx) {
+		if portal.MXID == "" {
+			continue
+		}
+		var info bridgev2.ChatInfo
+		if portal.PortalKey == guildKey {
+			info.Name = &guild.Name
+			info.Avatar = d.makeAvatarForGuild(guild)
+		} else {
+			if portal.Metadata.(*discordid.PortalMetadata).GuildID != guild.ID {
+				continue
+			}
+			ch, err := d.Session.State.Channel(discordid.ParseChannelPortalID(portal.ID))
+			if err != nil {
+				log.Err(err).Stringer("portal_key", portal.PortalKey).Msg("Failed to get channel for guild metadata update")
+				continue
+			}
+			if ch.GuildID != guild.ID {
+				continue
+			}
+			info.Name = d.getChannelName(ch)
+			if d.connector.Config.GuildAvatarsInRoomsEnabled() {
+				info.Avatar = d.makeAvatarForGuild(guild)
+			}
+		}
+		d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
+			EventMeta: simplevent.EventMeta{
+				Type:      bridgev2.RemoteEventChatInfoChange,
+				PortalKey: portal.PortalKey,
+				Timestamp: time.Now(),
+			},
+			ChatInfoChange: &bridgev2.ChatInfoChange{ChatInfo: &info},
+		})
+	}
+}
+
 func (d *DiscordClient) handleRecipientAdd(ctx context.Context, evt *discordgo.ChannelRecipientAdd, route *router.Route) error {
 	d.queueIndividualMembershipChange(ctx, route.PortalKey, evt.User, event.MembershipJoin, time.Now())
 	return nil
@@ -733,6 +974,17 @@ func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo
 	ghost.UpdateInfo(ctx, d.getUserInfo(ctx, merged))
 }
 
+type DiscordReadReceipt struct {
+	*simplevent.Receipt
+	ThreadRoot networkid.MessageID
+}
+
+var _ bridgev2.RemoteReadReceiptWithThread = (*DiscordReadReceipt)(nil)
+
+func (r *DiscordReadReceipt) GetReceiptThread() networkid.MessageID {
+	return r.ThreadRoot
+}
+
 func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck, bridged bool, route *router.Route) {
 	d.readStatesLock.Lock()
 	zerolog.Ctx(ctx).Trace().
@@ -750,14 +1002,17 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 	d.readStatesLock.Unlock()
 
 	if bridged {
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Receipt{
-			EventMeta: simplevent.EventMeta{
-				Type:              bridgev2.RemoteEventReadReceipt,
-				PortalKey:         route.PortalKey,
-				Sender:            d.selfEventSender(),
-				UncertainReceiver: route.Uncertain,
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordReadReceipt{
+			Receipt: &simplevent.Receipt{
+				EventMeta: simplevent.EventMeta{
+					Type:              bridgev2.RemoteEventReadReceipt,
+					PortalKey:         route.PortalKey,
+					Sender:            d.selfEventSender(),
+					UncertainReceiver: route.Uncertain,
+				},
+				LastTarget: discordid.MakeMessageID(ack.MessageID),
 			},
-			LastTarget: discordid.MakeMessageID(ack.MessageID),
+			ThreadRoot: ptr.Val(route.FromThreadRootMessageID()),
 		})
 	}
 }
@@ -903,6 +1158,8 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		d.upsertRelationship(evt.Relationship)
 	case *discordgo.RelationshipRemove:
 		d.removeRelationship(evt.ID)
+	case *discordgo.ChannelRecipientAdd:
+		d.userCache.UpdateWithUser(evt.User)
 	}
 }
 
@@ -1028,6 +1285,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild create event")
 		}
 	case *discordgo.GuildUpdate:
+		d.handleGuildUpdate(ctx, evt.Guild)
 		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild update event")
 		}
@@ -1186,7 +1444,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			*d.Session.State.User = *evt.User
 			state.Unlock()
 		}
-		d.userCache.UpdateWithUserUpdate(evt)
+		d.userCache.UpdateWithUser(evt.User)
 		user := evt.User
 
 		if oldFlags != user.Flags {

@@ -37,6 +37,8 @@ var (
 	_ bridgev2.BackfillingNetworkAPIWithLimits = (*DiscordClient)(nil)
 )
 
+const maxConcurrentHistoryFetches = 4
+
 func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	if !d.IsLoggedIn() {
 		return nil, bridgev2.ErrNotLoggedIn
@@ -87,11 +89,20 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 			beforeID = anchorID
 		}
 	}
+	if !fetchParams.Forward && fetchParams.Cursor != "" {
+		beforeID = string(fetchParams.Cursor)
+	}
 
 	// ChannelMessages returns messages ordered from newest to oldest.
 	count := min(fetchParams.Count, 100)
+	select {
+	case d.historyFetchSem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	log.Debug().Msg("Fetching channel history for backfill")
 	msgs, err := d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
+	<-d.historyFetchSem
 	var restErr *discordgo.RESTError
 	if errors.As(err, &restErr) && restErr.Message != nil &&
 		(restErr.Message.Code == discordgo.ErrCodeMissingAccess || restErr.Message.Code == discordgo.ErrCodeUnknownChannel) {
@@ -210,8 +221,13 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	if readState := d.readStateForID(channelID); !entireBatchWasProvablyRead && readState != nil && readState.LastMessageID != "" {
 		readUpTo, _ = discordgo.SnowflakeTimestamp(string(readState.LastMessageID))
 	}
+	var cursor networkid.PaginationCursor
+	if !fetchParams.Forward && len(msgs) > 0 {
+		cursor = networkid.PaginationCursor(msgs[len(msgs)-1].ID)
+	}
 	return &bridgev2.FetchMessagesResponse{
 		Messages: converted,
+		Cursor:   cursor,
 		Forward:  fetchParams.Forward,
 		MarkRead: entireBatchWasProvablyRead,
 		ReadUpTo: readUpTo,

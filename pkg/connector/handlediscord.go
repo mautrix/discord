@@ -703,17 +703,6 @@ func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo
 	ghost.UpdateInfo(ctx, d.getUserInfo(ctx, merged))
 }
 
-type DiscordReadReceipt struct {
-	*simplevent.Receipt
-	ThreadRoot networkid.MessageID
-}
-
-var _ bridgev2.RemoteReadReceiptWithThread = (*DiscordReadReceipt)(nil)
-
-func (r *DiscordReadReceipt) GetReceiptThread() networkid.MessageID {
-	return r.ThreadRoot
-}
-
 func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck, bridged bool, route *router.Route) {
 	d.readStatesLock.Lock()
 	zerolog.Ctx(ctx).Trace().
@@ -731,16 +720,14 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 	d.readStatesLock.Unlock()
 
 	if bridged {
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordReadReceipt{
-			Receipt: &simplevent.Receipt{
-				EventMeta: simplevent.EventMeta{
-					Type:              bridgev2.RemoteEventReadReceipt,
-					PortalKey:         route.PortalKey,
-					Sender:            d.selfEventSender(),
-					UncertainReceiver: route.Uncertain,
-				},
-				LastTarget: discordid.MakeMessageID(ack.MessageID),
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Receipt{
+			EventMeta: simplevent.EventMeta{
+				Type:              bridgev2.RemoteEventReadReceipt,
+				PortalKey:         route.PortalKey,
+				Sender:            d.selfEventSender(),
+				UncertainReceiver: route.Uncertain,
 			},
+			LastTarget: discordid.MakeMessageID(ack.MessageID),
 			ThreadRoot: ptr.Val(route.FromThreadRootMessageID()),
 		})
 	}

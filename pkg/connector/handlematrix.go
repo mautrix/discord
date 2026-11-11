@@ -437,7 +437,7 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 		channelID,
 		discordid.ParseMessageID(removing.MessageID),
 		discordid.ParseEmojiID(emojiID),
-		discordid.ParseUserLoginID(d.UserLogin.ID),
+		discordid.ParseUserID(removing.SenderID),
 		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
 	)
 	if isUnknownMessage(err) {

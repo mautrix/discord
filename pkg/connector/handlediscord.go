@@ -414,7 +414,7 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 	ctx = log.WithContext(ctx)
 
 	if typing.Member != nil && typing.Member.User != nil {
-		d.userCache.UpdateWithUserUpdate(&discordgo.UserUpdate{User: typing.Member.User})
+		d.userCache.UpdateWithUser(typing.Member.User)
 	} else {
 		_ = d.userCache.Resolve(ctx, typing.UserID)
 	}
@@ -887,6 +887,8 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		d.upsertRelationship(evt.Relationship)
 	case *discordgo.RelationshipRemove:
 		d.removeRelationship(evt.ID)
+	case *discordgo.ChannelRecipientAdd:
+		d.userCache.UpdateWithUser(evt.User)
 	}
 }
 
@@ -1170,7 +1172,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			*d.Session.State.User = *evt.User
 			state.Unlock()
 		}
-		d.userCache.UpdateWithUserUpdate(evt)
+		d.userCache.UpdateWithUser(evt.User)
 		user := evt.User
 
 		if oldFlags != user.Flags {

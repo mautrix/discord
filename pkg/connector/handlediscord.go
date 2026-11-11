@@ -23,6 +23,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -105,8 +106,17 @@ func (m *DiscordMessage) ConvertEdit(
 		return nil, fmt.Errorf("%w (content hash didn't change)", bridgev2.ErrIgnoringRemoteEvent)
 	}
 	hideEdited := !newMeta.EditedTimestamp.After(lastEditTS)
+	legacy := isLegacyNumericParts(existingParts)
+	if legacy && (m.Data.Type == discordgo.MessageTypeDefault || m.Data.Type == discordgo.MessageTypeReply) &&
+		m.Data.Content == "" && len(m.Data.Embeds) == 0 && len(m.Data.Components) == 0 &&
+		len(m.Data.MessageSnapshots) == 0 && m.Data.Thread == nil && m.Data.Poll == nil &&
+		m.Data.Flags&discordgo.MessageFlagsLoading == 0 && len(existingParts) != len(m.Data.Attachments)+len(m.Data.StickerItems) {
+		return nil, fmt.Errorf("%w (legacy message part count changed)", bridgev2.ErrIgnoringRemoteEvent)
+	}
+	if err := m.loadExistingMedia(ctx, portal, intent, existingParts); err != nil {
+		return nil, err
+	}
 
-	// FIXME(skip): This will always reupload attachments, super wasteful.
 	newlyConverted := m.Client.connector.MsgConv.ToMatrix(
 		ctx,
 		portal,
@@ -115,12 +125,13 @@ func (m *DiscordMessage) ConvertEdit(
 		m.Client.Session,
 		m.Data,
 		m.ThreadRootID,
+		existingParts...,
 	)
 
 	// Detect the legacy scheme of naively assigning incrementing part IDs
 	// without using stable identifiers, so we don't cause churn on previously
 	// bridged messages that are edited.
-	if isLegacyNumericParts(existingParts) {
+	if legacy {
 		edit, err := legacyConvertEdit(ctx, newlyConverted, existingParts)
 		if edit != nil && hideEdited {
 			hideEditedParts(edit)
@@ -150,7 +161,7 @@ func (m *DiscordMessage) ConvertEdit(
 	var textPart, firstMediaPart *bridgev2.ConvertedMessagePart
 	var firstMediaDBPart *database.Message
 	var addedParts []*bridgev2.ConvertedMessagePart
-	var mediaEdits []*bridgev2.ConvertedEditPart
+	var mediaEdits []*bridgev2.ConvertedMessagePart
 	for _, part := range newlyConverted.Parts {
 		if part.ID == "" {
 			textPart = part
@@ -160,7 +171,7 @@ func (m *DiscordMessage) ConvertEdit(
 		if !ok {
 			addedParts = append(addedParts, part)
 		} else if part.Content.MsgType.IsMedia() {
-			mediaEdits = append(mediaEdits, part.ToEditPart(dbPart))
+			mediaEdits = append(mediaEdits, part)
 			if firstMediaPart == nil {
 				firstMediaPart = part
 				firstMediaDBPart = dbPart
@@ -187,7 +198,9 @@ func (m *DiscordMessage) ConvertEdit(
 			return part == dbTextPart
 		})
 		dbTextPart.PartID = addedParts[0].ID
-		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, addedParts[0]).ToEditPart(dbTextPart))
+		if part := mediaEditPart(bridgev2.MergeCaption(textPart, addedParts[0]), dbTextPart); part != nil {
+			edit.ModifiedParts = append(edit.ModifiedParts, part)
+		}
 		addedParts = nil
 	case textPart != nil && hasDBTextPart:
 		edit.ModifiedParts = append(edit.ModifiedParts, textPart.ToEditPart(dbTextPart))
@@ -196,13 +209,18 @@ func (m *DiscordMessage) ConvertEdit(
 		log.Debug().
 			Str("media_part_id", string(firstMediaPart.ID)).
 			Msg("Adding text to existing media part as caption")
-		edit.ModifiedParts = append(edit.ModifiedParts, bridgev2.MergeCaption(textPart, firstMediaPart).ToEditPart(firstMediaDBPart))
+		if part := mediaEditPart(bridgev2.MergeCaption(textPart, firstMediaPart), firstMediaDBPart); part != nil {
+			edit.ModifiedParts = append(edit.ModifiedParts, part)
+		}
 	case textPart != nil:
 		log.Debug().Msg("Ignoring text part in edit of message without text or media parts")
 	}
 	for _, mediaEdit := range mediaEdits {
-		if mediaEdit.Part != captionedMediaPart {
-			edit.ModifiedParts = append(edit.ModifiedParts, mediaEdit)
+		dbPart := beforePartsByID[mediaEdit.ID]
+		if dbPart != captionedMediaPart {
+			if part := mediaEditPart(mediaEdit, dbPart); part != nil {
+				edit.ModifiedParts = append(edit.ModifiedParts, part)
+			}
 		}
 	}
 	if len(addedParts) > 0 {
@@ -217,6 +235,78 @@ func (m *DiscordMessage) ConvertEdit(
 	return edit, nil
 }
 
+func (m *DiscordMessage) loadExistingMedia(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, parts []*database.Message) error {
+	legacy := isLegacyNumericParts(parts)
+	for _, part := range parts {
+		meta, _ := part.Metadata.(*discordid.MessageMetadata)
+		if (meta != nil && (meta.Media != nil || meta.Text != nil)) || part.HasFakeMXID() {
+			continue
+		}
+		if !legacy && !m.hasAttachment(part.PartID) && !strings.HasPrefix(string(part.PartID), "video_") {
+			continue
+		}
+		evt, err := intent.GetEvent(ctx, portal.MXID, part.MXID)
+		if err != nil {
+			return fmt.Errorf("failed to get existing media part: %w", err)
+		}
+		if latest := evt.Unsigned.Relations.GetLatestEdit(); latest != nil {
+			evt, err = intent.GetEvent(ctx, portal.MXID, latest.ID)
+			if err != nil {
+				return fmt.Errorf("failed to get latest media edit: %w", err)
+			}
+		}
+		content := evt.Content.AsMessage()
+		raw := evt.Content.Raw
+		if content.NewContent != nil {
+			content = content.NewContent
+			raw, _ = raw["m.new_content"].(map[string]any)
+		}
+		if !content.MsgType.IsMedia() {
+			continue
+		}
+		if content.URL == "" && content.File == nil {
+			return fmt.Errorf("existing media part has no media reference")
+		}
+		var updated discordid.MessageMetadata
+		if meta != nil {
+			updated = *meta
+		}
+		updated.Media = &discordid.MediaMetadata{Content: content, Legacy: true, LegacyExtra: raw, Spoiler: raw["page.codeberg.everypizza.msc4193.spoiler"] == true}
+		part.Metadata = &updated
+	}
+	return nil
+}
+
+func mediaEditPart(converted *bridgev2.ConvertedMessagePart, existing *database.Message) *bridgev2.ConvertedEditPart {
+	before, _ := existing.Metadata.(*discordid.MessageMetadata)
+	after, _ := converted.DBMetadata.(*discordid.MessageMetadata)
+	if before == nil || before.Media == nil || after == nil || after.Media == nil {
+		return converted.ToEditPart(existing)
+	}
+	old, next := before.Media, after.Media
+	if next.Caption != nil {
+		caption := *next.Caption
+		caption.ExtraHash = discordid.NewMediaCaption(converted.Content, converted.Extra).ExtraHash
+		next.Caption = &caption
+	}
+	unchanged := false
+	if old.Legacy {
+		unchanged = *discordid.NewMediaCaption(old.Content, old.LegacyExtra) == *discordid.NewMediaCaption(converted.Content, converted.Extra) && old.Content.GetFileName() == converted.Content.GetFileName() && old.Spoiler == next.Spoiler
+	} else {
+		captionsEqual := old.Caption == nil && next.Caption == nil
+		if old.Caption != nil && next.Caption != nil {
+			captionsEqual = *old.Caption == *next.Caption
+		}
+		unchanged = old.SourceID == next.SourceID && old.Filename == next.Filename && old.Description == next.Description && old.Spoiler == next.Spoiler && old.Content.MsgType == next.Content.MsgType && captionsEqual
+	}
+	if unchanged && !old.Legacy && before.EditedTimestamp.Equal(after.EditedTimestamp) && bytes.Equal(before.ContentHash, after.ContentHash) {
+		return nil
+	}
+	part := converted.ToEditPart(existing)
+	part.DontBridge = unchanged
+	return part
+}
+
 func hideEditedParts(edit *bridgev2.ConvertedEdit) {
 	for _, part := range edit.ModifiedParts {
 		if part.TopLevelExtra == nil {
@@ -227,9 +317,18 @@ func hideEditedParts(edit *bridgev2.ConvertedEdit) {
 }
 
 func (m *DiscordMessage) hasAttachment(partID networkid.PartID) bool {
-	return slices.ContainsFunc(m.Data.Attachments, func(att *discordgo.MessageAttachment) bool {
-		return discordid.MakePartID(att.ID) == partID
-	})
+	matches := func(att *discordgo.MessageAttachment) bool {
+		return partID == "" || discordid.MakePartID(att.ID) == partID
+	}
+	if slices.ContainsFunc(m.Data.Attachments, matches) {
+		return true
+	}
+	for _, snapshot := range m.Data.MessageSnapshots {
+		if snapshot.Message != nil && slices.ContainsFunc(snapshot.Message.Attachments, matches) {
+			return true
+		}
+	}
+	return false
 }
 
 // isLegacyNumericParts reports whether the existing parts on a message were
@@ -278,7 +377,13 @@ func legacyConvertEdit(ctx context.Context, converted *bridgev2.ConvertedMessage
 
 	parts := make([]*bridgev2.ConvertedEditPart, 0, len(existing))
 	for pi, part := range converted.Parts {
-		parts = append(parts, part.ToEditPart(existing[pi]))
+		if part.Content.MsgType.IsMedia() {
+			if edit := mediaEditPart(part, existing[pi]); edit != nil {
+				parts = append(parts, edit)
+			}
+		} else {
+			parts = append(parts, part.ToEditPart(existing[pi]))
+		}
 	}
 
 	return &bridgev2.ConvertedEdit{

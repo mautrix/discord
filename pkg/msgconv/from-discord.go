@@ -33,6 +33,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
@@ -67,6 +68,7 @@ func (mc *MessageConverter) ToMatrix(
 	session *discordgo.Session,
 	msg *discordgo.Message,
 	knownThreadRoot *networkid.MessageID,
+	existingParts ...*database.Message,
 ) *bridgev2.ConvertedMessage {
 	ctx = context.WithValue(ctx, contextKeyUserLogin, source)
 	ctx = context.WithValue(ctx, contextKeyIntent, intent)
@@ -77,6 +79,48 @@ func (mc *MessageConverter) ToMatrix(
 		predictedLength++
 	}
 	parts := make([]*bridgev2.ConvertedMessagePart, 0, predictedLength)
+	existingByID := make(map[networkid.PartID]*database.Message, len(existingParts))
+	for _, part := range existingParts {
+		existingByID[part.PartID] = part
+	}
+	existingMedia := func(partID networkid.PartID, filename string) *discordid.MediaMetadata {
+		part := existingByID[partID]
+		if part == nil {
+			var matching *database.Message
+			ambiguous := false
+			for _, candidate := range existingParts {
+				meta, _ := candidate.Metadata.(*discordid.MessageMetadata)
+				if meta == nil || meta.Media == nil {
+					continue
+				}
+				if meta.Media.SourceID == string(partID) {
+					part = candidate
+					break
+				}
+				if meta.Media.Legacy && meta.Media.Content.GetFileName() == filename {
+					if matching != nil {
+						ambiguous = true
+					}
+					matching = candidate
+				}
+			}
+			if part == nil && !ambiguous {
+				part = matching
+			}
+		}
+		if part == nil {
+			part = existingByID[networkid.PartID(strconv.Itoa(len(parts)))]
+		}
+		if part == nil && len(existingParts) == 1 {
+			part = existingByID[""]
+		}
+		if part != nil {
+			if meta, ok := part.Metadata.(*discordid.MessageMetadata); ok {
+				return meta.Media
+			}
+		}
+		return nil
+	}
 	if textPart := mc.renderDiscordTextMessage(ctx, intent, portal, msg, source); textPart != nil {
 		parts = append(parts, textPart)
 	}
@@ -96,7 +140,7 @@ func (mc *MessageConverter) ToMatrix(
 
 			log := log.With().Str("attachment_id", att.ID).Logger()
 			mediaInfo := discordid.NewMediaInfoV1(source.ID, msg.ChannelID, msg.ID, att.ID)
-			if part := mc.renderDiscordAttachment(log.WithContext(ctx), att, &mediaInfo); part != nil {
+			if part := mc.renderDiscordAttachment(log.WithContext(ctx), att, &mediaInfo, existingMedia(discordid.MakePartID(att.ID), att.Filename)); part != nil {
 				part.ID = discordid.MakePartID(att.ID)
 				parts = append(parts, part)
 			}
@@ -129,7 +173,7 @@ func (mc *MessageConverter) ToMatrix(
 				Str("embed_type", string(embed.Type)).
 				Int("embed_index", i).
 				Logger()
-			part := mc.renderDiscordVideoEmbed(log.WithContext(ctx), embed)
+			part := mc.renderDiscordVideoEmbed(log.WithContext(ctx), embed, existingMedia(discordid.MakePartID(videoEmbedPartIDPrefix+embed.URL), embed.URL))
 			if part != nil {
 				part.ID = discordid.MakePartID(videoEmbedPartIDPrefix + embed.URL)
 				parts = append(parts, part)
@@ -193,8 +237,14 @@ func (mc *MessageConverter) ToMatrix(
 		pmp = &profile
 	}
 
-	dbMeta := discordid.NewMessageMetadata(msg)
 	for _, part := range parts {
+		dbMeta := discordid.NewMessageMetadata(msg)
+		if meta, ok := part.DBMetadata.(*discordid.MessageMetadata); ok {
+			dbMeta.Media = meta.Media
+		}
+		if part.ID == "" && len(parts) > 1 {
+			dbMeta.Text = discordid.NewMediaCaption(part.Content, part.Extra)
+		}
 		part.DBMetadata = dbMeta
 		if pmp != nil {
 			part.Content.BeeperPerMessageProfile = pmp
@@ -510,7 +560,7 @@ func mediaFailedMessage(err error) *event.MessageEventContent {
 	}
 }
 
-func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *discordgo.MessageEmbed) *bridgev2.ConvertedMessagePart {
+func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *discordgo.MessageEmbed, cached *discordid.MediaMetadata) *bridgev2.ConvertedMessagePart {
 	var proxyURL string
 	isVideo := embed.Video != nil && embed.Video.ProxyURL != ""
 	if isVideo {
@@ -528,7 +578,13 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *
 		}
 	}
 
-	reupload, err := mc.ReuploadUnknownMedia(ctx, proxyURL, true)
+	var reupload *ReuploadedAttachment
+	var err error
+	if cached != nil && (cached.SourceID == proxyURL || cached.Legacy) && cached.Content != nil && cached.Content.Info != nil && ((isVideo && cached.Content.MsgType == event.MsgVideo) || (!isVideo && cached.Content.MsgType == event.MsgImage)) {
+		reupload = &ReuploadedAttachment{MXC: cached.Content.URL, File: cached.Content.File, Size: cached.Content.Info.Size, MimeType: cached.Content.Info.MimeType}
+	} else {
+		reupload, err = mc.ReuploadUnknownMedia(ctx, proxyURL, true)
+	}
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to copy video embed to Matrix")
 		return &bridgev2.ConvertedMessagePart{
@@ -569,10 +625,12 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *
 		}
 	}
 
+	mediaContent := *content
 	return &bridgev2.ConvertedMessagePart{
-		Type:    event.EventMessage,
-		Content: content,
-		Extra:   extra,
+		Type:       event.EventMessage,
+		Content:    content,
+		Extra:      extra,
+		DBMetadata: &discordid.MessageMetadata{Media: &discordid.MediaMetadata{SourceID: proxyURL, Filename: embed.URL, Content: &mediaContent}},
 	}
 }
 
@@ -841,8 +899,13 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	ctx context.Context,
 	att *discordgo.MessageAttachment,
 	mediaInfo *discordid.MediaInfo,
+	previous ...*discordid.MediaMetadata,
 ) *bridgev2.ConvertedMessagePart {
 	log := zerolog.Ctx(ctx)
+	var cached *discordid.MediaMetadata
+	if len(previous) > 0 {
+		cached = previous[0]
+	}
 
 	fileName, err := attachmentFileName(att)
 	if err != nil {
@@ -860,14 +923,19 @@ func (mc *MessageConverter) renderDiscordAttachment(
 		},
 	}
 
-	if mc.DirectMedia {
+	if mc.DirectMedia && mc.CacheDirectMediaAttachment != nil {
+		mc.CacheDirectMediaAttachment(mediaInfo, att.URL)
+	}
+	if cached != nil && (cached.SourceID == att.ID || cached.Legacy) && cached.Content != nil && (cached.Content.URL != "" || cached.Content.File != nil) {
+		content.URL = cached.Content.URL
+		content.File = cached.Content.File
+		if content.Info.MimeType == "" && cached.Content.Info != nil {
+			content.Info.MimeType = cached.Content.Info.MimeType
+		}
+	} else if mc.DirectMedia {
 		if content.Info.MimeType == "" {
 			content.Info.MimeType = mime.TypeByExtension(strings.ToLower(path.Ext(fileName)))
 		}
-		if mc.CacheDirectMediaAttachment != nil {
-			mc.CacheDirectMediaAttachment(mediaInfo, att.URL)
-		}
-
 		mediaID, err := mediaInfo.Encode()
 		if err != nil {
 			log.Err(err).Msg("Failed to encode direct media ID")
@@ -937,5 +1005,10 @@ func (mc *MessageConverter) renderDiscordAttachment(
 		Extra:   extra,
 	}
 
+	mediaContent := *content
+	part.DBMetadata = &discordid.MessageMetadata{Media: &discordid.MediaMetadata{
+		SourceID: att.ID, Filename: fileName, Description: att.Description,
+		Spoiler: strings.HasPrefix(att.Filename, "SPOILER_"), Content: &mediaContent,
+	}}
 	return part
 }

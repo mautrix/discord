@@ -153,7 +153,7 @@ type roleInfoProvider interface {
 }
 
 // Regex to match everything in https://discord.com/developers/docs/reference#message-formatting
-var discordTagRegex = regexp.MustCompile(`<(a?:\w+:|@[!&]?|#|t:)(\d+)(?::([tTdDfFR])|(\d+):(.+?))?>`)
+var discordTagRegex = regexp.MustCompile(`^<(a?:\w+:|@[!&]?|#|t:)(\d+)(?::([tTdDfFR])|(\d+):(.+?))?>`)
 var defaultDiscordTagParser = &discordTagParser{}
 
 func (s *discordTagParser) Trigger() []byte {

@@ -68,6 +68,7 @@ type MessageMetadata struct {
 	ContentHash     []byte         `json:"content_hash,omitempty"`
 	Media           *MediaMetadata `json:"media,omitempty"`
 	Text            *MediaCaption  `json:"text,omitempty"`
+	NonMedia        bool           `json:"non_media,omitempty"`
 }
 
 type MediaCaption struct {
@@ -109,6 +110,7 @@ type MediaMetadata struct {
 	Content     *event.MessageEventContent `json:"content"`
 	Legacy      bool                       `json:"-"`
 	LegacyExtra map[string]any             `json:"-"`
+	Unavailable bool                       `json:"-"`
 }
 
 func (meta *MessageMetadata) CopyFrom(incoming any) {
@@ -121,12 +123,14 @@ func (meta *MessageMetadata) CopyFrom(incoming any) {
 	if other.Media != nil || other.Text == nil {
 		meta.Media = other.Media
 		meta.Text = nil
+		meta.NonMedia = other.NonMedia
 	}
 	if other.Text != nil {
 		if meta.Media != nil {
 			meta.Media.Caption = other.Text
 		} else {
 			meta.Text = other.Text
+			meta.NonMedia = true
 		}
 	}
 }

@@ -242,6 +242,7 @@ func (mc *MessageConverter) ToMatrix(
 		if meta, ok := part.DBMetadata.(*discordid.MessageMetadata); ok {
 			dbMeta.Media = meta.Media
 		}
+		dbMeta.NonMedia = !part.Content.MsgType.IsMedia()
 		if part.ID == "" && len(parts) > 1 {
 			dbMeta.Text = discordid.NewMediaCaption(part.Content, part.Extra)
 		}
@@ -497,6 +498,20 @@ func contentMessages(msg *discordgo.Message) []*discordgo.Message {
 	return []*discordgo.Message{msg}
 }
 
+func HasMedia(msg *discordgo.Message) bool {
+	for _, content := range contentMessages(msg) {
+		if len(content.Attachments) > 0 {
+			return true
+		}
+		for _, embed := range content.Embeds {
+			if getEmbedType(content, embed) == EmbedVideo {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (mc *MessageConverter) guildMemberProfile(ctx context.Context, portal *bridgev2.Portal, msg *discordgo.Message) *event.BeeperPerMessageProfile {
 	profile := &event.BeeperPerMessageProfile{
 		ID:          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
@@ -561,6 +576,9 @@ func mediaFailedMessage(err error) *event.MessageEventContent {
 }
 
 func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *discordgo.MessageEmbed, cached *discordid.MediaMetadata) *bridgev2.ConvertedMessagePart {
+	if cached != nil && cached.Unavailable {
+		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{MsgType: event.MsgFile}, DBMetadata: &discordid.MessageMetadata{Media: cached}}
+	}
 	var proxyURL string
 	isVideo := embed.Video != nil && embed.Video.ProxyURL != ""
 	if isVideo {
@@ -905,6 +923,9 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	var cached *discordid.MediaMetadata
 	if len(previous) > 0 {
 		cached = previous[0]
+	}
+	if cached != nil && cached.Unavailable {
+		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{MsgType: event.MsgFile}, DBMetadata: &discordid.MessageMetadata{Media: cached}}
 	}
 
 	fileName, err := attachmentFileName(att)

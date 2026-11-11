@@ -247,8 +247,30 @@ var (
 	_ bridgev2.RemoteMessageRemove                    = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventThatMayCreatePortal         = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEventWithUncertainPortalReceiver = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithTimestamp               = (*DiscordMessage)(nil)
+	_ bridgev2.RemoteEventWithStreamOrder             = (*DiscordMessage)(nil)
 	_ bridgev2.RemoteEdit                             = (*DiscordMessage)(nil)
 )
+
+func (m *DiscordMessage) GetTimestamp() time.Time {
+	if m.Type == bridgev2.RemoteEventMessage {
+		if !m.Data.Timestamp.IsZero() {
+			return m.Data.Timestamp
+		}
+		if timestamp, err := discordgo.SnowflakeTimestamp(m.Data.ID); err == nil {
+			return timestamp
+		}
+	}
+	return time.Now()
+}
+
+func (m *DiscordMessage) GetStreamOrder() int64 {
+	if m.Type != bridgev2.RemoteEventMessage {
+		return 0
+	}
+	messageID, _ := strconv.ParseInt(m.Data.ID, 10, 64)
+	return messageID
+}
 
 func (m *DiscordMessage) GetTargetMessage() networkid.MessageID {
 	return discordid.MakeMessageID(m.Data.ID)

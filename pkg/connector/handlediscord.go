@@ -252,17 +252,12 @@ var (
 )
 
 func (m *DiscordMessage) GetTimestamp() time.Time {
-	switch m.Type {
-	case bridgev2.RemoteEventMessage:
+	if m.Type == bridgev2.RemoteEventMessage {
 		if !m.Data.Timestamp.IsZero() {
 			return m.Data.Timestamp
 		}
 		if timestamp, err := discordgo.SnowflakeTimestamp(m.Data.ID); err == nil {
 			return timestamp
-		}
-	case bridgev2.RemoteEventEdit:
-		if m.Data.EditedTimestamp != nil && !m.Data.EditedTimestamp.IsZero() {
-			return *m.Data.EditedTimestamp
 		}
 	}
 	return time.Now()

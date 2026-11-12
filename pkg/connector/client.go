@@ -78,6 +78,8 @@ type DiscordClient struct {
 
 	userCache *UserCache
 
+	historyFetchSem chan struct{}
+
 	lastSendAttemptMutex sync.Mutex
 	lastSendAttempt      *SendAttempt
 
@@ -107,11 +109,12 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		Session:   session,
 		// This HTTP client is quickly overridden by a proxied version (when
 		// one is configured).
-		httpClient:    d.Bridge.GetHTTPClientSettings().Compile(),
-		userCache:     NewUserCache(session),
-		guildSettings: make(map[string]*discordgo.UserGuildSettings),
-		readStates:    make(map[string]*discordgo.ReadState),
-		relationships: make(map[string]*discordgo.Relationship),
+		httpClient:      d.Bridge.GetHTTPClientSettings().Compile(),
+		userCache:       NewUserCache(session),
+		guildSettings:   make(map[string]*discordgo.UserGuildSettings),
+		readStates:      make(map[string]*discordgo.ReadState),
+		relationships:   make(map[string]*discordgo.Relationship),
+		historyFetchSem: make(chan struct{}, maxConcurrentHistoryFetches),
 	}
 	login.Client = &cl
 

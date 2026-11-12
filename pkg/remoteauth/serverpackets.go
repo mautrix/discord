@@ -125,6 +125,10 @@ func (h *serverHello) process(client *Client) error {
 		<-time.After(duration)
 
 		client.Lock()
+		if client.closed || client.ticket != "" {
+			client.Unlock()
+			return
+		}
 		client.err = fmt.Errorf("timed out after %s", duration)
 		client.Unlock()
 		client.Close()
@@ -209,13 +213,17 @@ type serverPendingLogin struct {
 }
 
 func (p *serverPendingLogin) process(client *Client) error {
+	client.Lock()
 	client.ticket = p.Ticket
+	client.Unlock()
 	user, err := client.RedeemTicket()
 	if err != nil {
 		return err
 	}
 
+	client.Lock()
 	client.user = user
+	client.Unlock()
 
 	client.Close()
 

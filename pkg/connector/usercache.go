@@ -113,15 +113,15 @@ func (uc *UserCache) UpdateWithMessages(msgs []*discordgo.Message) []string {
 	return slices.Collect(maps.Keys(collectedUsers))
 }
 
-func (uc *UserCache) UpdateWithUserUpdate(update *discordgo.UserUpdate) {
-	if update == nil || update.User == nil {
+func (uc *UserCache) UpdateWithUser(user *discordgo.User) {
+	if user == nil {
 		return
 	}
 
 	uc.lock.Lock()
 	defer uc.lock.Unlock()
 
-	uc.cache[update.ID] = update.User
+	uc.cache[user.ID] = user
 }
 
 // MergePartialUser merges the populated fields of a partial user (such as the

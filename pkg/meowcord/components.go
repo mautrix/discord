@@ -511,6 +511,9 @@ type FileComponent struct {
 	ID      int               `json:"id,omitempty"`
 	File    UnfurledMediaItem `json:"file"`
 	Spoiler bool              `json:"spoiler"`
+
+	Name string `json:"name,omitempty"`
+	Size int    `json:"size,omitempty"`
 }
 
 // Type is a method to get the type of a component.
@@ -771,6 +774,13 @@ func (u UnknownComponent) MarshalJSON() ([]byte, error) {
 // UnfurledMediaItem represents an unfurled media item.
 type UnfurledMediaItem struct {
 	URL string `json:"url"`
+
+	ProxyURL     string                        `json:"proxy_url,omitempty"`
+	Width        int                           `json:"width,omitempty"`
+	Height       int                           `json:"height,omitempty"`
+	ContentType  string                        `json:"content_type,omitempty"`
+	AttachmentID string                        `json:"attachment_id,omitempty"`
+	LoadingState UnfurledMediaItemLoadingState `json:"loading_state,omitempty"`
 }
 
 // UnfurledMediaItemLoadingState is the loading state of the unfurled media item.

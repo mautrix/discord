@@ -60,6 +60,7 @@ const (
 	messagePollVoteAddEventType                  = "MESSAGE_POLL_VOTE_ADD"
 	messagePollVoteRemoveEventType               = "MESSAGE_POLL_VOTE_REMOVE"
 	messageReactionAddEventType                  = "MESSAGE_REACTION_ADD"
+	messageReactionAddManyEventType              = "MESSAGE_REACTION_ADD_MANY"
 	messageReactionRemoveEventType               = "MESSAGE_REACTION_REMOVE"
 	messageReactionRemoveAllEventType            = "MESSAGE_REACTION_REMOVE_ALL"
 	messageReactionRemoveEmojiEventType          = "MESSAGE_REACTION_REMOVE_EMOJI"
@@ -1136,6 +1137,26 @@ func (eh messageReactionAddEventHandler) Handle(s *Session, i interface{}) {
 	}
 }
 
+// messageReactionAddManyEventHandler is an event handler for MessageReactionAddMany events.
+type messageReactionAddManyEventHandler func(*Session, *MessageReactionAddMany)
+
+// Type returns the event type for MessageReactionAddMany events.
+func (eh messageReactionAddManyEventHandler) Type() string {
+	return messageReactionAddManyEventType
+}
+
+// New returns a new instance of MessageReactionAddMany.
+func (eh messageReactionAddManyEventHandler) New() interface{} {
+	return &MessageReactionAddMany{}
+}
+
+// Handle is the handler for MessageReactionAddMany events.
+func (eh messageReactionAddManyEventHandler) Handle(s *Session, i interface{}) {
+	if t, ok := i.(*MessageReactionAddMany); ok {
+		eh(s, t)
+	}
+}
+
 // messageReactionRemoveEventHandler is an event handler for MessageReactionRemove events.
 type messageReactionRemoveEventHandler func(*Session, *MessageReactionRemove)
 
@@ -1921,6 +1942,8 @@ func handlerForInterface(handler interface{}) EventHandler {
 		return messagePollVoteRemoveEventHandler(v)
 	case func(*Session, *MessageReactionAdd):
 		return messageReactionAddEventHandler(v)
+	case func(*Session, *MessageReactionAddMany):
+		return messageReactionAddManyEventHandler(v)
 	case func(*Session, *MessageReactionRemove):
 		return messageReactionRemoveEventHandler(v)
 	case func(*Session, *MessageReactionRemoveAll):
@@ -2044,6 +2067,7 @@ func init() {
 	registerInterfaceProvider(messagePollVoteAddEventHandler(nil))
 	registerInterfaceProvider(messagePollVoteRemoveEventHandler(nil))
 	registerInterfaceProvider(messageReactionAddEventHandler(nil))
+	registerInterfaceProvider(messageReactionAddManyEventHandler(nil))
 	registerInterfaceProvider(messageReactionRemoveEventHandler(nil))
 	registerInterfaceProvider(messageReactionRemoveAllEventHandler(nil))
 	registerInterfaceProvider(messageReactionRemoveEmojiEventHandler(nil))

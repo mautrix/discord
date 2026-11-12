@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -172,7 +173,7 @@ func (s *Session) Open() error {
 
 	// The first response from Discord should be an Op 10 (Hello) Packet.
 	// When processed by onEvent the heartbeat goroutine will be started.
-	mt, m, err := s.wsConn.Read(s.wsConnCtx)
+	mt, m, err := s.wsConn.Read(dialCtx)
 	if err != nil {
 		return err
 	}
@@ -238,7 +239,7 @@ func (s *Session) Open() error {
 	}
 
 	// Now Discord should send us a READY or RESUMED packet.
-	mt, m, err = s.wsConn.Read(s.wsConnCtx)
+	mt, m, err = s.wsConn.Read(dialCtx)
 	if err != nil {
 		return err
 	}
@@ -429,6 +430,7 @@ func (s *Session) heartbeat(ctx context.Context, wsConn *websocket.Conn, listeni
 	}
 
 	var err error
+	var prevSent time.Time
 	ticker := time.NewTicker(heartbeatInterval * time.Millisecond)
 	defer ticker.Stop()
 
@@ -442,7 +444,9 @@ func (s *Session) heartbeat(ctx context.Context, wsConn *websocket.Conn, listeni
 		s.LastHeartbeatSent = time.Now().UTC()
 		err = wsjson.Write(ctx, wsConn, s.newHeartbeatOp(sequence))
 		s.wsMutex.Unlock()
-		if err != nil || time.Now().UTC().Sub(last) > (heartbeatInterval*FailedHeartbeatAcks) {
+		missedAck := !prevSent.IsZero() && last.Before(prevSent)
+		prevSent = s.LastHeartbeatSent
+		if err != nil || missedAck {
 			if err != nil {
 				s.log(LogError, "error sending heartbeat to gateway %s, %s", s.gateway, err)
 			} else {
@@ -1116,7 +1120,7 @@ func (s *Session) reconnect() {
 
 	if s.ShouldReconnectOnError {
 
-		wait := time.Duration(1)
+		wait := time.Second
 
 		for {
 			if s.BeforeReconnect != nil {
@@ -1165,11 +1169,8 @@ func (s *Session) reconnect() {
 				return
 			}
 
-			<-time.After(wait * time.Second)
-			wait *= 2
-			if wait > 600 {
-				wait = 600
-			}
+			<-time.After(wait/2 + rand.N(wait/2))
+			wait = min(wait*2, time.Minute)
 		}
 	}
 }

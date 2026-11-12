@@ -45,8 +45,8 @@ to):
 meowcord incorporates the following commits and all of their ancestors:
 
 - [beeper/discordgo][beeper-discordgo]:
-  [`8051e14a447170269a615268c4d83b55e6fcf2fe`](https://github.com/beeper/discordgo/commit/8051e14a447170269a615268c4d83b55e6fcf2fe)
-  (authored 2026-08-08)
+  [`db8398b15663c0287cf78070477e3d2e42905d4f`](https://github.com/beeper/discordgo/commit/db8398b15663c0287cf78070477e3d2e42905d4f)
+  (authored 2026-11-12)
 - [bwmarrin/discordgo][bwmarrin-discordgo]:
   [`f43dd94faaacd5b163e9e783f14b5bd8be639fc9`](https://github.com/bwmarrin/discordgo/commit/f43dd94faaacd5b163e9e783f14b5bd8be639fc9)
   (authored 2026-02-14)

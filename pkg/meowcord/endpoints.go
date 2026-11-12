@@ -172,6 +172,7 @@ var (
 	EndpointChannelMessagePin                   = func(cID, mID string) string { return EndpointChannel(cID) + "/messages/pins/" + mID }
 	EndpointChannelMessageCrosspost             = func(cID, mID string) string { return EndpointChannel(cID) + "/messages/" + mID + "/crosspost" }
 	EndpointChannelFollow                       = func(cID string) string { return EndpointChannel(cID) + "/followers" }
+	EndpointChannelRecipient                    = func(cID, uID string) string { return EndpointChannel(cID) + "/recipients/" + uID }
 	EndpointThreadMembers                       = func(tID string) string { return EndpointChannel(tID) + "/thread-members" }
 	EndpointThreadMember                        = func(tID, mID string) string { return EndpointThreadMembers(tID) + "/" + mID }
 

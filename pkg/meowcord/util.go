@@ -32,13 +32,15 @@ import (
 	"time"
 )
 
+const SnowflakeEpoch = 1420070400000
+
 // SnowflakeTimestamp returns the creation time of a Snowflake ID relative to the creation of Discord.
 func SnowflakeTimestamp(ID string) (t time.Time, err error) {
 	i, err := strconv.ParseInt(ID, 10, 64)
 	if err != nil {
 		return
 	}
-	timestamp := (i >> 22) + 1420070400000
+	timestamp := (i >> 22) + SnowflakeEpoch
 	t = time.Unix(0, timestamp*1000000)
 	return
 }

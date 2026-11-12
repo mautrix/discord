@@ -63,6 +63,8 @@ var (
 	Unmarshal func(src []byte, v interface{}) error = json.Unmarshal
 )
 
+const defaultNonJSONRateLimitRetryAfter = 5 * time.Second
+
 // RESTError stores error information about a request with a bad response code.
 // Message is not always present, there are cases where api calls can fail
 // without returning a json message.
@@ -263,8 +265,11 @@ func (s *Session) RequestWithLockedBucket(method, urlStr, contentType string, b 
 
 	// Not used on initial login..
 	// TODO: Verify if a login, otherwise complain about no-token
-	if s.Token != "" {
-		req.Header.Set("authorization", s.Token)
+	s.tokenLock.RLock()
+	token := s.Token
+	s.tokenLock.RUnlock()
+	if token != "" {
+		req.Header.Set("authorization", token)
 	}
 
 	// Discord's API returns a 400 Bad Request is Content-Type is set, but the
@@ -355,7 +360,17 @@ func (s *Session) RequestWithLockedBucket(method, urlStr, contentType string, b 
 		rl := TooManyRequests{}
 		err = Unmarshal(response, &rl)
 		if err != nil {
-			s.log(LogError, "rate limit unmarshal error, %s", err)
+			if !cfg.ShouldRetryOnRateLimit || sequence >= cfg.MaxRestRetries {
+				s.log(LogError, "rate limit unmarshal error, %s", err)
+				return
+			}
+			retryAfter := defaultNonJSONRateLimitRetryAfter
+			if seconds, parseErr := strconv.ParseFloat(resp.Header.Get("Retry-After"), 64); parseErr == nil && seconds > 0 {
+				retryAfter = time.Duration(seconds * float64(time.Second))
+			}
+			s.log(LogInformational, "Rate Limiting %s with a non-JSON response, retry in %v", urlStr, retryAfter)
+			time.Sleep(retryAfter)
+			response, err = s.RequestWithLockedBucket(method, urlStr, contentType, b, s.Ratelimiter.LockBucketObject(bucket), sequence+1, options...)
 			return
 		}
 
@@ -652,6 +667,28 @@ func (s *Session) UserChannelCreate(recipientID string, options ...RequestOption
 	}
 
 	err = unmarshal(body, &st)
+	return
+}
+
+func (s *Session) GroupDMCreate(recipientIDs []string, options ...RequestOption) (st *Channel, err error) {
+	if recipientIDs == nil {
+		recipientIDs = []string{}
+	}
+	data := struct {
+		Recipients []string `json:"recipients"`
+	}{recipientIDs}
+
+	body, err := s.RequestWithBucketID("POST", EndpointUserChannels("@me"), data, EndpointUserChannels(""), options...)
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &st)
+	return
+}
+
+func (s *Session) ChannelRecipientAdd(channelID, userID string, options ...RequestOption) (err error) {
+	_, err = s.RequestWithBucketID("PUT", EndpointChannelRecipient(channelID, userID), nil, EndpointChannelRecipient(channelID, ""), options...)
 	return
 }
 
@@ -2046,12 +2083,18 @@ func (s *Session) ChannelMessageAck(channelID, messageID, lastToken string) (st 
 // messageID : the ID of a Message
 func (s *Session) ChannelMessageAckNoToken(channelID, messageID string, options ...RequestOption) (st *PtrAck, err error) {
 
-	body, err := s.RequestWithBucketID("POST", EndpointChannelMessageAck(channelID, messageID), &PtrAck{}, EndpointChannelMessageAck(channelID, ""), options...)
+	lastViewed := int(time.Since(time.UnixMilli(SnowflakeEpoch)).Hours() / 24)
+	body, err := s.RequestWithBucketID("POST", EndpointChannelMessageAck(channelID, messageID), &PtrAck{LastViewed: lastViewed}, EndpointChannelMessageAck(channelID, ""), options...)
 	if err != nil {
 		return
 	}
 
 	err = unmarshal(body, &st)
+	return
+}
+
+func (s *Session) ChannelMessageAckManual(channelID, messageID string, mentionCount int, options ...RequestOption) (err error) {
+	_, err = s.RequestWithBucketID("POST", EndpointChannelMessageAck(channelID, messageID), &ManualAck{Manual: true, MentionCount: mentionCount}, EndpointChannelMessageAck(channelID, ""), options...)
 	return
 }
 

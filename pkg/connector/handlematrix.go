@@ -23,6 +23,7 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -757,6 +758,7 @@ func (d *DiscordClient) HandleMarkedUnread(ctx context.Context, msg *bridgev2.Ma
 	if err != nil {
 		return err
 	} else if latest == nil {
+		zerolog.Ctx(ctx).Debug().Msg("No top-level message found in the newest parts, not changing Discord read state")
 		return nil
 	}
 	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
@@ -775,7 +777,43 @@ func (d *DiscordClient) HandleMarkedUnread(ctx context.Context, msg *bridgev2.Ma
 		}
 		readUpTo = strconv.FormatUint(latestID-1, 10)
 	}
-	return d.tryWrappingError(ctx, d.Session.ChannelMessageAckManual(channelID, readUpTo, 0, referer))
+	mentionCount := d.unreadMentionCount(ctx, channelID, msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID, readUpTo, referer)
+	return d.tryWrappingError(ctx, d.Session.ChannelMessageAckManual(channelID, readUpTo, mentionCount, referer))
+}
+
+func (d *DiscordClient) unreadMentionCount(ctx context.Context, channelID, guildID, afterID string, referer discordgo.RequestOption) int {
+	msgs, err := d.Session.ChannelMessages(channelID, 100, "", afterID, "", referer, discordgo.WithContext(ctx))
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to fetch unread messages to count mentions")
+		return 0
+	}
+	selfID := d.Session.State.User.ID
+	var suppressEveryone, suppressRoles bool
+	if settings := d.guildSettingsForGuildID(guildID); settings != nil {
+		suppressEveryone = settings.SuppressEveryone
+		suppressRoles = settings.SuppressRoles
+	}
+	var roles []string
+	if guildID != "" {
+		if member, err := d.Session.State.Member(guildID, selfID); err == nil {
+			roles = member.Roles
+		}
+	}
+	countAll := guildID == "" && !d.channelMutedUntil(guildID, "", channelID).After(time.Now())
+	count := 0
+	for _, m := range msgs {
+		if m.Author == nil || m.Author.ID == selfID {
+			continue
+		} else if rel := d.relationshipWithUserID(m.Author.ID); rel != nil && rel.Type == discordgo.RelationshipBlocked {
+			continue
+		}
+		if countAll || (m.MentionEveryone && !suppressEveryone) ||
+			slices.ContainsFunc(m.Mentions, func(u *discordgo.User) bool { return u != nil && u.ID == selfID }) ||
+			(!suppressRoles && slices.ContainsFunc(m.MentionRoles, func(role string) bool { return slices.Contains(roles, role) })) {
+			count++
+		}
+	}
+	return count
 }
 
 func (d *DiscordClient) lastTopLevelMessages(ctx context.Context, portalKey networkid.PortalKey) (latest, prev *database.Message, err error) {

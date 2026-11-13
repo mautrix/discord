@@ -20,8 +20,9 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/bwmarrin/discordgo"
 	"go.mau.fi/util/dbutil"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type RoleQuery struct {
@@ -30,7 +31,7 @@ type RoleQuery struct {
 
 type Role struct {
 	GuildID string
-	discordgo.Role
+	meowcord.Role
 }
 
 func (r *Role) sqlVariables() []any {

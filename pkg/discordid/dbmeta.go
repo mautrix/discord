@@ -17,8 +17,9 @@
 package discordid
 
 import (
-	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/database"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type PortalMetadata struct {
@@ -32,13 +33,13 @@ type PortalMetadata struct {
 	// The type of Discord channel this portal corresponds to.
 	//
 	// This is omitted for guild space portals.
-	ChannelType *discordgo.ChannelType `json:"channel_type,omitempty"`
+	ChannelType *meowcord.ChannelType `json:"channel_type,omitempty"`
 }
 
 type UserLoginMetadata struct {
-	Token            string                     `json:"token"`
-	HeartbeatSession discordgo.HeartbeatSession `json:"heartbeat_session"`
-	BridgedGuildIDs  map[string]bool            `json:"bridged_guild_ids,omitempty"`
+	Token            string                    `json:"token"`
+	HeartbeatSession meowcord.HeartbeatSession `json:"heartbeat_session"`
+	BridgedGuildIDs  map[string]bool           `json:"bridged_guild_ids,omitempty"`
 }
 
 var _ database.MetaMerger = (*UserLoginMetadata)(nil)
@@ -52,7 +53,7 @@ func (ulm *UserLoginMetadata) CopyFrom(incoming any) {
 	if incomingMeta.Token != "" {
 		ulm.Token = incomingMeta.Token
 	}
-	ulm.HeartbeatSession = discordgo.NewHeartbeatSession()
+	ulm.HeartbeatSession = meowcord.NewHeartbeatSession()
 
 	// Retain the BridgedGuildIDs from the existing login.
 }

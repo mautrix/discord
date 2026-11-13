@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
@@ -28,19 +27,20 @@ import (
 	"maunium.net/go/mautrix/bridgev2/status"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
-func readableRelationshipType(rel discordgo.RelationshipType) (desc string) {
+func readableRelationshipType(rel meowcord.RelationshipType) (desc string) {
 	desc = "unknown"
 
 	switch rel {
-	case discordgo.RelationshipBlocked:
+	case meowcord.RelationshipBlocked:
 		desc = "blocked"
-	case discordgo.RelationshipFriend:
+	case meowcord.RelationshipFriend:
 		desc = "friend"
-	case discordgo.RelationshipIncomingFriendRequest:
+	case meowcord.RelationshipIncomingFriendRequest:
 		desc = "recipient wants to be friends"
-	case discordgo.RelationshipOutgoingFriendRequest:
+	case meowcord.RelationshipOutgoingFriendRequest:
 		desc = "sender wants to be friends"
 	}
 
@@ -49,14 +49,14 @@ func readableRelationshipType(rel discordgo.RelationshipType) (desc string) {
 
 // makeRemoteName computes an appropriate value for the RemoteName field on
 // [bridgev2.UserLogin].
-func makeRemoteName(u *discordgo.User) string {
+func makeRemoteName(u *meowcord.User) string {
 	return u.String()
 }
 
 // makeRemoteProfile creates a [status.makeRemoteProfile] from a
-// [discordgo.User]. A [bridgev2.Ghost] may optionally be passed to provide an
+// [meowcord.User]. A [bridgev2.Ghost] may optionally be passed to provide an
 // avatar.
-func makeRemoteProfile(u *discordgo.User, ghost *bridgev2.Ghost) (p status.RemoteProfile) {
+func makeRemoteProfile(u *meowcord.User, ghost *bridgev2.Ghost) (p status.RemoteProfile) {
 	p.Phone = u.Phone
 	p.Email = u.Email
 	p.Username = u.String()
@@ -73,7 +73,7 @@ func (d *DiscordClient) IsThisUser(ctx context.Context, userID networkid.UserID)
 	return userID == discordid.UserLoginIDToUserID(d.UserLogin.ID)
 }
 
-func (d *DiscordClient) makeUserAvatar(u *discordgo.User) *bridgev2.Avatar {
+func (d *DiscordClient) makeUserAvatar(u *meowcord.User) *bridgev2.Avatar {
 	url := u.AvatarURL("256")
 
 	return &bridgev2.Avatar{
@@ -107,7 +107,7 @@ func (d *DiscordClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 	return d.getUserInfo(ctx, discordUser), nil
 }
 
-func (d *DiscordClient) getUserInfo(ctx context.Context, user *discordgo.User) *bridgev2.UserInfo {
+func (d *DiscordClient) getUserInfo(ctx context.Context, user *meowcord.User) *bridgev2.UserInfo {
 	return &bridgev2.UserInfo{
 		// FIXME clear this for webhooks (stash in ghost metadata)
 		Identifiers: []string{fmt.Sprintf("discord:%s", user.String())},

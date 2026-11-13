@@ -26,11 +26,12 @@ import (
 	"os"
 	"sync"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type ReuploadedAttachment struct {
@@ -87,7 +88,7 @@ func (mc *MessageConverter) ReuploadMedia(
 	estimatedSize int,
 	allowEncryption bool,
 ) (*ReuploadedAttachment, error) {
-	sess := ctx.Value(contextKeyDiscordClient).(*discordgo.Session)
+	sess := ctx.Value(contextKeyDiscordClient).(*meowcord.Session)
 	httpClient := sess.Client
 	intent := ctx.Value(contextKeyIntent).(bridgev2.MatrixAPI)
 	var roomID id.RoomID
@@ -105,7 +106,7 @@ func (mc *MessageConverter) ReuploadMedia(
 		return nil, err
 	}
 	if sess.IsUser {
-		for key, value := range discordgo.DroidDownloadHeaders {
+		for key, value := range meowcord.DroidDownloadHeaders {
 			req.Header.Set(key, value)
 		}
 	}

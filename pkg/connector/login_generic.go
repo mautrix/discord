@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 // DiscordGenericLogin is embedded within each struct that implements
@@ -39,11 +39,11 @@ type DiscordGenericLogin struct {
 	User      *bridgev2.User
 	connector *DiscordConnector
 
-	Session *discordgo.Session
+	Session *meowcord.Session
 
 	// The Discord user we've authenticated as. This is only non-nil if
 	// a call to FinalizeCreatingLogin has succeeded.
-	DiscordUser *discordgo.User
+	DiscordUser *meowcord.User
 }
 
 func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token string) (*bridgev2.UserLogin, error) {

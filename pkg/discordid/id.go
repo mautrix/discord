@@ -21,8 +21,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 // DeletedGuildUserID is a magic user ID that is used in place of an actual user
@@ -36,7 +37,7 @@ const DeletedGuildUserID = "456226577798135808"
 // DeletedGuildUser is the user returned from the Discord API as a stand-in for
 // users who have since deleted their account. As the name suggests, this only
 // applies to fetched entities within guilds.
-var DeletedGuildUser = discordgo.User{
+var DeletedGuildUser = meowcord.User{
 	ID:            DeletedGuildUserID,
 	Username:      "Deleted User",
 	Discriminator: "0000",

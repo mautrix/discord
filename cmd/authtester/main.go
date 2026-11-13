@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
@@ -27,6 +26,7 @@ import (
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
 	"go.mau.fi/mautrix-discord/pkg/discordtransport"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 const fallbackClientBuildNumber = 497254
@@ -123,16 +123,16 @@ func run() error {
 }
 
 func newDefaultPersonality(buildNumber int) (*discordauth.Personality, error) {
-	launchSignature, err := discordgo.NewVanillaSignature()
+	launchSignature, err := meowcord.NewVanillaSignature()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate launch signature: %w", err)
 	}
 
-	extraHeaders := maps.Clone(discordgo.DroidFetchHeaders)
+	extraHeaders := maps.Clone(meowcord.DroidFetchHeaders)
 	delete(extraHeaders, "User-Agent")
 
 	return &discordauth.Personality{
-		UserAgent:    discordgo.DroidBrowserUserAgent,
+		UserAgent:    meowcord.DroidBrowserUserAgent,
 		Locale:       "en-US",
 		TimeZone:     defaultTimeZone(),
 		DebugOptions: discordauth.DefaultDebugOptions,
@@ -141,8 +141,8 @@ func newDefaultPersonality(buildNumber int) (*discordauth.Personality, error) {
 			Browser:           "Chrome",
 			SystemLocale:      "en-US",
 			HasClientMods:     false,
-			BrowserUserAgent:  discordgo.DroidBrowserUserAgent,
-			BrowserVersion:    discordgo.DroidBrowserVersion,
+			BrowserUserAgent:  meowcord.DroidBrowserUserAgent,
+			BrowserVersion:    meowcord.DroidBrowserVersion,
 			OSVersion:         "10",
 			ReleaseChannel:    "stable",
 			ClientBuildNumber: buildNumber,
@@ -168,7 +168,7 @@ func fetchClientBuildNumber(ctx context.Context, client *http.Client) (int, erro
 	if err != nil {
 		return 0, fmt.Errorf("failed to create main page request: %w", err)
 	}
-	addHeaders(mainPageReq.Header, discordgo.DroidBaseHeaders)
+	addHeaders(mainPageReq.Header, meowcord.DroidBaseHeaders)
 	mainPageReq.Header.Set("Sec-Fetch-Dest", "document")
 	mainPageReq.Header.Set("Sec-Fetch-Mode", "navigate")
 	mainPageReq.Header.Set("Sec-Fetch-Site", "none")
@@ -190,7 +190,7 @@ func fetchClientBuildNumber(ctx context.Context, client *http.Client) (int, erro
 	if err != nil {
 		return 0, fmt.Errorf("failed to create JS request: %w", err)
 	}
-	addHeaders(jsReq.Header, discordgo.DroidBaseHeaders)
+	addHeaders(jsReq.Header, meowcord.DroidBaseHeaders)
 	jsReq.Header.Set("Sec-Fetch-Dest", "script")
 	jsReq.Header.Set("Sec-Fetch-Mode", "no-cors")
 	jsReq.Header.Set("Sec-Fetch-Site", "same-origin")

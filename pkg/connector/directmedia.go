@@ -26,7 +26,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
@@ -34,6 +33,7 @@ import (
 	"maunium.net/go/mautrix/mediaproxy"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 var (
@@ -97,7 +97,7 @@ func (d *DiscordConnector) downloadURL(
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare media download request: %w", err)
 	}
-	for key, value := range discordgo.DroidDownloadHeaders {
+	for key, value := range meowcord.DroidDownloadHeaders {
 		req.Header.Set(key, value)
 	}
 	resp, err := d.httpClient.Do(req)
@@ -161,7 +161,7 @@ func (d *DiscordConnector) refreshAttachmentURL(
 		threadChannelID = threadInfo.ThreadChannelID
 	}
 
-	var requestOptions []discordgo.RequestOption
+	var requestOptions []meowcord.RequestOption
 	portalKey := discordid.MakeChannelPortalKey(parentChannelID, info.UserLoginID, d.Bridge.Config.SplitPortals)
 	portal, err := d.Bridge.GetExistingPortalByKey(ctx, portalKey)
 	if err != nil {
@@ -175,14 +175,14 @@ func (d *DiscordConnector) refreshAttachmentURL(
 		requestOptions = append(requestOptions, makeDiscordReferer("", parentChannelID, ""))
 	}
 
-	var messages []*discordgo.Message
+	var messages []*meowcord.Message
 	if client.Session.IsUser {
 		messages, err = client.Session.ChannelMessages(channelID, 5, "", "", messageID, requestOptions...)
 	} else {
-		var msg *discordgo.Message
+		var msg *meowcord.Message
 		msg, err = client.Session.ChannelMessage(channelID, messageID, requestOptions...)
 		if err == nil && msg != nil {
-			messages = []*discordgo.Message{msg}
+			messages = []*meowcord.Message{msg}
 		}
 	}
 	if err != nil {

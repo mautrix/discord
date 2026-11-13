@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
@@ -33,6 +32,7 @@ import (
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
 	"go.mau.fi/mautrix-discord/pkg/discordtransport"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 var ErrMissingLoginInput = bridgev2.RespError{
@@ -76,7 +76,7 @@ func userVisibleLoginError(ctx context.Context, err error) error {
 // userVisibleRESTError handles plain discordgo REST failures, which is what the token,
 // browser and QR flows produce when Discord rejects a token outright.
 func userVisibleRESTError(ctx context.Context, err error) error {
-	var restErr *discordgo.RESTError
+	var restErr *meowcord.RESTError
 	if !errors.As(err, &restErr) || restErr.Response == nil {
 		return err
 	}
@@ -156,13 +156,13 @@ var _ bridgev2.LoginProcessUserInput = (*DiscordMachineLogin)(nil)
 var _ bridgev2.LoginProcessCookies = (*DiscordMachineLogin)(nil)
 
 func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*DiscordMachineLogin, error) {
-	launchSig, err := discordgo.NewVanillaSignature()
+	launchSig, err := meowcord.NewVanillaSignature()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate launch signature: %w", err)
 	}
 
 	personality := discordauth.Personality{
-		UserAgent:    discordgo.DroidBrowserUserAgent,
+		UserAgent:    meowcord.DroidBrowserUserAgent,
 		Locale:       "en-US",
 		TimeZone:     "UTC",
 		DebugOptions: discordauth.DefaultDebugOptions,
@@ -172,8 +172,8 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 			Browser:           "Chrome",
 			SystemLocale:      "en-US",
 			HasClientMods:     false,
-			BrowserUserAgent:  discordgo.DroidBrowserUserAgent,
-			BrowserVersion:    discordgo.DroidBrowserVersion,
+			BrowserUserAgent:  meowcord.DroidBrowserUserAgent,
+			BrowserVersion:    meowcord.DroidBrowserVersion,
 			OSVersion:         "10",
 			ReleaseChannel:    "stable",
 			ClientBuildNumber: 497254,
@@ -183,9 +183,9 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 		},
 		// TODO(skip): These are different for different kinds of requests.
 		ExtraHeaders: map[string]string{
-			"sec-ch-ua":          discordgo.DroidBaseHeaders["Sec-Ch-Ua"],
+			"sec-ch-ua":          meowcord.DroidBaseHeaders["Sec-Ch-Ua"],
 			"sec-ch-ua-mobile":   "?0",
-			"sec-ch-ua-platform": discordgo.DroidBaseHeaders["Sec-Ch-Ua-Platform"],
+			"sec-ch-ua-platform": meowcord.DroidBaseHeaders["Sec-Ch-Ua-Platform"],
 			"sec-fetch-dest":     "empty",
 			"sec-fetch-mode":     "cors",
 			"sec-fetch-site":     "same-origin",

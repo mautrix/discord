@@ -25,11 +25,12 @@ import (
 	"net/http/cookiejar"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/imroc/req/v3"
 	utls "github.com/refraction-networking/utls"
 	"go.mau.fi/util/exhttp"
 	"golang.org/x/net/publicsuffix"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type TransportOptions struct {
@@ -174,7 +175,7 @@ func forceHTTP1ChromeFingerprint(c *req.Client) {
 // client at the given settings. Both impersonate Chrome's TLS fingerprint; the
 // REST client may use HTTP/2 ([CompileTransport]) while the gateway client is
 // pinned to HTTP/1.1 for the WebSocket upgrade ([CompileGatewayClient]).
-func ApplyToSession(session *discordgo.Session, settings exhttp.ClientSettings) error {
+func ApplyToSession(session *meowcord.Session, settings exhttp.ClientSettings) error {
 	restClient, err := CompileTransport(settings, TransportOptions{CookieJar: true})
 	if err != nil {
 		return err

@@ -21,25 +21,25 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
-func isThread(ch *discordgo.Channel) bool {
-	return ch.Type == discordgo.ChannelTypeGuildPublicThread ||
-		ch.Type == discordgo.ChannelTypeGuildPrivateThread ||
-		ch.Type == discordgo.ChannelTypeGuildNewsThread
+func isThread(ch *meowcord.Channel) bool {
+	return ch.Type == meowcord.ChannelTypeGuildPublicThread ||
+		ch.Type == meowcord.ChannelTypeGuildPrivateThread ||
+		ch.Type == meowcord.ChannelTypeGuildNewsThread
 }
 
-func defaultThreadRootMessageID(ch *discordgo.Channel) string {
+func defaultThreadRootMessageID(ch *meowcord.Channel) string {
 	if ch == nil || !isThread(ch) {
 		return ""
 	}
-	if ch.Type == discordgo.ChannelTypeGuildPrivateThread {
+	if ch.Type == meowcord.ChannelTypeGuildPrivateThread {
 		return ""
 	}
 	return ch.ID
@@ -57,15 +57,15 @@ func (d *DiscordClient) upsertThreadInfo(ctx context.Context, threadChannelID, r
 	})
 }
 
-func (d *DiscordClient) upsertThreadInfoFromChannel(ctx context.Context, ch *discordgo.Channel) error {
+func (d *DiscordClient) upsertThreadInfoFromChannel(ctx context.Context, ch *meowcord.Channel) error {
 	if ch == nil || !isThread(ch) {
 		return nil
 	}
 	return d.upsertThreadInfo(ctx, ch.ID, defaultThreadRootMessageID(ch), ch.ParentID)
 }
 
-func (d *DiscordClient) upsertThreadInfoFromMessage(ctx context.Context, msg *discordgo.Message) error {
-	if msg == nil || msg.Flags&discordgo.MessageFlagsHasThread == 0 || msg.Thread == nil {
+func (d *DiscordClient) upsertThreadInfoFromMessage(ctx context.Context, msg *meowcord.Message) error {
+	if msg == nil || msg.Flags&meowcord.MessageFlagsHasThread == 0 || msg.Thread == nil {
 		return nil
 	}
 	threadChannelID := msg.Thread.ID
@@ -115,11 +115,11 @@ func getMatrixThreadRootRemoteMessageID(threadRoot *database.Message) string {
 	return remoteID
 }
 
-func makeDiscordReferer(guildID, parentChannelID, threadChannelID string) discordgo.RequestOption {
+func makeDiscordReferer(guildID, parentChannelID, threadChannelID string) meowcord.RequestOption {
 	if threadChannelID != "" && threadChannelID != parentChannelID {
-		return discordgo.WithThreadReferer(guildID, parentChannelID, threadChannelID)
+		return meowcord.WithThreadReferer(guildID, parentChannelID, threadChannelID)
 	}
-	return discordgo.WithChannelReferer(guildID, parentChannelID)
+	return meowcord.WithChannelReferer(guildID, parentChannelID)
 }
 
 func getThreadName(content *event.MessageEventContent) string {
@@ -161,16 +161,16 @@ func (d *DiscordClient) startThreadFromMatrix(
 		return "", fmt.Errorf("can't create thread without being logged into Discord")
 	}
 
-	threadType := discordgo.ChannelTypeGuildPublicThread
+	threadType := meowcord.ChannelTypeGuildPublicThread
 	parentCh, err := d.Session.State.Channel(parentChannelID)
-	if err == nil && parentCh != nil && parentCh.Type == discordgo.ChannelTypeGuildNews {
-		threadType = discordgo.ChannelTypeGuildNewsThread
+	if err == nil && parentCh != nil && parentCh.Type == meowcord.ChannelTypeGuildNews {
+		threadType = meowcord.ChannelTypeGuildNewsThread
 	}
 
 	ch, err := d.Session.MessageThreadStartComplex(
 		parentChannelID,
 		rootMessageID,
-		&discordgo.ThreadStart{
+		&meowcord.ThreadStart{
 			Name:                threadName,
 			AutoArchiveDuration: 24 * 60,
 			Type:                threadType,

@@ -21,12 +21,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 )
 
@@ -127,7 +127,7 @@ func (dl *DiscordRemoteAuthLogin) SubmitCookies(ctx context.Context, cookies map
 		return nil, ErrMissingLoginInput.AppendMessage(": captcha solution")
 	}
 
-	user, err := dl.remoteAuthClient.RedeemTicket(discordgo.WithContext(ctx), func(cfg *discordgo.RequestConfig) {
+	user, err := dl.remoteAuthClient.RedeemTicket(meowcord.WithContext(ctx), func(cfg *meowcord.RequestConfig) {
 		cfg.Request.Header.Set(discordauth.HeaderCaptchaKey, solution)
 		dl.captcha.UpdateHeaders(&cfg.Request.Header)
 	})
@@ -138,7 +138,7 @@ func (dl *DiscordRemoteAuthLogin) SubmitCookies(ctx context.Context, cookies map
 }
 
 func (dl *DiscordRemoteAuthLogin) stepForError(ctx context.Context, err error) (*bridgev2.LoginStep, error) {
-	var restErr *discordgo.RESTError
+	var restErr *meowcord.RESTError
 	if errors.As(err, &restErr) {
 		if captcha := discordauth.CheckCaptcha(ctx, restErr.Response, restErr.ResponseBody); captcha != nil {
 			dl.captcha = captcha

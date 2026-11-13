@@ -21,17 +21,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
 
 	"go.mau.fi/mautrix-discord/pkg/discordtransport"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
-func NewDiscordSession(ctx context.Context, settings exhttp.ClientSettings, token string) (*discordgo.Session, error) {
+func NewDiscordSession(ctx context.Context, settings exhttp.ClientSettings, token string) (*meowcord.Session, error) {
 	log := zerolog.Ctx(ctx)
 
-	session, err := discordgo.New(token)
+	session, err := meowcord.New(token)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create discord session: %w", err)
 	}
@@ -47,7 +47,7 @@ func NewDiscordSession(ctx context.Context, settings exhttp.ClientSettings, toke
 	session.State.TrackVoice = false
 
 	// Set up logging.
-	session.LogLevel = discordgo.LogInformational
+	session.LogLevel = meowcord.LogInformational
 	session.Logger = func(msgL, caller int, format string, a ...any) {
 		// FIXME(skip): Hook up zerolog properly.
 		log.Debug().Str("component", "discordgo").Msgf(strings.TrimSpace(format), a...) // zerolog-allow-msgf

@@ -29,7 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
 	"maunium.net/go/mautrix/bridgev2"
@@ -39,6 +38,7 @@ import (
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
@@ -64,8 +64,8 @@ func (mc *MessageConverter) ToMatrix(
 	portal *bridgev2.Portal,
 	intent bridgev2.MatrixAPI,
 	source *bridgev2.UserLogin,
-	session *discordgo.Session,
-	msg *discordgo.Message,
+	session *meowcord.Session,
+	msg *meowcord.Message,
 	knownThreadRoot *networkid.MessageID,
 ) *bridgev2.ConvertedMessage {
 	ctx = context.WithValue(ctx, contextKeyUserLogin, source)
@@ -144,7 +144,7 @@ func (mc *MessageConverter) ToMatrix(
 		}})
 	}
 
-	if len(parts) == 0 && msg.Flags&discordgo.MessageFlagsLoading != 0 {
+	if len(parts) == 0 && msg.Flags&meowcord.MessageFlagsLoading != 0 {
 		parts = append(parts, &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgNotice,
 			Body:    "Thinking…",
@@ -233,10 +233,10 @@ func (mc *MessageConverter) addReplyToConvertedMessage(
 	ctx context.Context,
 	converted *bridgev2.ConvertedMessage,
 	source *bridgev2.UserLogin,
-	msg *discordgo.Message,
+	msg *meowcord.Message,
 ) {
 	ref := msg.MessageReference
-	if ref == nil || ref.Type != discordgo.MessageReferenceTypeDefault || ref.MessageID == "" {
+	if ref == nil || ref.Type != meowcord.MessageReferenceTypeDefault || ref.MessageID == "" {
 		return
 	}
 
@@ -274,16 +274,16 @@ func (mc *MessageConverter) addReplyToConvertedMessage(
 	converted.ReplyTo.PartID = &targetMatrixMsg.PartID
 }
 
-func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, msg *discordgo.Message, source *bridgev2.UserLogin) *bridgev2.ConvertedMessagePart {
+func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent bridgev2.MatrixAPI, portal *bridgev2.Portal, msg *meowcord.Message, source *bridgev2.UserLogin) *bridgev2.ConvertedMessagePart {
 	log := zerolog.Ctx(ctx)
 	switch msg.Type {
-	case discordgo.MessageTypeCall:
+	case meowcord.MessageTypeCall:
 		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgEmote,
 			// TODO: Use ghost name instead?
 			Body: fmt.Sprintf("(%s started a call. Use the Discord app to answer.)", msg.Author.String()),
 		}}
-	case discordgo.MessageTypeGuildMemberJoin:
+	case meowcord.MessageTypeGuildMemberJoin:
 		// This is only used for backfilled user join notices (e.g. "Good to
 		// see you, [username]."). Live user joins are handled as membership
 		// changes in the guild system channel and aren't even converted.
@@ -361,7 +361,7 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
 }
 
-func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source *bridgev2.UserLogin, msg *discordgo.Message, msgTSText string) (string, error) {
+func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source *bridgev2.UserLogin, msg *meowcord.Message, msgTSText string) (string, error) {
 	router, ok := source.Client.(router.Router)
 	if !ok {
 		return "", fmt.Errorf("network api can't route") // impossible?
@@ -412,7 +412,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 	return "", fmt.Errorf("couldn't resolve forwarded message link")
 }
 
-func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, msg, snapshot *discordgo.Message) string {
+func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal *bridgev2.Portal, source *bridgev2.UserLogin, msg, snapshot *meowcord.Message) string {
 	log := zerolog.Ctx(ctx)
 
 	var forwardedHTML string
@@ -429,23 +429,23 @@ func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal
 	return fmt.Sprintf(forwardTemplateHTML, forwardedHTML, origLink)
 }
 
-func forwardedSnapshot(msg *discordgo.Message) *discordgo.Message {
+func forwardedSnapshot(msg *meowcord.Message) *meowcord.Message {
 	if msg.MessageReference == nil ||
-		msg.MessageReference.Type != discordgo.MessageReferenceTypeForward ||
+		msg.MessageReference.Type != meowcord.MessageReferenceTypeForward ||
 		len(msg.MessageSnapshots) == 0 {
 		return nil
 	}
 	return msg.MessageSnapshots[0].Message
 }
 
-func contentMessages(msg *discordgo.Message) []*discordgo.Message {
+func contentMessages(msg *meowcord.Message) []*meowcord.Message {
 	if snapshot := forwardedSnapshot(msg); snapshot != nil {
-		return []*discordgo.Message{msg, snapshot}
+		return []*meowcord.Message{msg, snapshot}
 	}
-	return []*discordgo.Message{msg}
+	return []*meowcord.Message{msg}
 }
 
-func (mc *MessageConverter) guildMemberProfile(ctx context.Context, portal *bridgev2.Portal, msg *discordgo.Message) *event.BeeperPerMessageProfile {
+func (mc *MessageConverter) guildMemberProfile(ctx context.Context, portal *bridgev2.Portal, msg *meowcord.Message) *event.BeeperPerMessageProfile {
 	profile := &event.BeeperPerMessageProfile{
 		ID:          fmt.Sprintf("%s_%s", msg.GuildID, msg.Author.ID),
 		Displayname: msg.Member.Nick,
@@ -469,7 +469,7 @@ func (mc *MessageConverter) guildMemberProfile(ctx context.Context, portal *brid
 	return profile
 }
 
-func (mc *MessageConverter) webhookProfile(ctx context.Context, msg *discordgo.Message) *event.BeeperPerMessageProfile {
+func (mc *MessageConverter) webhookProfile(ctx context.Context, msg *meowcord.Message) *event.BeeperPerMessageProfile {
 	profileID := sha256.Sum256(fmt.Appendf(nil, "%s:%s", msg.Author.Username, msg.Author.Avatar))
 	profile := &event.BeeperPerMessageProfile{
 		ID:          hex.EncodeToString(profileID[:]),
@@ -508,7 +508,7 @@ func mediaFailedMessage(err error) *event.MessageEventContent {
 	}
 }
 
-func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *discordgo.MessageEmbed) *bridgev2.ConvertedMessagePart {
+func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *meowcord.MessageEmbed) *bridgev2.ConvertedMessagePart {
 	var proxyURL string
 	isVideo := embed.Video != nil && embed.Video.ProxyURL != ""
 	if isVideo {
@@ -556,7 +556,7 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *
 	}
 
 	extra := map[string]any{}
-	if content.MsgType == event.MsgVideo && embed.Type == discordgo.EmbedTypeGifv {
+	if content.MsgType == event.MsgVideo && embed.Type == meowcord.EmbedTypeGifv {
 		extra["info"] = map[string]any{
 			"fi.mau.discord.gifv":  true,
 			"fi.mau.gif":           true,
@@ -574,16 +574,16 @@ func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *
 	}
 }
 
-func (mc *MessageConverter) renderDiscordSticker(ctx context.Context, sticker *discordgo.StickerItem) *bridgev2.ConvertedMessagePart {
+func (mc *MessageConverter) renderDiscordSticker(ctx context.Context, sticker *meowcord.StickerItem) *bridgev2.ConvertedMessagePart {
 	var mime string
 	switch sticker.FormatType {
-	case discordgo.StickerFormatTypePNG:
+	case meowcord.StickerFormatTypePNG:
 		mime = "image/png"
-	case discordgo.StickerFormatTypeAPNG:
+	case meowcord.StickerFormatTypeAPNG:
 		mime = "image/apng"
-	case discordgo.StickerFormatTypeLottie:
+	case meowcord.StickerFormatTypeLottie:
 		mime = "video/lottie+json"
-	case discordgo.StickerFormatTypeGIF:
+	case meowcord.StickerFormatTypeGIF:
 		mime = "image/gif"
 	default:
 		zerolog.Ctx(ctx).Warn().
@@ -663,7 +663,7 @@ const (
 	embedFooterDateSeparator = ` • `
 )
 
-func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *bridgev2.UserLogin, embed *discordgo.MessageEmbed) string {
+func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *bridgev2.UserLogin, embed *meowcord.MessageEmbed) string {
 	log := zerolog.Ctx(ctx)
 	var htmlParts []string
 	if embed.Author != nil {
@@ -705,7 +705,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 		item := embed.Fields[i]
 		// TODO(skip): Port EmbedFieldsAsTables.
 		if false {
-			splitItems := []*discordgo.MessageEmbedField{item}
+			splitItems := []*meowcord.MessageEmbedField{item}
 			if item.Inline && len(embed.Fields) > i+1 && embed.Fields[i+1].Inline {
 				splitItems = append(splitItems, embed.Fields[i+1])
 				i++
@@ -803,7 +803,7 @@ func (mc *MessageConverter) renderDiscordLinkEmbedImage(
 	preview.ImageURL, preview.ImageEncryption = reupload.MXC, reupload.File
 }
 
-func (mc *MessageConverter) renderDiscordLinkEmbed(ctx context.Context, embed *discordgo.MessageEmbed) *event.BeeperLinkPreview {
+func (mc *MessageConverter) renderDiscordLinkEmbed(ctx context.Context, embed *meowcord.MessageEmbed) *event.BeeperLinkPreview {
 	var preview event.BeeperLinkPreview
 	preview.MatchedURL = embed.URL
 	preview.Title = embed.Title
@@ -816,7 +816,7 @@ func (mc *MessageConverter) renderDiscordLinkEmbed(ctx context.Context, embed *d
 	return &preview
 }
 
-func attachmentFileName(att *discordgo.MessageAttachment) (string, error) {
+func attachmentFileName(att *meowcord.MessageAttachment) (string, error) {
 	fileName := att.Filename
 	if fileName == "" {
 		parsedURL, err := url.Parse(att.URL)
@@ -837,7 +837,7 @@ func conversionFailedPart(err error) *bridgev2.ConvertedMessagePart {
 
 func (mc *MessageConverter) renderDiscordAttachment(
 	ctx context.Context,
-	att *discordgo.MessageAttachment,
+	att *meowcord.MessageAttachment,
 	mediaInfo *discordid.MediaInfo,
 ) *bridgev2.ConvertedMessagePart {
 	log := zerolog.Ctx(ctx)

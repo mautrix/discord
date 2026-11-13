@@ -23,13 +23,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 const (
@@ -178,7 +178,7 @@ func (p *ProvisioningAPI) guildsList(w http.ResponseWriter, r *http.Request, log
 			// (Despite this, they point to identical rooms.)
 			ID:        string(discordid.MakeGuildPortalIDWithID(guild.ID)),
 			Name:      guild.Name,
-			AvatarURL: discordgo.EndpointGuildIcon(guild.ID, guild.Icon),
+			AvatarURL: meowcord.EndpointGuildIcon(guild.ID, guild.Icon),
 			Bridged:   beingBridged,
 			Available: !guild.Unavailable,
 

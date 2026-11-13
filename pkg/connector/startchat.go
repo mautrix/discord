@@ -24,13 +24,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 var (
@@ -59,7 +59,7 @@ func (d *DiscordClient) ResolveIdentifier(ctx context.Context, identifier string
 	identifier = strings.TrimPrefix(identifier, "discord:")
 	identifier = strings.TrimPrefix(identifier, "@")
 
-	var user *discordgo.User
+	var user *meowcord.User
 	if isSnowflake(identifier) {
 		user = d.userCache.Resolve(ctx, identifier)
 	}
@@ -92,10 +92,10 @@ func (d *DiscordClient) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 	ch := d.dmChannelForUserID(userID)
 	if ch == nil {
 		var err error
-		ch, err = d.Session.UserChannelCreate(userID, discordgo.WithContext(ctx))
+		ch, err = d.Session.UserChannelCreate(userID, meowcord.WithContext(ctx))
 		if err != nil {
 			zerolog.Ctx(ctx).Err(err).Msg("Failed to create DM channel")
-			var restErr *discordgo.RESTError
+			var restErr *meowcord.RESTError
 			if errors.As(err, &restErr) && restErr.Response != nil {
 				switch restErr.Response.StatusCode {
 				case http.StatusForbidden:
@@ -164,7 +164,7 @@ func (d *DiscordClient) SearchUsers(ctx context.Context, query string) ([]*bridg
 	return results, nil
 }
 
-func (d *DiscordClient) makeResolveIdentifierResponse(ctx context.Context, user *discordgo.User) (*bridgev2.ResolveIdentifierResponse, error) {
+func (d *DiscordClient) makeResolveIdentifierResponse(ctx context.Context, user *meowcord.User) (*bridgev2.ResolveIdentifierResponse, error) {
 	userID := discordid.MakeUserID(user.ID)
 	ghost, err := d.connector.Bridge.GetGhostByID(ctx, userID)
 	if err != nil {
@@ -177,7 +177,7 @@ func (d *DiscordClient) makeResolveIdentifierResponse(ctx context.Context, user 
 	}, nil
 }
 
-func (d *DiscordClient) userMatchesQuery(user *discordgo.User, query string) bool {
+func (d *DiscordClient) userMatchesQuery(user *meowcord.User, query string) bool {
 	if strings.Contains(strings.ToLower(user.String()), query) ||
 		strings.Contains(strings.ToLower(user.GlobalName), query) {
 		return true
@@ -186,7 +186,7 @@ func (d *DiscordClient) userMatchesQuery(user *discordgo.User, query string) boo
 	return rel != nil && strings.Contains(strings.ToLower(rel.Nickname), query)
 }
 
-func (d *DiscordClient) knownUserWithUsername(ctx context.Context, username string) *discordgo.User {
+func (d *DiscordClient) knownUserWithUsername(ctx context.Context, username string) *meowcord.User {
 	if username == "" {
 		return nil
 	}
@@ -204,16 +204,16 @@ func (d *DiscordClient) friendIDs() []string {
 
 	ids := make([]string, 0, len(d.relationships))
 	for id, rel := range d.relationships {
-		if rel.Type == discordgo.RelationshipFriend {
+		if rel.Type == meowcord.RelationshipFriend {
 			ids = append(ids, id)
 		}
 	}
 	return ids
 }
 
-func (d *DiscordClient) friends(ctx context.Context) []*discordgo.User {
+func (d *DiscordClient) friends(ctx context.Context) []*meowcord.User {
 	ids := d.friendIDs()
-	users := make([]*discordgo.User, 0, len(ids))
+	users := make([]*meowcord.User, 0, len(ids))
 	for _, id := range ids {
 		if user := d.userCache.Resolve(ctx, id); user != nil {
 			users = append(users, user)
@@ -222,11 +222,11 @@ func (d *DiscordClient) friends(ctx context.Context) []*discordgo.User {
 	return users
 }
 
-func (d *DiscordClient) knownUsers(ctx context.Context) []*discordgo.User {
+func (d *DiscordClient) knownUsers(ctx context.Context) []*meowcord.User {
 	selfID := discordid.ParseUserLoginID(d.UserLogin.ID)
 	seen := map[string]struct{}{selfID: {}}
-	var users []*discordgo.User
-	add := func(user *discordgo.User) {
+	var users []*meowcord.User
+	add := func(user *meowcord.User) {
 		if user == nil || user.ID == "" {
 			return
 		}

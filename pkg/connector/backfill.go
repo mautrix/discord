@@ -23,13 +23,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 var (
@@ -103,9 +103,9 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	log.Debug().Msg("Fetching channel history for backfill")
 	msgs, err := d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
 	<-d.historyFetchSem
-	var restErr *discordgo.RESTError
+	var restErr *meowcord.RESTError
 	if errors.As(err, &restErr) && restErr.Message != nil &&
-		(restErr.Message.Code == discordgo.ErrCodeMissingAccess || restErr.Message.Code == discordgo.ErrCodeUnknownChannel) {
+		(restErr.Message.Code == meowcord.ErrCodeMissingAccess || restErr.Message.Code == meowcord.ErrCodeUnknownChannel) {
 		log.Warn().Err(err).Msg("Channel history is inaccessible, nothing to backfill")
 		return &bridgev2.FetchMessagesResponse{
 			Forward: fetchParams.Forward,
@@ -145,7 +145,7 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	provablyReadMessageCount := 0
 	for _, msg := range msgs {
 		parsedMsgID, _ := strconv.ParseInt(msg.ID, 10, 64)
-		msgTs, _ := discordgo.SnowflakeTimestamp(msg.ID)
+		msgTs, _ := meowcord.SnowflakeTimestamp(msg.ID)
 
 		readState := d.readStateForID(msg.ChannelID)
 		if readState != nil {
@@ -193,7 +193,7 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 			StreamOrder:      parsedMsgID,
 		})
 
-		if fetchParams.ThreadRoot == "" && msg.Flags&discordgo.MessageFlagsHasThread != 0 {
+		if fetchParams.ThreadRoot == "" && msg.Flags&meowcord.MessageFlagsHasThread != 0 {
 			latest := ""
 			if msg.Thread != nil {
 				latest = msg.Thread.LastMessageID
@@ -219,7 +219,7 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	entireBatchWasProvablyRead := len(msgs) == provablyReadMessageCount
 	var readUpTo time.Time
 	if readState := d.readStateForID(channelID); !entireBatchWasProvablyRead && readState != nil && readState.LastMessageID != "" {
-		readUpTo, _ = discordgo.SnowflakeTimestamp(string(readState.LastMessageID))
+		readUpTo, _ = meowcord.SnowflakeTimestamp(string(readState.LastMessageID))
 	}
 	var cursor networkid.PaginationCursor
 	if !fetchParams.Forward && len(msgs) > 0 {

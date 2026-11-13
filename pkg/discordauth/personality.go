@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/bwmarrin/discordgo"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 const HeaderInstallationID = "x-installation-id"
@@ -71,24 +71,24 @@ func (p *Personality) Headers() (http.Header, error) {
 // relevant when you have a gateway connection, though (?)
 
 type SuperProperties struct {
-	OS                     string                    `json:"os"`
-	Browser                string                    `json:"browser"`
-	Device                 string                    `json:"device"`
-	SystemLocale           string                    `json:"system_locale"`
-	HasClientMods          bool                      `json:"has_client_mods"`
-	BrowserUserAgent       string                    `json:"browser_user_agent"`
-	BrowserVersion         string                    `json:"browser_version"`
-	OSVersion              string                    `json:"os_version"`
-	Referrer               string                    `json:"referrer"`
-	ReferringDomain        string                    `json:"referring_domain"`
-	ReferrerCurrent        string                    `json:"referrer_current"`
-	ReferringDomainCurrent string                    `json:"referring_domain_current"`
-	ReleaseChannel         string                    `json:"release_channel"`
-	ClientBuildNumber      int                       `json:"client_build_number"`
-	ClientEventSource      *string                   `json:"client_event_source"`
-	ClientLaunchID         string                    `json:"client_launch_id"`
-	LaunchSignature        discordgo.LaunchSignature `json:"launch_signature"`
-	ClientAppState         string                    `json:"client_app_state"`
+	OS                     string                   `json:"os"`
+	Browser                string                   `json:"browser"`
+	Device                 string                   `json:"device"`
+	SystemLocale           string                   `json:"system_locale"`
+	HasClientMods          bool                     `json:"has_client_mods"`
+	BrowserUserAgent       string                   `json:"browser_user_agent"`
+	BrowserVersion         string                   `json:"browser_version"`
+	OSVersion              string                   `json:"os_version"`
+	Referrer               string                   `json:"referrer"`
+	ReferringDomain        string                   `json:"referring_domain"`
+	ReferrerCurrent        string                   `json:"referrer_current"`
+	ReferringDomainCurrent string                   `json:"referring_domain_current"`
+	ReleaseChannel         string                   `json:"release_channel"`
+	ClientBuildNumber      int                      `json:"client_build_number"`
+	ClientEventSource      *string                  `json:"client_event_source"`
+	ClientLaunchID         string                   `json:"client_launch_id"`
+	LaunchSignature        meowcord.LaunchSignature `json:"launch_signature"`
+	ClientAppState         string                   `json:"client_app_state"`
 }
 
 var _ encoding.TextMarshaler = (*SuperProperties)(nil)

@@ -24,12 +24,12 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
 	"maunium.net/go/mautrix"
 
 	"go.mau.fi/mautrix-discord/pkg/discordtransport"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 const proxyResolveTimeout = 30 * time.Second
@@ -151,7 +151,7 @@ func (d *DiscordConnector) resolveTransport(
 // fail the operation if the proxy can't be resolved.
 func (d *DiscordConnector) applyProxyToSession(
 	ctx context.Context,
-	session *discordgo.Session,
+	session *meowcord.Session,
 	reason string,
 ) error {
 	settings, err := d.resolveHTTPClientSettings(ctx, reason)

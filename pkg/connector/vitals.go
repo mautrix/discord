@@ -22,8 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 // vitals summarizes account-level health and safety signals for the logged-in
@@ -38,7 +39,7 @@ type vitals struct {
 	Quarantined bool `json:"quarantined"`
 	// A RequiredAction is some interactive user flow that must be completed
 	// before the user can continue using their Discord account.
-	RequiredAction discordgo.RequiredAction `json:"required_action,omitempty"`
+	RequiredAction meowcord.RequiredAction `json:"required_action,omitempty"`
 	// HasUnreadSystemMessages reports whether the user has unread messages from
 	// Discord's official system account.
 	//
@@ -55,7 +56,7 @@ type vitals struct {
 	// VerifiedEmail reports whether the user has verified their account's
 	// email.
 	//
-	// If this is false, [discordgo.ErrCodeActionRequiredVerifiedAccount]
+	// If this is false, [meowcord.ErrCodeActionRequiredVerifiedAccount]
 	// errors are likely.
 	VerifiedEmail bool `json:"verified_email"`
 	// HasPhone reports whether a verified phone number is associated with the
@@ -69,7 +70,7 @@ type vitalsSafety struct {
 	// Standing quantifies a user account's standing with Discord.
 	//
 	// A value of 100 is "all good".
-	Standing discordgo.AccountStanding `json:"standing"`
+	Standing meowcord.AccountStanding `json:"standing"`
 	// AffectedBySpamClassification reports whether an active spam
 	// classification currently applies to the account.
 	//
@@ -83,8 +84,8 @@ type vitalsSafety struct {
 //
 // If hub is nil, [vitals.Safety] will also be nil.
 func newVitals(
-	s *discordgo.Session,
-	hub *discordgo.SafetyHub,
+	s *meowcord.Session,
+	hub *meowcord.SafetyHub,
 ) (v vitals) {
 	if s == nil || s.State.User == nil {
 		return
@@ -94,12 +95,12 @@ func newVitals(
 	user := s.State.User
 	flags := user.Flags
 
-	v.Quarantined = flags&discordgo.UserFlagQuarantined != 0
+	v.Quarantined = flags&meowcord.UserFlagQuarantined != 0
 	// This can change on the fly via USER_REQUIRED_ACTION_UPDATE from the
 	// gateway.
 	v.RequiredAction = s.State.RequiredAction
-	v.HasUnreadSystemMessages = flags&discordgo.UserFlagHasUnreadUrgentMessages != 0
-	v.FlaggedAsSpammer = flags&discordgo.UserFlagSpammer != 0
+	v.HasUnreadSystemMessages = flags&meowcord.UserFlagHasUnreadUrgentMessages != 0
+	v.FlaggedAsSpammer = flags&meowcord.UserFlagSpammer != 0
 	v.VerifiedEmail = user.Verified
 	v.HasPhone = user.Phone != ""
 
@@ -151,7 +152,7 @@ func (v *vitals) Unimpeded() bool {
 		return false
 	}
 	if v.Safety != nil {
-		if v.Safety.Standing != discordgo.StandingAllGood || v.Safety.AffectedBySpamClassification {
+		if v.Safety.Standing != meowcord.StandingAllGood || v.Safety.AffectedBySpamClassification {
 			return false
 		}
 	}
@@ -191,7 +192,7 @@ func (v *vitals) logContext(c zerolog.Context) zerolog.Context {
 	return c
 }
 
-func affectedBySpamClassification(hub *discordgo.SafetyHub) bool {
+func affectedBySpamClassification(hub *meowcord.SafetyHub) bool {
 	now := time.Now()
 	cs := slices.Concat(hub.Classifications, hub.GuildClassifications)
 	for _, c := range cs {

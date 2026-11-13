@@ -13,7 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/bwmarrin/discordgo"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 const handshakeTimeout = 45 * time.Second
@@ -81,7 +81,7 @@ func (c *Client) Dial(ctx context.Context, qrChan chan string, doneChan chan str
 	defer c.Unlock()
 
 	header := http.Header{}
-	for key, value := range discordgo.DroidWSHeaders {
+	for key, value := range meowcord.DroidWSHeaders {
 		header.Set(key, value)
 	}
 
@@ -115,15 +115,15 @@ func (c *Client) Result() (User, error) {
 	return c.user, c.err
 }
 
-func (c *Client) RedeemTicket(options ...discordgo.RequestOption) (User, error) {
-	sess, err := discordgo.New("")
+func (c *Client) RedeemTicket(options ...meowcord.RequestOption) (User, error) {
+	sess, err := meowcord.New("")
 	if err != nil {
 		return User{}, err
 	}
 	sess.Client = c.restHTTPClient
 
 	body := map[string]string{"ticket": c.ticket}
-	resp, err := sess.RequestWithBucketID(http.MethodPost, discordgo.EndpointRemoteAuthLogin, body, discordgo.EndpointRemoteAuthLogin, options...)
+	resp, err := sess.RequestWithBucketID(http.MethodPost, meowcord.EndpointRemoteAuthLogin, body, meowcord.EndpointRemoteAuthLogin, options...)
 	if err != nil {
 		return User{}, err
 	}

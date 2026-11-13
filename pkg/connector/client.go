@@ -31,7 +31,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/coder/websocket"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
@@ -43,12 +42,13 @@ import (
 
 	"go.mau.fi/mautrix-discord/pkg/discordauth"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type DiscordClient struct {
 	connector  *DiscordConnector
 	UserLogin  *bridgev2.UserLogin
-	Session    *discordgo.Session
+	Session    *meowcord.Session
 	httpClient *http.Client
 
 	stopConnecting atomic.Pointer[context.CancelFunc]
@@ -63,18 +63,18 @@ type DiscordClient struct {
 
 	// A map of guild ID (or "" for the settings concerning private channels)
 	// to its corresponding UserGuildSettings.
-	guildSettings     map[string]*discordgo.UserGuildSettings
+	guildSettings     map[string]*meowcord.UserGuildSettings
 	guildSettingsLock sync.RWMutex
 
 	// A map of resource (e.g. channel) ID to its corresponding read state.
 	//
 	// Since there can be thousands of read state entries, the map is to help
 	// keep lookups by channel ID speedy by avoiding constant linear searching.
-	readStates     map[string]*discordgo.ReadState
+	readStates     map[string]*meowcord.ReadState
 	readStatesLock sync.RWMutex
 
 	relationshipLock sync.RWMutex
-	relationships    map[string]*discordgo.Relationship
+	relationships    map[string]*meowcord.Relationship
 
 	userCache *UserCache
 
@@ -85,13 +85,13 @@ type DiscordClient struct {
 
 	vitalsMu  sync.Mutex // guards vitals and safetyHub
 	vitals    *vitals
-	safetyHub *discordgo.SafetyHub // last fetched safety hub information when permitted
+	safetyHub *meowcord.SafetyHub // last fetched safety hub information when permitted
 }
 
 func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {
 	meta := login.Metadata.(*discordid.UserLoginMetadata)
 
-	var session *discordgo.Session
+	var session *meowcord.Session
 	if meta.Token == "" {
 		login.Log.Warn().Msg("Login has no token, not setting up a session")
 		// Session on the UserLogin will be nil.
@@ -111,16 +111,16 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		// one is configured).
 		httpClient:      d.Bridge.GetHTTPClientSettings().Compile(),
 		userCache:       NewUserCache(session),
-		guildSettings:   make(map[string]*discordgo.UserGuildSettings),
-		readStates:      make(map[string]*discordgo.ReadState),
-		relationships:   make(map[string]*discordgo.Relationship),
+		guildSettings:   make(map[string]*meowcord.UserGuildSettings),
+		readStates:      make(map[string]*meowcord.ReadState),
+		relationships:   make(map[string]*meowcord.Relationship),
 		historyFetchSem: make(chan struct{}, maxConcurrentHistoryFetches),
 	}
 	login.Client = &cl
 
 	if session != nil {
 		session.RESTResponseHook = cl.tapDiscordRESTResponse
-		session.BeforeReconnect = func(*discordgo.Session) {
+		session.BeforeReconnect = func(*meowcord.Session) {
 			if cl.stopConnecting.Load() == nil {
 				return
 			}
@@ -166,7 +166,7 @@ func (d *DiscordClient) Connect(ctx context.Context) {
 	meta := d.userLoginMetadata()
 	if meta.HeartbeatSession.IsExpired() {
 		log.Info().Msg("Heartbeat session expired, creating a new one")
-		meta.HeartbeatSession = discordgo.NewHeartbeatSession()
+		meta.HeartbeatSession = meowcord.NewHeartbeatSession()
 	}
 	meta.HeartbeatSession.BumpLastUsed()
 	d.Session.HeartbeatSession = meta.HeartbeatSession
@@ -188,25 +188,25 @@ func vitalsErrorCode(v *vitals) (code status.BridgeStateErrorCode) {
 	// we can just define a set of intervention codes (?) in discordgo?
 
 	switch v.RequiredAction {
-	case discordgo.RequireAgreements:
+	case meowcord.RequireAgreements:
 		code = DCRequireAgreements
-	case discordgo.RequireVerifiedEmail:
+	case meowcord.RequireVerifiedEmail:
 		code = DCRequireVerifiedEmail
-	case discordgo.RequireVerifiedPhone:
+	case meowcord.RequireVerifiedPhone:
 		code = DCRequireVerifiedPhone
-	case discordgo.RequireReverifiedEmail:
+	case meowcord.RequireReverifiedEmail:
 		code = DCRequireReverifiedEmail
-	case discordgo.RequireReverifiedPhone:
+	case meowcord.RequireReverifiedPhone:
 		code = DCRequireReverifiedPhone
-	case discordgo.RequireVerifiedEmailOrVerifiedPhone:
+	case meowcord.RequireVerifiedEmailOrVerifiedPhone:
 		code = DCRequireVerifiedEmailOrVerifiedPhone
-	case discordgo.RequireReverifiedEmailOrVerifiedPhone:
+	case meowcord.RequireReverifiedEmailOrVerifiedPhone:
 		code = DCRequireReverifiedEmailOrVerifiedPhone
-	case discordgo.RequireVerifiedEmailOrReverifiedPhone:
+	case meowcord.RequireVerifiedEmailOrReverifiedPhone:
 		code = DCRequireVerifiedEmailOrReverifiedPhone
-	case discordgo.RequireReverifiedEmailOrReverifiedPhone:
+	case meowcord.RequireReverifiedEmailOrReverifiedPhone:
 		code = DCRequireReverifiedEmailOrReverifiedPhone
-	case discordgo.RequireSafetyFlows:
+	case meowcord.RequireSafetyFlows:
 		code = DCRequireSafetyFlows
 	}
 
@@ -335,7 +335,7 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 		log.Err(err).Msg("Couldn't connect to Discord")
 
 		if websocket.CloseStatus(err) == 4004 {
-			// Effectively the same as *discordgo.InvalidAuth, but at connect
+			// Effectively the same as *meowcord.InvalidAuth, but at connect
 			// time. (discordgo only dispatches the synthetic InvalidAuth event
 			// once you've already connected successfully.)
 			//
@@ -355,7 +355,7 @@ func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, pre
 func (d *DiscordClient) handleDiscordEventSync(event any) {
 	if d.stopConnecting.Load() == nil {
 		// discordgo's reconnect loop doesn't stop on Close, so a session can come back after Disconnect.
-		if _, ok := event.(*discordgo.Connect); ok {
+		if _, ok := event.(*meowcord.Connect); ok {
 			d.UserLogin.Log.Warn().Msg("Discord session reconnected after Disconnect, closing it")
 			d.Session.ShouldReconnectOnError = false
 			// Open holds the session lock while dispatching Connect.
@@ -394,7 +394,7 @@ func (d *DiscordClient) connect(ctx context.Context) error {
 
 func (d *DiscordClient) applyReadyPayload(
 	ctx context.Context,
-	ready *discordgo.Ready,
+	ready *meowcord.Ready,
 ) {
 	log := zerolog.Ctx(ctx)
 
@@ -432,7 +432,7 @@ func (d *DiscordClient) applyReadyPayload(
 	}
 }
 
-func (d *DiscordClient) bulkApplyGuildSettings(sl *discordgo.UserGuildSettingsList) {
+func (d *DiscordClient) bulkApplyGuildSettings(sl *meowcord.UserGuildSettingsList) {
 	d.guildSettingsLock.Lock()
 	defer d.guildSettingsLock.Unlock()
 
@@ -451,7 +451,7 @@ func (d *DiscordClient) bulkApplyGuildSettings(sl *discordgo.UserGuildSettingsLi
 	}
 }
 
-func (d *DiscordClient) applySingleGuildSettings(s *discordgo.UserGuildSettings) {
+func (d *DiscordClient) applySingleGuildSettings(s *meowcord.UserGuildSettings) {
 	d.guildSettingsLock.Lock()
 	defer d.guildSettingsLock.Unlock()
 
@@ -638,9 +638,9 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 
 	// Only queue portal-creating resyncs for the top n private channels with
 	// recent activity (that haven't already been synced above).
-	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
-		ats, _ := discordgo.SnowflakeTimestamp(a.LastMessageID)
-		bts, _ := discordgo.SnowflakeTimestamp(b.LastMessageID)
+	slices.SortFunc(dms, func(a, b *meowcord.Channel) int {
+		ats, _ := meowcord.SnowflakeTimestamp(a.LastMessageID)
+		bts, _ := meowcord.SnowflakeTimestamp(b.LastMessageID)
 		return bts.Compare(ats)
 	})
 	// TODO(skip): This is startup_private_channel_create_limit. Support this
@@ -663,7 +663,7 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 		Msg("Synced private channels")
 }
 
-func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Channel) bool {
+func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *meowcord.Channel) bool {
 	log := zerolog.Ctx(ctx).With().
 		Str("channel_id", ch.ID).
 		Int("channel_type", int(ch.Type)).
@@ -680,7 +680,7 @@ func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Ch
 	// cache ("state").
 
 	_, err := sess.State.Member(ch.GuildID, myDiscordUserID)
-	if errors.Is(err, discordgo.ErrStateNotFound) {
+	if errors.Is(err, meowcord.ErrStateNotFound) {
 		log.Debug().Msg("Fetching own membership in guild to check roles")
 
 		member, err := sess.GuildMember(ch.GuildID, myDiscordUserID)
@@ -707,7 +707,7 @@ func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Ch
 		return true
 	}
 
-	canView := perms&discordgo.PermissionViewChannel > 0
+	canView := perms&meowcord.PermissionViewChannel > 0
 	log.Trace().
 		Int64("permissions", perms).
 		Bool("channel_visible", canView).
@@ -715,11 +715,11 @@ func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Ch
 	return canView
 }
 
-func (d *DiscordClient) makeAvatarForGuild(guild *discordgo.Guild) *bridgev2.Avatar {
+func (d *DiscordClient) makeAvatarForGuild(guild *meowcord.Guild) *bridgev2.Avatar {
 	return &bridgev2.Avatar{
 		ID: discordid.MakeAvatarID(guild.Icon),
 		Get: func(ctx context.Context) ([]byte, error) {
-			url := discordgo.EndpointGuildIcon(guild.ID, guild.Icon)
+			url := meowcord.EndpointGuildIcon(guild.ID, guild.Icon)
 			return httpGet(ctx, d.httpClient, url, "guild icon")
 		},
 		Remove: guild.Icon == "",
@@ -872,7 +872,7 @@ func (d *DiscordClient) reconcileGuildSpaces(
 // permissions within the guild, which guilds are bridged, etc.
 func (d *DiscordClient) shouldBridgeChannel(
 	ctx context.Context,
-	ch *discordgo.Channel,
+	ch *meowcord.Channel,
 ) bool {
 	if ch == nil {
 		return false
@@ -891,7 +891,7 @@ func (d *DiscordClient) shouldBridgeChannel(
 	// Only ever bridge guild text channels.
 	// TODO(skip): Consider bridging voice channels (make sure to check for the
 	// right permission bits)?
-	if ch.Type != discordgo.ChannelTypeGuildText && ch.Type != discordgo.ChannelTypeGuildNews {
+	if ch.Type != meowcord.ChannelTypeGuildText && ch.Type != meowcord.ChannelTypeGuildNews {
 		return false
 	}
 
@@ -910,7 +910,7 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 	ctx = log.WithContext(ctx)
 
 	guild, err := d.Session.State.Guild(guildID)
-	if errors.Is(err, discordgo.ErrStateNotFound) || guild == nil {
+	if errors.Is(err, meowcord.ErrStateNotFound) || guild == nil {
 		// This isn't problematic per se, because we can get here if a guild is
 		// unavailable due to an outage; when that happens, the guild is
 		// removed from the state entirely (via GUILD_DELETE).
@@ -931,7 +931,7 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 	}
 
 	visibleCategoryIDs := make(exmaps.Set[string])
-	visibleChannels := make([]*discordgo.Channel, 0, len(guild.Channels))
+	visibleChannels := make([]*meowcord.Channel, 0, len(guild.Channels))
 	for _, guildCh := range guild.Channels {
 		if !d.shouldBridgeChannel(ctx, guildCh) {
 			continue
@@ -984,7 +984,7 @@ func (d *DiscordClient) subscribeGuild(ctx context.Context, guildID string) {
 	log := zerolog.Ctx(ctx)
 
 	log.Debug().Msg("Subscribing to guild")
-	err := d.Session.SubscribeGuild(discordgo.GuildSubscribeData{
+	err := d.Session.SubscribeGuild(meowcord.GuildSubscribeData{
 		GuildID:    guildID,
 		Typing:     true,
 		Activities: true,
@@ -1029,7 +1029,7 @@ func (d *DiscordClient) selfEventSender() bridgev2.EventSender {
 	return d.makeEventSenderWithID(d.Session.State.User.ID)
 }
 
-func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSender {
+func (d *DiscordClient) makeEventSender(user *meowcord.User) bridgev2.EventSender {
 	if user == nil {
 		panic("DiscordClient makeEventSender was passed a nil user")
 	}
@@ -1037,7 +1037,7 @@ func (d *DiscordClient) makeEventSender(user *discordgo.User) bridgev2.EventSend
 	return d.makeEventSenderWithID(user.ID)
 }
 
-func (d *DiscordClient) queueChannelResync(_ context.Context, ch *discordgo.Channel) {
+func (d *DiscordClient) queueChannelResync(_ context.Context, ch *meowcord.Channel) {
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
 		Client:       d,
 		channel:      ch,
@@ -1045,7 +1045,7 @@ func (d *DiscordClient) queueChannelResync(_ context.Context, ch *discordgo.Chan
 	})
 }
 
-func (d *DiscordClient) queueExistingChannelResync(_ context.Context, ch *discordgo.Channel) {
+func (d *DiscordClient) queueExistingChannelResync(_ context.Context, ch *meowcord.Channel) {
 	d.connector.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordChatResync{
 		Client:       d,
 		channel:      ch,
@@ -1053,14 +1053,14 @@ func (d *DiscordClient) queueExistingChannelResync(_ context.Context, ch *discor
 	})
 }
 
-func (d *DiscordClient) readStateForID(resourceID string) *discordgo.ReadState {
+func (d *DiscordClient) readStateForID(resourceID string) *meowcord.ReadState {
 	d.readStatesLock.RLock()
 	defer d.readStatesLock.RUnlock()
 
 	return d.readStates[resourceID]
 }
 
-func (d *DiscordClient) computeMutedUntil(muted bool, cfg *discordgo.MuteConfig) time.Time {
+func (d *DiscordClient) computeMutedUntil(muted bool, cfg *meowcord.MuteConfig) time.Time {
 	if !muted {
 		return bridgev2.Unmuted
 	}
@@ -1110,21 +1110,21 @@ func (d *DiscordClient) channelMutedUntil(guildID, parentID, channelID string) t
 	return mutedUntil
 }
 
-func (d *DiscordClient) guildSettingsForGuildID(guildID string) *discordgo.UserGuildSettings {
+func (d *DiscordClient) guildSettingsForGuildID(guildID string) *meowcord.UserGuildSettings {
 	d.guildSettingsLock.RLock()
 	defer d.guildSettingsLock.RUnlock()
 
 	return d.guildSettings[guildID]
 }
 
-func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *discordgo.Channel {
+func (d *DiscordClient) channelWithID(ctx context.Context, channelID string) *meowcord.Channel {
 	if d.Session == nil {
 		return nil
 	}
 
 	ch, err := d.Session.State.Channel(channelID)
 	if err != nil {
-		if errors.Is(err, discordgo.ErrStateNotFound) {
+		if errors.Is(err, meowcord.ErrStateNotFound) {
 			return nil
 		}
 
@@ -1192,7 +1192,7 @@ func (d *DiscordClient) syncRemoteProfile(ctx context.Context) bool {
 	// send a bridge state.
 }
 
-func (d *DiscordClient) resyncGhostsFromReady(ctx context.Context, ready *discordgo.Ready) {
+func (d *DiscordClient) resyncGhostsFromReady(ctx context.Context, ready *meowcord.Ready) {
 	log := zerolog.Ctx(ctx).With().
 		Str("action", "resync ghosts from ready").
 		Logger()
@@ -1259,29 +1259,29 @@ func (d *DiscordClient) tryWrappingError(ctx context.Context, err error) error {
 		return nil
 	}
 
-	var restErr *discordgo.RESTError
+	var restErr *meowcord.RESTError
 	if !errors.As(err, &restErr) || restErr.Message == nil {
 		return err
 	}
 
 	switch restErr.Message.Code {
-	case discordgo.ErrCodeActionRequiredVerifiedAccount:
+	case meowcord.ErrCodeActionRequiredVerifiedAccount:
 		return d.wrapReceived40002(ctx, err)
-	case discordgo.ErrCodeCannotSendMessagesToThisUser:
+	case meowcord.ErrCodeCannotSendMessagesToThisUser:
 		return wrapRejection(err, event.MessageStatusNoPermission, "Discord didn't deliver this message. This user may only accept messages from friends or people they share a server with. "+discordDMHelpURL)
 	case errCodeNoMutualGuilds:
 		return wrapRejection(err, event.MessageStatusNoPermission, "Discord doesn't allow messaging this user because you don't share a server with them. "+discordDMHelpURL)
-	case discordgo.ErrCodeMissingPermissions, discordgo.ErrCodeMissingAccess:
+	case meowcord.ErrCodeMissingPermissions, meowcord.ErrCodeMissingAccess:
 		return wrapRejection(err, event.MessageStatusNoPermission, "You don't have permission to do that in this Discord channel.")
-	case discordgo.ErrCodeCannotReplyWithoutPermissionToReadMessageHistory:
+	case meowcord.ErrCodeCannotReplyWithoutPermissionToReadMessageHistory:
 		return wrapRejection(err, event.MessageStatusNoPermission, "You need permission to read the message history in this channel to reply.")
-	case discordgo.ErrCodeUnknownMessage:
+	case meowcord.ErrCodeUnknownMessage:
 		return wrapRejection(err, event.MessageStatusNetworkError, "The message this refers to no longer exists on Discord.")
-	case discordgo.ErrCodeInvalidFormBody:
+	case meowcord.ErrCodeInvalidFormBody:
 		return wrapRejection(err, event.MessageStatusNetworkError, "Discord rejected this message as invalid.")
-	case discordgo.ErrCodeRequestEntityTooLarge:
+	case meowcord.ErrCodeRequestEntityTooLarge:
 		return wrapRejection(err, event.MessageStatusUnsupported, "This file is too large to send on Discord.")
-	case discordgo.ErrCodeCannotSendEmptyMessage:
+	case meowcord.ErrCodeCannotSendEmptyMessage:
 		return wrapRejection(err, event.MessageStatusUnsupported, "Discord doesn't allow sending empty messages.")
 	}
 
@@ -1294,8 +1294,8 @@ const (
 )
 
 func isUnknownMessage(err error) bool {
-	var restErr *discordgo.RESTError
-	return errors.As(err, &restErr) && restErr.Message != nil && restErr.Message.Code == discordgo.ErrCodeUnknownMessage
+	var restErr *meowcord.RESTError
+	return errors.As(err, &restErr) && restErr.Message != nil && restErr.Message.Code == meowcord.ErrCodeUnknownMessage
 }
 
 func wrapRejection(err error, reason event.MessageStatusReason, message string) error {
@@ -1313,11 +1313,11 @@ func redactDiscordRESTPath(path string) string {
 	return snowflakeish.ReplaceAllLiteralString(path, "...")
 }
 
-func dmChannelRecipientID(ch *discordgo.Channel) *string {
+func dmChannelRecipientID(ch *meowcord.Channel) *string {
 	if ch == nil {
 		return nil
 	}
-	if ch.Type != discordgo.ChannelTypeDM {
+	if ch.Type != meowcord.ChannelTypeDM {
 		return nil
 	}
 	if len(ch.Recipients) != 1 {
@@ -1327,7 +1327,7 @@ func dmChannelRecipientID(ch *discordgo.Channel) *string {
 	return &ch.Recipients[0].ID
 }
 
-func channelIsOrWasMessageRequest(ch *discordgo.Channel) bool {
+func channelIsOrWasMessageRequest(ch *meowcord.Channel) bool {
 	if ch == nil {
 		return false
 	}
@@ -1340,7 +1340,7 @@ func (d *DiscordClient) baseAnalyticsProps(ctx context.Context) map[string]any {
 		return props
 	}
 
-	ch, ok := ctx.Value(contextKeyChannel).(*discordgo.Channel)
+	ch, ok := ctx.Value(contextKeyChannel).(*meowcord.Channel)
 	if ok && ch != nil {
 		risky := false
 		props["channelType"] = readableChannelType(ch.Type)
@@ -1349,7 +1349,7 @@ func (d *DiscordClient) baseAnalyticsProps(ctx context.Context) map[string]any {
 			relationshipDesc := "none"
 			if rel := d.relationshipWithUserID(*recipientID); rel != nil {
 				relationshipDesc = readableRelationshipType(rel.Type)
-			} else if ch.Type == discordgo.ChannelTypeDM {
+			} else if ch.Type == meowcord.ChannelTypeDM {
 				// No relationship with the recipient and it's a 1:1 DM.
 				risky = true
 			}
@@ -1401,7 +1401,7 @@ func (d *DiscordClient) tapDiscordRESTResponse(req *http.Request, resp *http.Res
 	d.UserLogin.TrackAnalytics("Discord CAPTCHA challenge", props)
 }
 
-func (d *DiscordClient) relationshipWithUserID(userID string) *discordgo.Relationship {
+func (d *DiscordClient) relationshipWithUserID(userID string) *meowcord.Relationship {
 	if d.Session == nil || d.Session.State == nil {
 		return nil
 	}
@@ -1412,7 +1412,7 @@ func (d *DiscordClient) relationshipWithUserID(userID string) *discordgo.Relatio
 	return d.relationships[userID]
 }
 
-func (d *DiscordClient) relationshipWithDMRecipient(ch *discordgo.Channel) *discordgo.Relationship {
+func (d *DiscordClient) relationshipWithDMRecipient(ch *meowcord.Channel) *meowcord.Relationship {
 	if ch == nil {
 		return nil
 	}
@@ -1427,7 +1427,7 @@ func (d *DiscordClient) relationshipWithDMRecipient(ch *discordgo.Channel) *disc
 }
 
 // dmChannelForUserID finds the DM channel with the given user, if any.
-func (d *DiscordClient) dmChannelForUserID(userID string) *discordgo.Channel {
+func (d *DiscordClient) dmChannelForUserID(userID string) *meowcord.Channel {
 	if d.Session == nil || d.Session.State == nil {
 		return nil
 	}
@@ -1462,7 +1462,7 @@ func (d *DiscordClient) rebuildRelationships() {
 	}
 }
 
-func (d *DiscordClient) upsertRelationship(rel *discordgo.Relationship) {
+func (d *DiscordClient) upsertRelationship(rel *meowcord.Relationship) {
 	if rel == nil {
 		return
 	}

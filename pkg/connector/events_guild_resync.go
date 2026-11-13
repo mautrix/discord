@@ -19,15 +19,16 @@ package connector
 import (
 	"context"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type DiscordGuildResync struct {
 	Client    *DiscordClient
-	guild     *discordgo.Guild
+	guild     *meowcord.Guild
 	portalKey networkid.PortalKey
 }
 

@@ -21,8 +21,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type DirectMediaType byte
@@ -174,9 +175,9 @@ type AvatarInfo struct {
 }
 
 func (ai *AvatarInfo) URL() string {
-	user := &discordgo.User{ID: ai.UserID, Avatar: ai.Avatar}
+	user := &meowcord.User{ID: ai.UserID, Avatar: ai.Avatar}
 	if ai.GuildID != "" {
-		member := &discordgo.Member{GuildID: ai.GuildID, User: user, Avatar: ai.Avatar}
+		member := &meowcord.Member{GuildID: ai.GuildID, User: user, Avatar: ai.Avatar}
 		return member.AvatarURL("256")
 	}
 	return user.AvatarURL("256")

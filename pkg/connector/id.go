@@ -17,17 +17,17 @@
 package connector
 
 import (
-	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
-func (d *DiscordClient) portalKeyForChannel(ch *discordgo.Channel) networkid.PortalKey {
+func (d *DiscordClient) portalKeyForChannel(ch *meowcord.Channel) networkid.PortalKey {
 	switch ch.Type {
-	case discordgo.ChannelTypeDM:
+	case meowcord.ChannelTypeDM:
 		return d.dmChannelPortalKey(ch.ID)
-	case discordgo.ChannelTypeGroupDM:
+	case meowcord.ChannelTypeGroupDM:
 		return d.groupDMChannelPortalKey(ch.ID)
 	default:
 		return d.guildChannelPortalKey(ch.ID)

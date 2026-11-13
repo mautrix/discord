@@ -19,12 +19,12 @@ package router
 import (
 	"context"
 
-	"github.com/bwmarrin/discordgo"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type Router interface {
@@ -59,7 +59,7 @@ type Route struct {
 
 	// The Discord channel that the event originated from. This can be nil
 	// despite the channel actually existing if it wasn't found in state.
-	FromChannel *discordgo.Channel
+	FromChannel *meowcord.Channel
 
 	// Non-nil if Channel is a thread and the thread was found in state.
 	FromThread *discorddb.Thread

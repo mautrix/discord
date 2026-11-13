@@ -22,9 +22,10 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/bwmarrin/discordgo"
 	up "go.mau.fi/util/configupgrade"
 	"gopkg.in/yaml.v3"
+
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 //go:embed example-config.yaml
@@ -110,7 +111,7 @@ type ChannelNameParams struct {
 	Name           string
 	ParentName     string
 	GuildName      string
-	Type           discordgo.ChannelType
+	Type           meowcord.ChannelType
 	NSFW           bool
 	IsDM           bool
 	IsGroupDM      bool

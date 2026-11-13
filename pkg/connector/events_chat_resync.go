@@ -19,18 +19,18 @@ package connector
 import (
 	"context"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type DiscordChatResync struct {
 	Client       *DiscordClient
-	channel      *discordgo.Channel
+	channel      *meowcord.Channel
 	createPortal bool
 }
 

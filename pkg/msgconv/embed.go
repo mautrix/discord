@@ -19,7 +19,7 @@ package msgconv
 import (
 	"regexp"
 
-	"github.com/bwmarrin/discordgo"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 type BridgeEmbedType int
@@ -40,7 +40,7 @@ const discordLinkPattern = `https?://[^<\p{Zs}\x{feff}]*[^"'),.:;\]\p{Zs}\x{feff
 var discordLinkRegex = regexp.MustCompile(discordLinkPattern)
 var discordLinkRegexFull = regexp.MustCompile("^" + discordLinkPattern + "$")
 
-func isActuallyLinkPreview(embed *discordgo.MessageEmbed) bool {
+func isActuallyLinkPreview(embed *meowcord.MessageEmbed) bool {
 	// Sending YouTube links creates a video embed, but we want to bridge it as a URL preview,
 	// so this is a hacky way to detect those.
 	return embed.Video != nil && embed.Video.ProxyURL == ""
@@ -52,38 +52,38 @@ func isActuallyLinkPreview(embed *discordgo.MessageEmbed) bool {
 //
 // This helps replicate Discord first-party client behavior, where the link is
 // hidden when these same conditions are fulfilled.
-func isPlainGifMessage(msg *discordgo.Message) bool {
+func isPlainGifMessage(msg *meowcord.Message) bool {
 	if len(msg.Embeds) != 1 {
 		return false
 	}
 	embed := msg.Embeds[0]
-	isGifVideo := embed.Type == discordgo.EmbedTypeGifv && embed.Video != nil
-	isGifImage := embed.Type == discordgo.EmbedTypeImage && embed.Image == nil && embed.Thumbnail != nil && embed.Title == ""
+	isGifVideo := embed.Type == meowcord.EmbedTypeGifv && embed.Video != nil
+	isGifImage := embed.Type == meowcord.EmbedTypeImage && embed.Image == nil && embed.Thumbnail != nil && embed.Title == ""
 	contentIsOnlyURL := msg.Content == embed.URL || discordLinkRegexFull.MatchString(msg.Content)
 	return contentIsOnlyURL && (isGifVideo || isGifImage)
 }
 
 // getEmbedType determines how a Discord embed should be bridged to Matrix by
 // returning a BridgeEmbedType.
-func getEmbedType(msg *discordgo.Message, embed *discordgo.MessageEmbed) BridgeEmbedType {
+func getEmbedType(msg *meowcord.Message, embed *meowcord.MessageEmbed) BridgeEmbedType {
 	switch embed.Type {
-	case discordgo.EmbedTypeLink, discordgo.EmbedTypeArticle:
+	case meowcord.EmbedTypeLink, meowcord.EmbedTypeArticle:
 		return EmbedLinkPreview
-	case discordgo.EmbedTypeVideo:
+	case meowcord.EmbedTypeVideo:
 		if isActuallyLinkPreview(embed) {
 			return EmbedLinkPreview
 		}
 		return EmbedVideo
-	case discordgo.EmbedTypeGifv:
+	case meowcord.EmbedTypeGifv:
 		return EmbedVideo
-	case discordgo.EmbedTypeImage:
+	case meowcord.EmbedTypeImage:
 		if msg != nil && isPlainGifMessage(msg) {
 			return EmbedVideo
 		} else if embed.Image == nil && embed.Thumbnail != nil {
 			return EmbedLinkPreview
 		}
 		return EmbedRich
-	case discordgo.EmbedTypeRich:
+	case meowcord.EmbedTypeRich:
 		return EmbedRich
 	default:
 		return EmbedUnknown
@@ -92,6 +92,6 @@ func getEmbedType(msg *discordgo.Message, embed *discordgo.MessageEmbed) BridgeE
 
 var hackyReplyPattern = regexp.MustCompile(`^\*\*\[Replying to]\(https://discord.com/channels/(\d+)/(\d+)/(\d+)\)`)
 
-func isReplyEmbed(embed *discordgo.MessageEmbed) bool {
+func isReplyEmbed(embed *meowcord.MessageEmbed) bool {
 	return hackyReplyPattern.MatchString(embed.Description)
 }

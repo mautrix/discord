@@ -23,7 +23,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
@@ -32,6 +31,7 @@ import (
 	"maunium.net/go/mautrix/format"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 func parseAllowedLinkPreviews(raw map[string]any) []string {
@@ -62,7 +62,7 @@ func uploadDiscordAttachment(cli *http.Client, url string, data []byte) error {
 		return err
 	}
 
-	for key, value := range discordgo.DroidBaseHeaders {
+	for key, value := range meowcord.DroidBaseHeaders {
 		req.Header.Set(key, value)
 	}
 	// The first-party web client does not set a content type, so we shouldn't
@@ -85,18 +85,18 @@ func uploadDiscordAttachment(cli *http.Client, url string, data []byte) error {
 	return nil
 }
 
-// ToDiscord converts a Matrix message into a discordgo.MessageSend that is appropriate
+// ToDiscord converts a Matrix message into a meowcord.MessageSend that is appropriate
 // for bridging the message to Discord.
 func (mc *MessageConverter) ToDiscord(
 	ctx context.Context,
-	session *discordgo.Session,
+	session *meowcord.Session,
 	msg *bridgev2.MatrixMessage,
 	channelID string,
-	refererOpt discordgo.RequestOption,
-) (*discordgo.MessageSend, error) {
+	refererOpt meowcord.RequestOption,
+) (*meowcord.MessageSend, error) {
 	ctx = context.WithValue(ctx, contextKeyPortal, msg.Portal)
 	ctx = context.WithValue(ctx, contextKeyDiscordClient, session)
-	var req discordgo.MessageSend
+	var req meowcord.MessageSend
 	if msg.InputTransactionID != "" {
 		req.Nonce = string(msg.InputTransactionID)
 	} else {
@@ -105,7 +105,7 @@ func (mc *MessageConverter) ToDiscord(
 	log := zerolog.Ctx(ctx)
 
 	if msg.ReplyTo != nil {
-		req.Reference = &discordgo.MessageReference{
+		req.Reference = &meowcord.MessageReference{
 			ChannelID: discordid.ParseChannelPortalID(msg.ReplyTo.Room.ID),
 			MessageID: discordid.ParseMessageID(msg.ReplyTo.ID),
 		}
@@ -154,7 +154,7 @@ func (mc *MessageConverter) ToDiscord(
 		}
 
 		// TODO: Support attachments for relay/webhook. (A branch was removed here.)
-		att := &discordgo.MessageAttachment{
+		att := &meowcord.MessageAttachment{
 			ID:       "0",
 			Filename: filename,
 		}
@@ -162,7 +162,7 @@ func (mc *MessageConverter) ToDiscord(
 			att.OriginalContentType = content.Info.MimeType
 		}
 		if voiceMeta != nil {
-			req.Flags = ptr.Ptr(discordgo.MessageFlagsIsVoiceMessage)
+			req.Flags = ptr.Ptr(meowcord.MessageFlagsIsVoiceMessage)
 			att.ContentType = voiceMeta.ContentType
 			att.DurationSeconds = voiceMeta.DurationSeconds
 			att.Waveform = voiceMeta.Waveform
@@ -174,14 +174,14 @@ func (mc *MessageConverter) ToDiscord(
 
 		uploadID := mc.NextDiscordUploadID()
 		log.Debug().Str("upload_id", uploadID).Msg("Preparing attachment")
-		filePrep := &discordgo.FilePrepare{
+		filePrep := &meowcord.FilePrepare{
 			Size:                len(mediaData),
 			Name:                att.Filename,
 			ID:                  uploadID,
 			OriginalContentType: att.OriginalContentType,
 		}
-		prep, err := session.ChannelAttachmentCreate(channelID, &discordgo.ReqPrepareAttachments{
-			Files: []*discordgo.FilePrepare{filePrep},
+		prep, err := session.ChannelAttachmentCreate(channelID, &meowcord.ReqPrepareAttachments{
+			Files: []*meowcord.FilePrepare{filePrep},
 		}, refererOpt)
 
 		if err != nil {
@@ -208,9 +208,9 @@ func (mc *MessageConverter) ToDiscord(
 	return &req, nil
 }
 
-func (mc *MessageConverter) ConvertMatrixMessageContent(ctx context.Context, portal *bridgev2.Portal, content *event.MessageEventContent, allowedLinkPreviews []string) (string, *discordgo.MessageAllowedMentions) {
-	allowedMentions := &discordgo.MessageAllowedMentions{
-		Parse:       []discordgo.AllowedMentionType{},
+func (mc *MessageConverter) ConvertMatrixMessageContent(ctx context.Context, portal *bridgev2.Portal, content *event.MessageEventContent, allowedLinkPreviews []string) (string, *meowcord.MessageAllowedMentions) {
+	allowedMentions := &meowcord.MessageAllowedMentions{
+		Parse:       []meowcord.AllowedMentionType{},
 		Users:       []string{},
 		RepliedUser: true,
 	}

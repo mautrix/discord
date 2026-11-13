@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
@@ -29,10 +28,11 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 // getGuildSpaceInfo computes the [bridgev2.ChatInfo] for a guild space.
-func (d *DiscordClient) getGuildSpaceInfo(_ctx context.Context, guild *discordgo.Guild) (*bridgev2.ChatInfo, error) {
+func (d *DiscordClient) getGuildSpaceInfo(_ctx context.Context, guild *meowcord.Guild) (*bridgev2.ChatInfo, error) {
 	selfEvtSender := d.selfEventSender()
 
 	return &bridgev2.ChatInfo{
@@ -55,37 +55,37 @@ func portalIsPrivate(p *bridgev2.Portal) bool {
 	return p.RoomType == database.RoomTypeDM || p.RoomType == database.RoomTypeGroupDM
 }
 
-func channelIsPrivate(ch *discordgo.Channel) bool {
-	return ch.Type == discordgo.ChannelTypeDM || ch.Type == discordgo.ChannelTypeGroupDM
+func channelIsPrivate(ch *meowcord.Channel) bool {
+	return ch.Type == meowcord.ChannelTypeDM || ch.Type == meowcord.ChannelTypeGroupDM
 }
 
-func readableChannelType(typ discordgo.ChannelType) (desc string) {
+func readableChannelType(typ meowcord.ChannelType) (desc string) {
 	desc = "other"
 
 	switch typ {
-	case discordgo.ChannelTypeGuildText:
+	case meowcord.ChannelTypeGuildText:
 		desc = "guild text"
-	case discordgo.ChannelTypeGuildNews:
+	case meowcord.ChannelTypeGuildNews:
 		desc = "guild news"
-	case discordgo.ChannelTypeDM:
+	case meowcord.ChannelTypeDM:
 		desc = "dm"
-	case discordgo.ChannelTypeGroupDM:
+	case meowcord.ChannelTypeGroupDM:
 		desc = "group dm"
-	case discordgo.ChannelTypeGuildPublicThread:
+	case meowcord.ChannelTypeGuildPublicThread:
 		desc = "public thread"
-	case discordgo.ChannelTypeGuildPrivateThread:
+	case meowcord.ChannelTypeGuildPrivateThread:
 		desc = "private thread"
 	}
 
 	return
 }
 
-func (d *DiscordClient) makeAvatarForChannel(ctx context.Context, ch *discordgo.Channel) *bridgev2.Avatar {
+func (d *DiscordClient) makeAvatarForChannel(ctx context.Context, ch *meowcord.Channel) *bridgev2.Avatar {
 	if channelIsPrivate(ch) {
 		return &bridgev2.Avatar{
 			ID: discordid.MakeAvatarID(ch.Icon),
 			Get: func(ctx context.Context) ([]byte, error) {
-				url := discordgo.EndpointGroupIcon(ch.ID, ch.Icon)
+				url := meowcord.EndpointGroupIcon(ch.ID, ch.Icon)
 				return httpGet(ctx, d.httpClient, url, "channel/gdm icon")
 			},
 			Remove: ch.Icon == "",
@@ -106,7 +106,7 @@ func (d *DiscordClient) makeAvatarForChannel(ctx context.Context, ch *discordgo.
 	}
 }
 
-func (d *DiscordClient) getPrivateChannelMemberList(ch *discordgo.Channel) bridgev2.ChatMemberList {
+func (d *DiscordClient) getPrivateChannelMemberList(ch *meowcord.Channel) bridgev2.ChatMemberList {
 	var members bridgev2.ChatMemberList
 	members.IsFull = true
 	members.MemberMap = make(bridgev2.ChatMemberMap, len(ch.Recipients))
@@ -129,14 +129,14 @@ func (d *DiscordClient) getPrivateChannelMemberList(ch *discordgo.Channel) bridg
 	return members
 }
 
-func (d *DiscordClient) getChannelNameParams(ch *discordgo.Channel) *ChannelNameParams {
+func (d *DiscordClient) getChannelNameParams(ch *meowcord.Channel) *ChannelNameParams {
 	params := &ChannelNameParams{
 		Name:           ch.Name,
 		Type:           ch.Type,
 		NSFW:           ch.NSFW,
-		IsDM:           ch.Type == discordgo.ChannelTypeDM,
-		IsGroupDM:      ch.Type == discordgo.ChannelTypeGroupDM,
-		IsCategory:     ch.Type == discordgo.ChannelTypeGuildCategory,
+		IsDM:           ch.Type == meowcord.ChannelTypeDM,
+		IsGroupDM:      ch.Type == meowcord.ChannelTypeGroupDM,
+		IsCategory:     ch.Type == meowcord.ChannelTypeGuildCategory,
 		IsGuildChannel: ch.GuildID != "",
 	}
 
@@ -170,8 +170,8 @@ func (d *DiscordClient) getChannelNameParams(ch *discordgo.Channel) *ChannelName
 	return params
 }
 
-func (d *DiscordClient) getChannelName(ch *discordgo.Channel) *string {
-	if ch.Type == discordgo.ChannelTypeDM {
+func (d *DiscordClient) getChannelName(ch *meowcord.Channel) *string {
+	if ch.Type == meowcord.ChannelTypeDM {
 		// Respect friend nicknames.
 		if len(ch.Recipients) > 0 {
 			if rel := d.relationshipWithUserID(ch.Recipients[0].ID); rel != nil && rel.Nickname != "" {
@@ -189,21 +189,21 @@ func (d *DiscordClient) getChannelName(ch *discordgo.Channel) *string {
 }
 
 // getChannelChatInfo computes [bridgev2.ChatInfo] for a guild channel or private (DM or group DM) channel.
-func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Channel) (*bridgev2.ChatInfo, error) {
+func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *meowcord.Channel) (*bridgev2.ChatInfo, error) {
 	var roomType database.RoomType
 	switch ch.Type {
-	case discordgo.ChannelTypeGuildCategory:
+	case meowcord.ChannelTypeGuildCategory:
 		roomType = database.RoomTypeSpace
-	case discordgo.ChannelTypeDM:
+	case meowcord.ChannelTypeDM:
 		roomType = database.RoomTypeDM
-	case discordgo.ChannelTypeGroupDM:
+	case meowcord.ChannelTypeGroupDM:
 		roomType = database.RoomTypeGroupDM
 	default:
 		roomType = database.RoomTypeDefault
 	}
 
 	var parentPortalID *networkid.PortalID
-	if ch.Type == discordgo.ChannelTypeGuildCategory || (ch.ParentID == "" && ch.GuildID != "") {
+	if ch.Type == meowcord.ChannelTypeGuildCategory || (ch.ParentID == "" && ch.GuildID != "") {
 		// Categories and uncategorized guild channels always have the guild as their parent.
 		parentPortalID = ptr.Ptr(discordid.MakeGuildPortalIDWithID(ch.GuildID))
 	} else if ch.ParentID != "" {
@@ -228,9 +228,9 @@ func (d *DiscordClient) getChannelChatInfo(ctx context.Context, ch *discordgo.Ch
 	}
 
 	var blocked, messageRequest *bool
-	if ch.Type == discordgo.ChannelTypeDM {
+	if ch.Type == meowcord.ChannelTypeDM {
 		rel := d.relationshipWithDMRecipient(ch)
-		blocked = ptr.Ptr(rel != nil && rel.Type == discordgo.RelationshipBlocked)
+		blocked = ptr.Ptr(rel != nil && rel.Type == meowcord.RelationshipBlocked)
 		messageRequest = ptr.Ptr(ch.IsMessageRequest)
 	}
 	return &bridgev2.ChatInfo{

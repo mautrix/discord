@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/ptr"
 	"go.mau.fi/util/variationselector"
@@ -36,6 +35,7 @@ import (
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 var (
@@ -57,8 +57,8 @@ const (
 
 type SendAttempt struct {
 	At                        time.Time
-	ChannelType               discordgo.ChannelType
-	RecipientRelationshipType *discordgo.RelationshipType
+	ChannelType               meowcord.ChannelType
+	RecipientRelationshipType *meowcord.RelationshipType
 }
 
 func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
@@ -123,7 +123,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	}
 
 	if ch != nil {
-		var relType *discordgo.RelationshipType
+		var relType *meowcord.RelationshipType
 		if rel := d.relationshipWithDMRecipient(ch); rel != nil {
 			relType = &rel.Type
 		}
@@ -139,7 +139,7 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 				"messageType":    sendReq.Type,
 				"hasAttachments": len(sendReq.Attachments) > 0,
 				"hasEmbeds":      len(sendReq.Embeds) > 0,
-				"isReplying":     sendReq.Reference != nil && sendReq.Reference.Type == discordgo.MessageReferenceTypeDefault,
+				"isReplying":     sendReq.Reference != nil && sendReq.Reference.Type == meowcord.MessageReferenceTypeDefault,
 			})
 		}
 
@@ -158,15 +158,15 @@ func (d *DiscordClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		pendingMsg.ThreadRoot = discordid.MakeMessageID(threadRootRemoteID)
 	}
 	msg.AddPendingToSave(pendingMsg, txnID, nil)
-	sentMsg, err := d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, discordgo.WithContext(ctx))
+	sentMsg, err := d.Session.ChannelMessageSendComplex(channelID, sendReq, refererOpt, meowcord.WithContext(ctx))
 	if err != nil {
-		var restErr *discordgo.RESTError
+		var restErr *meowcord.RESTError
 		if errors.As(err, &restErr) {
 			msg.RemovePending(txnID)
 		}
 		return nil, d.tryWrappingError(ctx, err)
 	}
-	sentMsgTimestamp, _ := discordgo.SnowflakeTimestamp(sentMsg.ID)
+	sentMsgTimestamp, _ := meowcord.SnowflakeTimestamp(sentMsg.ID)
 	dbMessage := &database.Message{
 		ID:        discordid.MakeMessageID(sentMsg.ID),
 		SenderID:  discordid.MakeUserID(sentMsg.Author.ID),
@@ -188,7 +188,7 @@ var (
 	errMessageRequestNotAccepted = errors.New("failed to accept message request")
 )
 
-func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *discordgo.Channel) error {
+func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *meowcord.Channel) error {
 	log := zerolog.Ctx(ctx)
 
 	if channelIsPendingMessageRequest(destCh) {
@@ -204,7 +204,7 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 		dmRecipID := dmChannelRecipientID(destCh)
 		if dmRecipID != nil {
 			rel := d.relationshipWithUserID(*dmRecipID)
-			friendsWithDMRecip := rel != nil && rel.Type == discordgo.RelationshipFriend
+			friendsWithDMRecip := rel != nil && rel.Type == meowcord.RelationshipFriend
 
 			dmRecip := d.userCache.Resolve(ctx, *dmRecipID)
 
@@ -247,8 +247,8 @@ func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *disco
 	return nil
 }
 
-func channelIsPendingMessageRequest(ch *discordgo.Channel) bool {
-	return ch != nil && ch.Type == discordgo.ChannelTypeDM && ch.IsMessageRequest
+func channelIsPendingMessageRequest(ch *meowcord.Channel) bool {
+	return ch != nil && ch.Type == meowcord.ChannelTypeDM && ch.IsMessageRequest
 }
 
 func (d *DiscordClient) HandleMatrixAcceptMessageRequest(ctx context.Context, msg *bridgev2.MatrixAcceptMessageRequest) error {
@@ -257,21 +257,21 @@ func (d *DiscordClient) HandleMatrixAcceptMessageRequest(ctx context.Context, ms
 	}
 	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
 	ch := d.channelWithID(ctx, channelID)
-	if ch == nil || ch.Type != discordgo.ChannelTypeDM {
+	if ch == nil || ch.Type != meowcord.ChannelTypeDM {
 		return fmt.Errorf("%w: not a direct message", errMessageRequestNotAccepted)
 	}
 	if !ch.IsMessageRequest {
 		return nil
 	}
 
-	endpoint := discordgo.EndpointChannel(channelID) + "/recipients/@me"
+	endpoint := meowcord.EndpointChannel(channelID) + "/recipients/@me"
 	_, err := d.Session.RequestWithBucketID(
 		http.MethodPut,
 		endpoint,
 		map[string]int{"consent_status": 2},
 		endpoint,
-		discordgo.WithReferer("https://discord.com/message-requests"),
-		discordgo.WithContext(ctx),
+		meowcord.WithReferer("https://discord.com/message-requests"),
+		meowcord.WithContext(ctx),
 	)
 	if err != nil {
 		return bridgev2.WrapErrorInStatus(fmt.Errorf("%w: %w", errMessageRequestNotAccepted, err)).
@@ -684,7 +684,7 @@ func (d *DiscordClient) HandleMute(ctx context.Context, msg *bridgev2.MatrixMute
 
 	mutedUntil := msg.Content.GetMutedUntilTime()
 	isMuting := mutedUntil.After(time.Now())
-	override := discordgo.UserGuildSettingsChannelOverrideEdit{
+	override := meowcord.UserGuildSettingsChannelOverrideEdit{
 		Muted: ptr.Ptr(isMuting),
 	}
 	if isMuting && mutedUntil != event.MutedForever {
@@ -692,16 +692,16 @@ func (d *DiscordClient) HandleMute(ctx context.Context, msg *bridgev2.MatrixMute
 		// Discord; you aren't restricted to the official client's choices
 		// of 15 minutes, 1 hour, 3 hours, 8 hours, and 24 hours.
 		secs := int(math.Round(msg.Content.GetMuteDuration().Seconds()))
-		override.MuteConfig = &discordgo.MuteConfig{
+		override.MuteConfig = &meowcord.MuteConfig{
 			EndTime:            &mutedUntil,
 			SelectedTimeWindow: &secs,
 		}
 	}
 
-	overrides := make(map[string]*discordgo.UserGuildSettingsChannelOverrideEdit)
+	overrides := make(map[string]*meowcord.UserGuildSettingsChannelOverrideEdit)
 	overrides[ch.ID] = &override
 
-	edit := discordgo.UserGuildSettingsEdit{
+	edit := meowcord.UserGuildSettingsEdit{
 		ChannelOverrides: overrides,
 	}
 
@@ -732,14 +732,14 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		return err
 	}
 	recipient := dmChannelRecipientID(ch)
-	if ch.Type != discordgo.ChannelTypeDM || recipient == nil {
+	if ch.Type != meowcord.ChannelTypeDM || recipient == nil {
 		return bridgev2.ErrNonDMBlockUser
 	}
 	if msg.Content.Block {
 		err = d.Session.RelationshipUserBlock(*recipient)
 	} else {
 		rel := d.relationshipWithUserID(*recipient)
-		if rel == nil || rel.Type != discordgo.RelationshipBlocked {
+		if rel == nil || rel.Type != meowcord.RelationshipBlocked {
 			return nil
 		}
 		err = d.Session.RelationshipDelete(*recipient)

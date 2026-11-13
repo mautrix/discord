@@ -20,21 +20,21 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/id"
 
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 func (d *DiscordConnector) getCustomEmojiDownloadURL(emojiID string, animated bool) (string, string) {
 	// TODO probably best to leverage http.DetectContentType instead of
 	// assuming the media type
 	if animated {
-		return discordgo.EndpointEmojiAnimated(emojiID), "image/webp"
+		return meowcord.EndpointEmojiAnimated(emojiID), "image/webp"
 	}
 	// TODO think about using webp for size savings
-	return discordgo.EndpointEmoji(emojiID), "image/png"
+	return meowcord.EndpointEmoji(emojiID), "image/png"
 }
 
 func (d *DiscordConnector) GetCustomEmojiByMXC(ctx context.Context, mxc string) (*discorddb.CustomEmoji, error) {

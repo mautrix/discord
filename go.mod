@@ -5,7 +5,6 @@ go 1.26.0
 toolchain go1.27.0
 
 require (
-	github.com/bwmarrin/discordgo v0.27.0
 	github.com/coder/websocket v1.8.15
 	github.com/google/uuid v1.6.0
 	github.com/imroc/req/v3 v3.57.0
@@ -49,7 +48,5 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
-
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20261112155533-db8398b15663
 
 replace github.com/imroc/req/v3 => github.com/beeper/req/v3 v3.0.0-20260925135712-b49593750e56

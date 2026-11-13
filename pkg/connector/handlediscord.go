@@ -24,7 +24,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
 	"go.mau.fi/util/ptr"
@@ -37,6 +36,7 @@ import (
 	"maunium.net/go/mautrix/event"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
@@ -68,7 +68,7 @@ func (em *DiscordEventMeta) PortalReceiverIsUncertain() bool {
 
 type DiscordMessage struct {
 	*DiscordEventMeta
-	Data         *discordgo.Message
+	Data         *meowcord.Message
 	Client       *DiscordClient
 	ThreadRootID *networkid.MessageID
 }
@@ -182,7 +182,7 @@ func (m *DiscordMessage) ConvertEdit(
 }
 
 func (m *DiscordMessage) hasAttachment(partID networkid.PartID) bool {
-	return slices.ContainsFunc(m.Data.Attachments, func(att *discordgo.MessageAttachment) bool {
+	return slices.ContainsFunc(m.Data.Attachments, func(att *meowcord.MessageAttachment) bool {
 		return discordid.MakePartID(att.ID) == partID
 	})
 }
@@ -257,7 +257,7 @@ func (m *DiscordMessage) GetTimestamp() time.Time {
 		if !m.Data.Timestamp.IsZero() {
 			return m.Data.Timestamp
 		}
-		if timestamp, err := discordgo.SnowflakeTimestamp(m.Data.ID); err == nil {
+		if timestamp, err := meowcord.SnowflakeTimestamp(m.Data.ID); err == nil {
 			return timestamp
 		}
 	}
@@ -300,9 +300,9 @@ func (m *DiscordMessage) GetSender() bridgev2.EventSender {
 	return m.Client.makeEventSender(m.Data.Author)
 }
 
-func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.Message, route *router.Route, typ bridgev2.RemoteEventType) DiscordMessage {
+func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *meowcord.Message, route *router.Route, typ bridgev2.RemoteEventType) DiscordMessage {
 	if msg == nil {
-		msg = &discordgo.Message{}
+		msg = &meowcord.Message{}
 	}
 
 	return DiscordMessage{
@@ -318,7 +318,7 @@ func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.M
 
 type DiscordReaction struct {
 	*DiscordEventMeta
-	Reaction *discordgo.MessageReaction
+	Reaction *meowcord.MessageReaction
 	Client   *DiscordClient
 
 	Emoji   string
@@ -353,7 +353,7 @@ func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
 	return r.Extra
 }
 
-func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, route *router.Route, beingAdded bool) (*DiscordReaction, error) {
+func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *meowcord.MessageReaction, route *router.Route, beingAdded bool) (*DiscordReaction, error) {
 	if reaction == nil {
 		return nil, nil
 	}
@@ -423,7 +423,7 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 	}, nil
 }
 
-func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discordgo.TypingStart, route *router.Route) {
+func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *meowcord.TypingStart, route *router.Route) {
 	if typing.UserID == d.Session.State.User.ID {
 		return
 	}
@@ -453,7 +453,7 @@ func (d *DiscordClient) handleDiscordTyping(ctx context.Context, typing *discord
 	})
 }
 
-func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *discordgo.ChannelCreate) error {
+func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *meowcord.ChannelCreate) error {
 	log := zerolog.Ctx(ctx).With().
 		Str("guild_id", ch.GuildID).
 		Str("channel_id", ch.ID).
@@ -478,7 +478,7 @@ func (d *DiscordClient) handleChannelCreate(ctx context.Context, ch *discordgo.C
 	return nil
 }
 
-func (d *DiscordClient) bridgeGuildChannel(ctx context.Context, ch *discordgo.Channel) {
+func (d *DiscordClient) bridgeGuildChannel(ctx context.Context, ch *meowcord.Channel) {
 	log := zerolog.Ctx(ctx)
 
 	// If the channel is under a category, ensure that the corresponding parent
@@ -501,7 +501,7 @@ func (d *DiscordClient) bridgeGuildChannel(ctx context.Context, ch *discordgo.Ch
 	d.queueChannelResync(ctx, ch)
 }
 
-func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.ChannelUpdate) error {
+func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *meowcord.ChannelUpdate) error {
 	if upd.BeforeUpdate == nil {
 		// Channel doesn't exist in the discordgo's state; don't bother bridging.
 		return nil
@@ -566,7 +566,7 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 
 // handleChannelDelete handles a channel being deleted. This can be a guild
 // channel getting "actually" deleted or a private channel getting "closed".
-func (d *DiscordClient) handleChannelDelete(ctx context.Context, evt *discordgo.ChannelDelete) error {
+func (d *DiscordClient) handleChannelDelete(ctx context.Context, evt *meowcord.ChannelDelete) error {
 	portalKey := d.portalKeyForChannel(evt.Channel)
 	log := zerolog.Ctx(ctx).With().
 		Str("channel_id", evt.ID).
@@ -603,14 +603,14 @@ func (d *DiscordClient) queueChatDelete(portalKey networkid.PortalKey, deletedCh
 	})
 }
 
-func (d *DiscordClient) handleThreadUpdate(ctx context.Context, thread *discordgo.Channel) error {
+func (d *DiscordClient) handleThreadUpdate(ctx context.Context, thread *meowcord.Channel) error {
 	if thread == nil || !isThread(thread) {
 		return nil
 	}
 	return d.upsertThreadInfoFromChannel(ctx, thread)
 }
 
-func (d *DiscordClient) handleThreadDelete(ctx context.Context, thread *discordgo.Channel) error {
+func (d *DiscordClient) handleThreadDelete(ctx context.Context, thread *meowcord.Channel) error {
 	if thread == nil || thread.ID == "" {
 		return nil
 	}
@@ -620,7 +620,7 @@ func (d *DiscordClient) handleThreadDelete(ctx context.Context, thread *discordg
 func (d *DiscordClient) queueIndividualMembershipChange(
 	ctx context.Context,
 	portalKey networkid.PortalKey,
-	user *discordgo.User,
+	user *meowcord.User,
 	membership event.Membership,
 	ts time.Time,
 ) {
@@ -660,7 +660,7 @@ func (d *DiscordClient) queueIndividualMembershipChange(
 	})
 }
 
-func (d *DiscordClient) handleGuildUpdate(ctx context.Context, guild *discordgo.Guild) {
+func (d *DiscordClient) handleGuildUpdate(ctx context.Context, guild *meowcord.Guild) {
 	log := zerolog.Ctx(ctx)
 	if _, bridged := d.bridgedGuildIDs()[guild.ID]; !bridged {
 		return
@@ -702,17 +702,17 @@ func (d *DiscordClient) handleGuildUpdate(ctx context.Context, guild *discordgo.
 	}
 }
 
-func (d *DiscordClient) handleRecipientAdd(ctx context.Context, evt *discordgo.ChannelRecipientAdd, route *router.Route) error {
+func (d *DiscordClient) handleRecipientAdd(ctx context.Context, evt *meowcord.ChannelRecipientAdd, route *router.Route) error {
 	d.queueIndividualMembershipChange(ctx, route.PortalKey, evt.User, event.MembershipJoin, time.Now())
 	return nil
 }
 
-func (d *DiscordClient) handleRecipientRemove(ctx context.Context, evt *discordgo.ChannelRecipientRemove, route *router.Route) error {
+func (d *DiscordClient) handleRecipientRemove(ctx context.Context, evt *meowcord.ChannelRecipientRemove, route *router.Route) error {
 	d.queueIndividualMembershipChange(ctx, route.PortalKey, evt.User, event.MembershipLeave, time.Now())
 	return nil
 }
 
-func (d *DiscordClient) handleGuildMemberJoinMessage(ctx context.Context, msg *discordgo.Message, route *router.Route) {
+func (d *DiscordClient) handleGuildMemberJoinMessage(ctx context.Context, msg *meowcord.Message, route *router.Route) {
 	ts := msg.Timestamp
 	if ts.IsZero() {
 		ts = time.Now()
@@ -720,7 +720,7 @@ func (d *DiscordClient) handleGuildMemberJoinMessage(ctx context.Context, msg *d
 	d.queueIndividualMembershipChange(ctx, route.PortalKey, msg.Author, event.MembershipJoin, ts)
 }
 
-func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo.PresenceUpdate) {
+func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *meowcord.PresenceUpdate) {
 	// NOTE: This can potentially be a _very_ hot code path for users who can
 	// see a lot of other users (e.g. member of a large guild, member of many
 	// guilds).
@@ -767,7 +767,7 @@ func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo
 	ghost.UpdateInfo(ctx, d.getUserInfo(ctx, merged))
 }
 
-func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck, bridged bool, route *router.Route) {
+func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *meowcord.MessageAck, bridged bool, route *router.Route) {
 	d.readStatesLock.Lock()
 	zerolog.Ctx(ctx).Trace().
 		Str("channel_id", ack.ChannelID).
@@ -777,9 +777,9 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 	// TODO: mention_count can appear in MESSAGE_ACK payloads. Update it if it's
 	// present and not `null`. This needs discordgo changes. (There's even more
 	// missing fields than this.)
-	d.readStates[ack.ChannelID] = &discordgo.ReadState{
+	d.readStates[ack.ChannelID] = &meowcord.ReadState{
 		ID:            ack.ChannelID,
-		LastMessageID: discordgo.StringOrInt(ack.MessageID),
+		LastMessageID: meowcord.StringOrInt(ack.MessageID),
 	}
 	d.readStatesLock.Unlock()
 
@@ -815,13 +815,13 @@ func (d *DiscordClient) channelIsBridged(ctx context.Context, channelID string) 
 	return existingPortal != nil && existingPortal.MXID != "", route
 }
 
-func (d *DiscordClient) handleUserGuildSettingsUpdate(ctx context.Context, evt *discordgo.UserGuildSettingsUpdate) {
+func (d *DiscordClient) handleUserGuildSettingsUpdate(ctx context.Context, evt *meowcord.UserGuildSettingsUpdate) {
 	log := zerolog.Ctx(ctx)
 	log.Debug().Msg("Handling user guild settings update")
 	d.applySingleGuildSettings(evt.UserGuildSettings)
 }
 
-func messageCtx(ctx context.Context, msg *discordgo.Message) (context.Context, *zerolog.Logger) {
+func messageCtx(ctx context.Context, msg *meowcord.Message) (context.Context, *zerolog.Logger) {
 	if msg == nil {
 		return ctx, zerolog.Ctx(ctx)
 	}
@@ -847,7 +847,7 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 	log := zerolog.Ctx(ctx)
 
 	switch evt := rawEvt.(type) {
-	case *discordgo.Disconnect:
+	case *meowcord.Disconnect:
 		d.gatewayReady.Store(false)
 		d.UserLogin.Log.Warn().Msg("Disconnected from Discord gateway, waiting for discordgo to reconnect")
 		if d.HasToken() {
@@ -856,13 +856,13 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 				Error:      DCWebsocketDisconnected,
 			})
 		}
-	case *discordgo.Resumed:
+	case *meowcord.Resumed:
 		d.gatewayReady.Store(true)
-	case *discordgo.ReadySupplemental:
+	case *meowcord.ReadySupplemental:
 		log.Info().
 			Int("n_lazy_private_channels", len(evt.LazyPrivateChannels)).
 			Msg("Received supplemental READY")
-	case *discordgo.Ready:
+	case *meowcord.Ready:
 		d.gatewayReady.Store(true)
 		readiedBefore := d.seenReady.Swap(true)
 
@@ -881,12 +881,12 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		// This will also kick off a full sync (if needed). Notably, without
 		// this line, fresh bridges would never perform an initial full sync.
 		d.pokeVitals(ctx)
-	case *discordgo.MessageCreate:
+	case *meowcord.MessageCreate:
 		if evt.Author == nil {
 			return
 		}
 
-		urgent := evt.Flags&discordgo.MessageFlagsUrgent != 0
+		urgent := evt.Flags&meowcord.MessageFlagsUrgent != 0
 		system := evt.Author.System
 		if !urgent && !system {
 			return
@@ -911,7 +911,7 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 			// client does PATCH /users/@me with {flags:…}, that _does_ result
 			// in a Gateway event.
 			d.Session.State.Lock()
-			d.Session.State.User.Flags |= discordgo.UserFlagHasUnreadUrgentMessages
+			d.Session.State.User.Flags |= meowcord.UserFlagHasUnreadUrgentMessages
 			d.Session.State.Unlock()
 			// Transition into BAD_CREDENTIALS ASAP.
 			d.pokeVitals(ctx)
@@ -924,7 +924,7 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 				d.pokeVitals(ctx)
 			}()
 		}
-	case *discordgo.UserRequiredActionUpdate:
+	case *meowcord.UserRequiredActionUpdate:
 		if evt.RequiredAction == "" {
 			log.Info().Msg("Required action was performed")
 		} else {
@@ -932,13 +932,13 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 				Msg("Required action was updated")
 		}
 		d.pokeVitals(ctx)
-	case *discordgo.RelationshipAdd:
+	case *meowcord.RelationshipAdd:
 		d.upsertRelationship(evt.Relationship)
-	case *discordgo.RelationshipUpdate:
+	case *meowcord.RelationshipUpdate:
 		d.upsertRelationship(evt.Relationship)
-	case *discordgo.RelationshipRemove:
+	case *meowcord.RelationshipRemove:
 		d.removeRelationship(evt.ID)
-	case *discordgo.ChannelRecipientAdd:
+	case *meowcord.ChannelRecipientAdd:
 		d.userCache.UpdateWithUser(evt.User)
 	}
 }
@@ -967,7 +967,7 @@ func (d *DiscordClient) handleRelationshipChange(ctx context.Context, userID, ni
 	}
 
 	rel := d.relationshipWithUserID(userID)
-	blocked := rel != nil && rel.Type == discordgo.RelationshipBlocked
+	blocked := rel != nil && rel.Type == meowcord.RelationshipBlocked
 	d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
 		EventMeta: simplevent.EventMeta{
 			Type:      bridgev2.RemoteEventChatInfoChange,
@@ -1008,8 +1008,8 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	ctx := log.WithContext(d.UserLogin.Bridge.BackgroundCtx)
 
 	// NOTE: discordgo seemingly dispatches both the proper unmarshalled type
-	// (e.g. `*discordgo.TypingStart`) _as well as_ a "raw" *discordgo.Event
-	// (e.g. `*discordgo.Event` with `Type` of `TYPING_START`) for every gateway
+	// (e.g. `*meowcord.TypingStart`) _as well as_ a "raw" *meowcord.Event
+	// (e.g. `*meowcord.Event` with `Type` of `TYPING_START`) for every gateway
 	// event.
 
 	// NOTE: We explicitly return early from paths where we would otherwise
@@ -1025,7 +1025,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	// can become noisy fast.
 
 	switch evt := rawEvt.(type) {
-	case *discordgo.Ready:
+	case *meowcord.Ready:
 		log.Info().
 			Int("n_dms", len(evt.PrivateChannels)).
 			Int("n_guilds", len(evt.Guilds)).
@@ -1041,35 +1041,35 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.refreshSafetyHub(ctx)
 		d.pokeVitals(ctx)
 		d.sendCurrentState(ctx) // (pokeVitals already enqueued a new bridge state but let's be explicit about it here.)
-	case *discordgo.Resumed:
+	case *meowcord.Resumed:
 		// (All missed gateway events have been replayed, and all subsequent
 		// events will be new.)
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
 		d.refreshSafetyHub(ctx)
 		d.pokeVitals(ctx)
 		d.sendCurrentState(ctx)
-	case *discordgo.InvalidAuth:
+	case *meowcord.InvalidAuth:
 		log.Warn().Msg("Got logged out of Discord due to invalid token")
 		d.tokenInvalidated(ctx, "while connected")
-	case *discordgo.TypingStart:
+	case *meowcord.TypingStart:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
 			return
 		}
 		d.handleDiscordTyping(ctx, evt, route)
-	case *discordgo.GuildCreate:
+	case *meowcord.GuildCreate:
 		if evt.Unavailable {
 			break
 		}
 		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild create event")
 		}
-	case *discordgo.GuildUpdate:
+	case *meowcord.GuildUpdate:
 		d.handleGuildUpdate(ctx, evt.Guild)
 		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild update event")
 		}
-	case *discordgo.GuildRoleCreate:
+	case *meowcord.GuildRoleCreate:
 		roleID := ""
 		if evt.Role != nil {
 			roleID = evt.Role.ID
@@ -1077,7 +1077,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err := d.upsertGuildRole(ctx, evt.GuildID, evt.Role); err != nil {
 			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", roleID).Msg("Failed to store role create event")
 		}
-	case *discordgo.GuildRoleUpdate:
+	case *meowcord.GuildRoleUpdate:
 		roleID := ""
 		if evt.Role != nil {
 			roleID = evt.Role.ID
@@ -1085,15 +1085,15 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err := d.upsertGuildRole(ctx, evt.GuildID, evt.Role); err != nil {
 			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", roleID).Msg("Failed to store role update event")
 		}
-	case *discordgo.GuildRoleDelete:
+	case *meowcord.GuildRoleDelete:
 		if err := d.connector.DB.Role.DeleteByID(ctx, evt.GuildID, evt.RoleID); err != nil {
 			log.Err(err).Str("guild_id", evt.GuildID).Str("role_id", evt.RoleID).Msg("Failed to delete role from database")
 		}
-	case *discordgo.ChannelCreate:
+	case *meowcord.ChannelCreate:
 		if err := d.handleChannelCreate(ctx, evt); err != nil {
 			log.Err(err).Msg("Failed to handle channel create")
 		}
-	case *discordgo.ChannelUpdate:
+	case *meowcord.ChannelUpdate:
 		bridged, _ := d.channelIsBridged(ctx, evt.ID)
 		if !bridged {
 			return
@@ -1102,7 +1102,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err != nil {
 			log.Err(err).Msg("Failed to handle channel update")
 		}
-	case *discordgo.ChannelDelete:
+	case *meowcord.ChannelDelete:
 		existingPortal, err := d.connector.Bridge.GetExistingPortalByKey(ctx, d.portalKeyForChannel(evt.Channel))
 		if err != nil {
 			log.Err(err).Msg("Failed to look up existing portal for deleted channel")
@@ -1113,7 +1113,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err := d.handleChannelDelete(ctx, evt); err != nil {
 			log.Err(err).Msg("Failed to handle channel delete")
 		}
-	case *discordgo.ChannelRecipientAdd:
+	case *meowcord.ChannelRecipientAdd:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
 			return
@@ -1121,7 +1121,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err := d.handleRecipientAdd(ctx, evt, route); err != nil {
 			log.Err(err).Msg("Failed to handle channel recipient add")
 		}
-	case *discordgo.ChannelRecipientRemove:
+	case *meowcord.ChannelRecipientRemove:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
 			return
@@ -1129,29 +1129,29 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err := d.handleRecipientRemove(ctx, evt, route); err != nil {
 			log.Err(err).Msg("Failed to handle channel recipient remove")
 		}
-	case *discordgo.ThreadCreate:
+	case *meowcord.ThreadCreate:
 		err := d.handleThreadUpdate(ctx, evt.Channel)
 		if err != nil {
 			log.Err(err).Str("thread_id", evt.ID).Msg("Failed to handle thread create event")
 		}
-	case *discordgo.ThreadUpdate:
+	case *meowcord.ThreadUpdate:
 		err := d.handleThreadUpdate(ctx, evt.Channel)
 		if err != nil {
 			log.Err(err).Str("thread_id", evt.ID).Msg("Failed to handle thread update event")
 		}
-	case *discordgo.ThreadDelete:
+	case *meowcord.ThreadDelete:
 		err := d.handleThreadDelete(ctx, evt.Channel)
 		if err != nil {
 			log.Err(err).Str("thread_id", evt.ID).Msg("Failed to handle thread delete event")
 		}
-	case *discordgo.ThreadListSync:
+	case *meowcord.ThreadListSync:
 		for _, thread := range evt.Threads {
 			err := d.handleThreadUpdate(ctx, thread)
 			if err != nil {
 				log.Err(err).Str("thread_id", thread.ID).Msg("Failed to handle thread in thread list sync event")
 			}
 		}
-	case *discordgo.MessageCreate:
+	case *meowcord.MessageCreate:
 		if evt.Author == nil {
 			log.Trace().Int("message_type", int(evt.Message.Type)).
 				Str("guild_id", evt.GuildID).
@@ -1184,7 +1184,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			return
 		}
 
-		if evt.Message.Type == discordgo.MessageTypeGuildMemberJoin {
+		if evt.Message.Type == meowcord.MessageTypeGuildMemberJoin {
 			d.userCache.UpdateWithMessage(evt.Message)
 			d.handleGuildMemberJoinMessage(ctx, evt.Message, route)
 			return
@@ -1197,7 +1197,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessage)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
-	case *discordgo.MessageUpdate:
+	case *meowcord.MessageUpdate:
 		ctx, log := messageCtx(ctx, evt.Message)
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
@@ -1210,13 +1210,13 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventEdit)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
-	case *discordgo.UserUpdate:
+	case *meowcord.UserUpdate:
 		// The current user changed. (This is not sent out for anyone else.)
 		log.Info().Msg("Current user was updated")
 
 		// discordgo does not update State.User for us. This is probably a bug.
 		// Do it ourselves in the meantime.
-		var oldFlags discordgo.UserFlags
+		var oldFlags meowcord.UserFlags
 		{
 			state := d.Session.State
 			state.Lock()
@@ -1236,7 +1236,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		d.pokeVitals(ctx)
 		d.syncRemoteProfile(ctx)
 		d.sendCurrentState(ctx)
-	case *discordgo.MessageDelete:
+	case *meowcord.MessageDelete:
 		ctx, _ := messageCtx(ctx, evt.Message)
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
@@ -1245,8 +1245,8 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessageRemove)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
-	// TODO *discordgo.MessageDeleteBulk
-	case *discordgo.MessageReactionAdd:
+	// TODO *meowcord.MessageDeleteBulk
+	case *meowcord.MessageReactionAdd:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
 			return
@@ -1257,9 +1257,9 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}
-	// TODO case *discordgo.MessageReactionRemoveAll:
-	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
-	case *discordgo.MessageReactionRemove:
+	// TODO case *meowcord.MessageReactionRemoveAll:
+	// TODO case *meowcord.MessageReactionRemoveEmoji: (needs impl. in discordgo)
+	case *meowcord.MessageReactionRemove:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
 			return
@@ -1274,20 +1274,20 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 	// which is synchronously invoked before this one. This is to ensure
 	// coherence in the face of concurrency, because this method is always
 	// dispatched on a new goroutine.
-	case *discordgo.RelationshipAdd:
+	case *meowcord.RelationshipAdd:
 		d.handleRelationshipChange(ctx, evt.ID, evt.Nickname)
-	case *discordgo.RelationshipUpdate:
+	case *meowcord.RelationshipUpdate:
 		d.handleRelationshipChange(ctx, evt.ID, evt.Nickname)
-	case *discordgo.RelationshipRemove:
+	case *meowcord.RelationshipRemove:
 		d.handleRelationshipChange(ctx, evt.ID, "")
-	case *discordgo.PresenceUpdate:
+	case *meowcord.PresenceUpdate:
 		d.handlePresenceUpdate(ctx, evt)
-	case *discordgo.MessageAck:
+	case *meowcord.MessageAck:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		d.handleMessageAck(ctx, evt, bridged, route)
-	case *discordgo.UserGuildSettingsUpdate:
+	case *meowcord.UserGuildSettingsUpdate:
 		d.handleUserGuildSettingsUpdate(ctx, evt)
-	case *discordgo.GuildDelete:
+	case *meowcord.GuildDelete:
 		if evt.Unavailable {
 			log.Warn().Str("guild_id", evt.ID).Msg("Guild became unavailable")
 			// Leave the portals alone if the guild only went away due to

@@ -20,9 +20,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bwmarrin/discordgo"
-
 	"go.mau.fi/mautrix-discord/pkg/connector/discorddb"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 // (Used by formatter_tag.go via an interface.)
@@ -30,7 +29,7 @@ func (d *DiscordConnector) GetRoleByID(ctx context.Context, guildID, roleID stri
 	return d.DB.Role.GetByID(ctx, guildID, roleID)
 }
 
-func guildRoleChanged(oldRole *discorddb.Role, newRole *discordgo.Role) bool {
+func guildRoleChanged(oldRole *discorddb.Role, newRole *meowcord.Role) bool {
 	return oldRole.Name != newRole.Name ||
 		oldRole.Icon != newRole.Icon ||
 		oldRole.Mentionable != newRole.Mentionable ||
@@ -41,7 +40,7 @@ func guildRoleChanged(oldRole *discorddb.Role, newRole *discordgo.Role) bool {
 		oldRole.Permissions != newRole.Permissions
 }
 
-func (d *DiscordClient) syncGuildRoles(ctx context.Context, guildID string, roles []*discordgo.Role) error {
+func (d *DiscordClient) syncGuildRoles(ctx context.Context, guildID string, roles []*meowcord.Role) error {
 	if len(roles) == 0 {
 		return nil
 	}
@@ -90,7 +89,7 @@ func (d *DiscordClient) syncGuildRoles(ctx context.Context, guildID string, role
 	return nil
 }
 
-func (d *DiscordClient) upsertGuildRole(ctx context.Context, guildID string, role *discordgo.Role) error {
+func (d *DiscordClient) upsertGuildRole(ctx context.Context, guildID string, role *meowcord.Role) error {
 	if role == nil {
 		return nil
 	}

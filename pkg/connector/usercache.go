@@ -24,29 +24,29 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/meowcord"
 )
 
 // NOTE: Not simply using `exsync.Map` because we want the lock to be held
 // during HTTP requests.
 
 type UserCache struct {
-	session *discordgo.Session
-	cache   map[string]*discordgo.User
+	session *meowcord.Session
+	cache   map[string]*meowcord.User
 	lock    sync.Mutex
 }
 
-func NewUserCache(session *discordgo.Session) *UserCache {
+func NewUserCache(session *meowcord.Session) *UserCache {
 	return &UserCache{
 		session: session,
-		cache:   make(map[string]*discordgo.User),
+		cache:   make(map[string]*meowcord.User),
 	}
 }
 
-func (uc *UserCache) UpdateWithReady(ready *discordgo.Ready) {
+func (uc *UserCache) UpdateWithReady(ready *meowcord.Ready) {
 	if ready == nil {
 		return
 	}
@@ -66,26 +66,26 @@ func (uc *UserCache) UpdateWithReady(ready *discordgo.Ready) {
 // message (author, mentioned, mentioned author, etc.)
 //
 // The updated user IDs are returned.
-func (uc *UserCache) UpdateWithMessage(msg *discordgo.Message) []string {
+func (uc *UserCache) UpdateWithMessage(msg *meowcord.Message) []string {
 	if msg == nil {
 		return []string{}
 	}
 
 	// For now just forward to HandleMessages until a need for a specialized
 	// path makes itself known.
-	return uc.UpdateWithMessages([]*discordgo.Message{msg})
+	return uc.UpdateWithMessages([]*meowcord.Message{msg})
 }
 
 // UpdateWithMessages updates the user cache with the total set of users involved
 // with multiple messages (authors, mentioned users, mentioned authors, etc.)
 //
 // The updated user IDs are returned.
-func (uc *UserCache) UpdateWithMessages(msgs []*discordgo.Message) []string {
+func (uc *UserCache) UpdateWithMessages(msgs []*meowcord.Message) []string {
 	if len(msgs) == 0 {
 		return []string{}
 	}
 
-	collectedUsers := map[string]*discordgo.User{}
+	collectedUsers := map[string]*meowcord.User{}
 	for _, msg := range msgs {
 		collectedUsers[msg.Author.ID] = msg.Author
 
@@ -113,7 +113,7 @@ func (uc *UserCache) UpdateWithMessages(msgs []*discordgo.Message) []string {
 	return slices.Collect(maps.Keys(collectedUsers))
 }
 
-func (uc *UserCache) UpdateWithUser(user *discordgo.User) {
+func (uc *UserCache) UpdateWithUser(user *meowcord.User) {
 	if user == nil {
 		return
 	}
@@ -130,7 +130,7 @@ func (uc *UserCache) UpdateWithUser(user *discordgo.User) {
 // partial updates.
 //
 // If there is no cached user to merge into, nil is returned.
-func (uc *UserCache) MergePartialUser(partial *discordgo.User) *discordgo.User {
+func (uc *UserCache) MergePartialUser(partial *meowcord.User) *meowcord.User {
 	if partial == nil || partial.ID == "" {
 		return nil
 	}
@@ -172,7 +172,7 @@ func (uc *UserCache) MergePartialUser(partial *discordgo.User) *discordgo.User {
 // isn't touched and nil is returned.
 //
 // Otherwise, the cache is updated as you'd expect.
-func (uc *UserCache) Resolve(ctx context.Context, userID string) *discordgo.User {
+func (uc *UserCache) Resolve(ctx context.Context, userID string) *meowcord.User {
 	if userID == discordid.DeletedGuildUserID {
 		return &discordid.DeletedGuildUser
 	}
@@ -197,7 +197,7 @@ func (uc *UserCache) Resolve(ctx context.Context, userID string) *discordgo.User
 	log.Trace().Msg("Fetching user")
 	user, err := uc.session.User(userID)
 
-	var restError *discordgo.RESTError
+	var restError *meowcord.RESTError
 	if errors.As(err, &restError) && restError.Response.StatusCode == http.StatusNotFound {
 		log.Info().Msg("Tried to resolve a user that doesn't exist, caching nonexistence")
 		uc.cache[userID] = nil

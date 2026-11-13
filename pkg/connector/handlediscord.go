@@ -1245,7 +1245,19 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessageRemove)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
-	// TODO *discordgo.MessageDeleteBulk
+	case *discordgo.MessageDeleteBulk:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		for _, messageID := range evt.Messages {
+			wrappedEvt := d.wrapDiscordMessage(ctx, &discordgo.Message{
+				ID:        messageID,
+				ChannelID: evt.ChannelID,
+				GuildID:   evt.GuildID,
+			}, route, bridgev2.RemoteEventMessageRemove)
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+		}
 	case *discordgo.MessageReactionAdd:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
@@ -1257,8 +1269,16 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}
-	// TODO case *discordgo.MessageReactionRemoveAll:
-	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
+	case *discordgo.MessageReactionRemoveAll:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if bridged {
+			d.queueReactionClear(ctx, evt.MessageReaction, false, route)
+		}
+	case *discordgo.MessageReactionRemoveEmoji:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if bridged {
+			d.queueReactionClear(ctx, evt.MessageReaction, true, route)
+		}
 	case *discordgo.MessageReactionRemove:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
@@ -1295,5 +1315,38 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			return
 		}
 		d.queueGuildDeletion(ctx, evt.ID)
+	}
+}
+
+func (d *DiscordClient) queueReactionClear(ctx context.Context, reaction *discordgo.MessageReaction, onlyThisEmoji bool, route *router.Route) {
+	log := zerolog.Ctx(ctx).With().Str("message_id", reaction.MessageID).Bool("only_this_emoji", onlyThisEmoji).Logger()
+	var emojiID networkid.EmojiID
+	if onlyThisEmoji {
+		wrapped, err := d.wrapDiscordReaction(ctx, reaction, route, false)
+		if err != nil || wrapped == nil {
+			log.Err(err).Msg("Failed to convert cleared reaction emoji")
+			return
+		}
+		emojiID = wrapped.EmojiID
+	}
+	reactions, err := d.connector.Bridge.DB.Reaction.GetAllToMessage(ctx, route.PortalKey.Receiver, discordid.MakeMessageID(reaction.MessageID))
+	if err != nil {
+		log.Err(err).Msg("Failed to get reactions to clear")
+		return
+	}
+	for _, existing := range reactions {
+		if onlyThisEmoji && existing.EmojiID != emojiID {
+			continue
+		}
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Reaction{
+			EventMeta: simplevent.EventMeta{
+				Type:              bridgev2.RemoteEventReactionRemove,
+				PortalKey:         route.PortalKey,
+				Sender:            d.makeEventSenderWithID(discordid.ParseUserID(existing.SenderID)),
+				UncertainReceiver: route.Uncertain,
+			},
+			TargetMessage: existing.MessageID,
+			EmojiID:       existing.EmojiID,
+		})
 	}
 }

@@ -103,6 +103,10 @@ func (dts discordTimestampStyle) Format() string {
 		return "15:04:05 MST"
 	case 'd':
 		return "2006-01-02 MST"
+	case 's':
+		return "2006-01-02 15:04 MST"
+	case 'S':
+		return "2006-01-02 15:04:05 MST"
 	case 'D':
 		return "2 January 2006 MST"
 	case 'F':
@@ -153,7 +157,7 @@ type roleInfoProvider interface {
 }
 
 // Regex to match everything in https://discord.com/developers/docs/reference#message-formatting
-var discordTagRegex = regexp.MustCompile(`<(a?:\w+:|@[!&]?|#|t:)(\d+)(?::([tTdDfFR])|(\d+):(.+?))?>`)
+var discordTagRegex = regexp.MustCompile(`^<(a?:\w+:|@[!&]?|#|t:)(\d+)(?::([tTdDfFsSR])|:(\d+):(.+?))?>`)
 var defaultDiscordTagParser = &discordTagParser{}
 
 func (s *discordTagParser) Trigger() []byte {
@@ -173,6 +177,10 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 	if match == nil {
 		return nil
 	}
+	tagName := string(match[1])
+	if (len(match[3]) > 0 && tagName != "t:") || (len(match[4]) > 0 && tagName != "#") {
+		return nil
+	}
 	//seg := segment.WithStop(segment.Start + len(match[0]))
 	block.Advance(len(match[0]))
 
@@ -181,7 +189,6 @@ func (s *discordTagParser) Parse(parent ast.Node, block text.Reader, pc parser.C
 		return nil
 	}
 	tag := astDiscordTag{id: id, source: source, portal: portal, ctx: pc.Get(parserContextGoContext).(context.Context)}
-	tagName := string(match[1])
 	switch {
 	case tagName == "@":
 		return &astDiscordUserMention{astDiscordTag: tag}

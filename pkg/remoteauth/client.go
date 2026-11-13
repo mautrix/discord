@@ -33,15 +33,16 @@ type Client struct {
 	// forces HTTP/1.1).
 	wsHTTPClient *http.Client
 
-	// restHTTPClient should be used to perform the single RemoteAuthLogin REST
-	// call once a ticket arrives (it can advertise HTTP/2).
+	// restHTTPClient should be used to redeem the login ticket (it can
+	// advertise HTTP/2).
 	restHTTPClient *http.Client
 
 	qrChan   chan string
 	doneChan chan struct{}
 
-	user User
-	err  error
+	user   User
+	ticket string
+	err    error
 
 	heartbeats int
 	closed     bool
@@ -112,6 +113,36 @@ func (c *Client) Result() (User, error) {
 	defer c.Unlock()
 
 	return c.user, c.err
+}
+
+func (c *Client) RedeemTicket(options ...discordgo.RequestOption) (User, error) {
+	sess, err := discordgo.New("")
+	if err != nil {
+		return User{}, err
+	}
+	sess.Client = c.restHTTPClient
+
+	body := map[string]string{"ticket": c.ticket}
+	resp, err := sess.RequestWithBucketID(http.MethodPost, discordgo.EndpointRemoteAuthLogin, body, discordgo.EndpointRemoteAuthLogin, options...)
+	if err != nil {
+		return User{}, err
+	}
+
+	var data struct {
+		EncryptedToken string `json:"encrypted_token"`
+	}
+	if err = json.Unmarshal(resp, &data); err != nil {
+		return User{}, err
+	}
+
+	plaintext, err := c.decrypt(data.EncryptedToken)
+	if err != nil {
+		return User{}, err
+	}
+
+	user := c.user
+	user.Token = string(plaintext)
+	return user, nil
 }
 
 func (c *Client) Close() error {

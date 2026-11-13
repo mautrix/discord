@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"go.mau.fi/util/ffmpeg"
@@ -44,6 +45,7 @@ var DiscordGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
 	//
 	// [1]: https://github.com/mautrix/go/blob/2b8e6caf43bea108e7fccacfa793fe46069ce3a8/bridgev2/ghost.go#L295
 	AggressiveUpdateInfo: true,
+	TypingRepeatInterval: 5 * time.Second,
 
 	Provisioning: bridgev2.ProvisioningCapabilities{
 		ResolveIdentifier: bridgev2.ResolveIdentifierCapabilities{

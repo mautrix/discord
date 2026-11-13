@@ -39,6 +39,7 @@ type UserLoginMetadata struct {
 	Token            string                     `json:"token"`
 	HeartbeatSession discordgo.HeartbeatSession `json:"heartbeat_session"`
 	BridgedGuildIDs  map[string]bool            `json:"bridged_guild_ids,omitempty"`
+	OwnsSession      bool                       `json:"owns_session,omitempty"`
 }
 
 var _ database.MetaMerger = (*UserLoginMetadata)(nil)
@@ -51,6 +52,7 @@ func (ulm *UserLoginMetadata) CopyFrom(incoming any) {
 
 	if incomingMeta.Token != "" {
 		ulm.Token = incomingMeta.Token
+		ulm.OwnsSession = incomingMeta.OwnsSession
 	}
 	ulm.HeartbeatSession = discordgo.NewHeartbeatSession()
 

@@ -414,6 +414,9 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 
 	removing := removal.TargetReaction
 	emojiID := removing.EmojiID
+	if strings.HasPrefix(string(emojiID), superReactionEmojiIDPrefix) {
+		return bridgev2.WrapErrorInStatus(errors.New("super reactions can't be removed from Matrix")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
 	channelID := parentChannelID
 	threadChannelID := ""

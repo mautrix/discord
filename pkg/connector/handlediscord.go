@@ -783,7 +783,17 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 	}
 	d.readStatesLock.Unlock()
 
-	if bridged {
+	if bridged && ack.Manual {
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.MarkUnread{
+			EventMeta: simplevent.EventMeta{
+				Type:              bridgev2.RemoteEventMarkUnread,
+				PortalKey:         route.PortalKey,
+				Sender:            d.selfEventSender(),
+				UncertainReceiver: route.Uncertain,
+			},
+			Unread: true,
+		})
+	} else if bridged {
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Receipt{
 			EventMeta: simplevent.EventMeta{
 				Type:              bridgev2.RemoteEventReadReceipt,

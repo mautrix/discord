@@ -23,6 +23,8 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +49,7 @@ var (
 	_ bridgev2.MuteHandlingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.UserBlockingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.MessageRequestAcceptingNetworkAPI = (*DiscordClient)(nil)
+	_ bridgev2.MarkedUnreadHandlingNetworkAPI    = (*DiscordClient)(nil)
 )
 
 type contextKey int
@@ -745,4 +748,91 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		err = d.Session.RelationshipDelete(*recipient)
 	}
 	return d.tryWrappingError(ctx, err)
+}
+
+func (d *DiscordClient) HandleMarkedUnread(ctx context.Context, msg *bridgev2.MatrixMarkedUnread) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+	latest, prev, err := d.lastTopLevelMessages(ctx, msg.Portal.PortalKey)
+	if err != nil {
+		return err
+	} else if latest == nil {
+		zerolog.Ctx(ctx).Debug().Msg("No top-level message found in the newest parts, not changing Discord read state")
+		return nil
+	}
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	referer := makeDiscordReferer(msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID, channelID, "")
+	if !msg.Content.Unread {
+		_, err = d.Session.ChannelMessageAckNoToken(channelID, discordid.ParseMessageID(latest.ID), referer)
+		return d.tryWrappingError(ctx, err)
+	}
+	var readUpTo string
+	if prev != nil {
+		readUpTo = discordid.ParseMessageID(prev.ID)
+	} else {
+		latestID, err := strconv.ParseUint(discordid.ParseMessageID(latest.ID), 10, 64)
+		if err != nil {
+			return err
+		}
+		readUpTo = strconv.FormatUint(latestID-1, 10)
+	}
+	mentionCount := d.unreadMentionCount(ctx, channelID, msg.Portal.Metadata.(*discordid.PortalMetadata).GuildID, readUpTo, referer)
+	return d.tryWrappingError(ctx, d.Session.ChannelMessageAckManual(channelID, readUpTo, mentionCount, referer))
+}
+
+func (d *DiscordClient) unreadMentionCount(ctx context.Context, channelID, guildID, afterID string, referer discordgo.RequestOption) int {
+	msgs, err := d.Session.ChannelMessages(channelID, 100, "", afterID, "", referer, discordgo.WithContext(ctx))
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to fetch unread messages to count mentions")
+		return 0
+	}
+	selfID := d.Session.State.User.ID
+	var suppressEveryone, suppressRoles bool
+	if settings := d.guildSettingsForGuildID(guildID); settings != nil {
+		suppressEveryone = settings.SuppressEveryone
+		suppressRoles = settings.SuppressRoles
+	}
+	var roles []string
+	if guildID != "" {
+		if member, err := d.Session.State.Member(guildID, selfID); err == nil {
+			roles = member.Roles
+		}
+	}
+	countAll := guildID == "" && !d.channelMutedUntil(guildID, "", channelID).After(time.Now())
+	count := 0
+	for _, m := range msgs {
+		if m.Author == nil || m.Author.ID == selfID {
+			continue
+		} else if rel := d.relationshipWithUserID(m.Author.ID); rel != nil && rel.Type == discordgo.RelationshipBlocked {
+			continue
+		}
+		if countAll || (m.MentionEveryone && !suppressEveryone) ||
+			slices.ContainsFunc(m.Mentions, func(u *discordgo.User) bool { return u != nil && u.ID == selfID }) ||
+			(!suppressRoles && slices.ContainsFunc(m.MentionRoles, func(role string) bool { return slices.Contains(roles, role) })) {
+			count++
+		}
+	}
+	return count
+}
+
+func (d *DiscordClient) lastTopLevelMessages(ctx context.Context, portalKey networkid.PortalKey) (latest, prev *database.Message, err error) {
+	before := time.Now()
+	for range 100 {
+		var part *database.Message
+		part, err = d.connector.Bridge.DB.Message.GetLastNonFakePartAtOrBeforeTime(ctx, portalKey, before)
+		if err != nil || part == nil {
+			return
+		}
+		before = part.Timestamp.Add(-time.Nanosecond)
+		if part.ThreadRoot != "" {
+			continue
+		} else if latest == nil {
+			latest = part
+		} else {
+			prev = part
+			return
+		}
+	}
+	return
 }

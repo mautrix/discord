@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 type serverPacket interface {
@@ -128,9 +126,13 @@ func (h *serverHello) process(client *Client) error {
 		<-time.After(duration)
 
 		client.Lock()
+		if client.closed || client.ticket != "" {
+			client.Unlock()
+			return
+		}
 		client.err = fmt.Errorf("timed out after %s", duration)
-		client.Close()
 		client.Unlock()
+		client.Close()
 	}()
 
 	i := clientInit{}
@@ -212,22 +214,17 @@ type serverPendingLogin struct {
 }
 
 func (p *serverPendingLogin) process(client *Client) error {
-	sess, err := discordgo.New("")
-	if err != nil {
-		return err
-	}
-	sess.Client = client.restHTTPClient
-	encryptedToken, err := sess.RemoteAuthLogin(p.Ticket)
-	if err != nil {
-		return err
-	}
-
-	plaintext, err := client.decrypt(encryptedToken)
+	client.Lock()
+	client.ticket = p.Ticket
+	client.Unlock()
+	user, err := client.RedeemTicket()
 	if err != nil {
 		return err
 	}
 
-	client.user.Token = string(plaintext)
+	client.Lock()
+	client.user = user
+	client.Unlock()
 
 	client.Close()
 

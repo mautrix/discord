@@ -24,6 +24,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -47,6 +48,33 @@ func (mc *MessageConverter) ReuploadUnknownMedia(
 	return mc.ReuploadMedia(ctx, url, "", "", -1, allowEncryption)
 }
 
+const maxReuploadCacheSize = 4096
+
+type reuploadCache struct {
+	lock    sync.Mutex
+	entries map[string]*ReuploadedAttachment
+}
+
+func (rc *reuploadCache) get(url string) *ReuploadedAttachment {
+	rc.lock.Lock()
+	defer rc.lock.Unlock()
+	return rc.entries[url]
+}
+
+func (rc *reuploadCache) put(url string, reupload *ReuploadedAttachment) {
+	rc.lock.Lock()
+	defer rc.lock.Unlock()
+	if rc.entries == nil {
+		rc.entries = make(map[string]*ReuploadedAttachment)
+	} else if len(rc.entries) >= maxReuploadCacheSize {
+		for key := range rc.entries {
+			delete(rc.entries, key)
+			break
+		}
+	}
+	rc.entries[url] = reupload
+}
+
 func mib(size int64) float64 {
 	return float64(size) / 1024 / 1024
 }
@@ -65,6 +93,11 @@ func (mc *MessageConverter) ReuploadMedia(
 	var roomID id.RoomID
 	if allowEncryption {
 		roomID = ctx.Value(contextKeyPortal).(*bridgev2.Portal).MXID
+	}
+	if !allowEncryption {
+		if cached := mc.unencryptedReuploads.get(downloadURL); cached != nil {
+			return cached, nil
+		}
 	}
 
 	req, err := http.NewRequest(http.MethodGet, downloadURL, nil)
@@ -126,10 +159,14 @@ func (mc *MessageConverter) ReuploadMedia(
 		return nil, err
 	}
 
-	return &ReuploadedAttachment{
+	reupload := &ReuploadedAttachment{
 		Size:     int(size),
 		MXC:      mxc,
 		File:     file,
 		MimeType: mimeType,
-	}, nil
+	}
+	if !allowEncryption {
+		mc.unencryptedReuploads.put(downloadURL, reupload)
+	}
+	return reupload, nil
 }

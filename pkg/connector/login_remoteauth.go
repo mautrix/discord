@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -31,6 +32,18 @@ import (
 )
 
 const LoginFlowIDRemoteAuth = "qr"
+
+var ErrQRLoginCancelled = bridgev2.RespError{
+	ErrCode:    "FI.MAU.DISCORD.QR_LOGIN_CANCELLED",
+	Err:        "The login was cancelled in the Discord app. Scan a new QR code to try again.",
+	StatusCode: http.StatusBadRequest,
+}
+
+var ErrQRLoginEnded = bridgev2.RespError{
+	ErrCode:    "FI.MAU.DISCORD.QR_LOGIN_ENDED",
+	Err:        "Discord ended the QR login before it was approved. Scan a new QR code to try again.",
+	StatusCode: http.StatusBadRequest,
+}
 
 type DiscordRemoteAuthLogin struct {
 	*DiscordGenericLogin
@@ -108,9 +121,15 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 	select {
 	case <-dl.doneChan:
 		user, err := dl.remoteAuthClient.Result()
-		if err != nil {
+		if errors.Is(err, remoteauth.ErrCancelled) {
+			log.Debug().Msg("Discord remoteauth was cancelled on the phone")
+			return nil, ErrQRLoginCancelled
+		} else if err != nil {
 			log.Err(err).Msg("Discord remoteauth failed")
 			return dl.stepForError(ctx, err)
+		} else if user.Token == "" {
+			log.Warn().Msg("Discord remoteauth ended without a token")
+			return nil, ErrQRLoginEnded
 		}
 		log.Debug().Msg("Discord remoteauth succeeded")
 

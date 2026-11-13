@@ -186,6 +186,7 @@ var (
 	errCannotDMStranger          = errors.New("can't direct message a stranger")
 	errPendingMessageRequest     = errors.New("message request hasn't been accepted")
 	errMessageRequestNotAccepted = errors.New("failed to accept message request")
+	errFriendRequestNotAccepted  = errors.New("failed to accept friend request")
 )
 
 func (d *DiscordClient) screenOutgoingMessage(ctx context.Context, destCh *discordgo.Channel) error {
@@ -260,30 +261,59 @@ func (d *DiscordClient) HandleMatrixAcceptMessageRequest(ctx context.Context, ms
 	if ch == nil || ch.Type != discordgo.ChannelTypeDM {
 		return fmt.Errorf("%w: not a direct message", errMessageRequestNotAccepted)
 	}
-	if !ch.IsMessageRequest {
-		return nil
+	if ch.IsMessageRequest {
+		endpoint := discordgo.EndpointChannel(channelID) + "/recipients/@me"
+		_, err := d.Session.RequestWithBucketID(
+			http.MethodPut,
+			endpoint,
+			map[string]int{"consent_status": 2},
+			endpoint,
+			discordgo.WithReferer("https://discord.com/message-requests"),
+			discordgo.WithContext(ctx),
+		)
+		if err != nil {
+			return bridgev2.WrapErrorInStatus(fmt.Errorf("%w: %w", errMessageRequestNotAccepted, err)).
+				WithStatus(event.MessageStatusRetriable).
+				WithMessage("Couldn't accept the message request on Discord.").
+				WithSendNotice(true)
+		}
+
+		d.Session.State.Lock()
+		ch.IsMessageRequest = false
+		d.Session.State.Unlock()
+		zerolog.Ctx(ctx).Info().Bool("implicit", msg.Content.IsImplicit).Msg("Accepted Discord message request")
 	}
 
-	endpoint := discordgo.EndpointChannel(channelID) + "/recipients/@me"
+	if recipient := dmChannelRecipientID(ch); recipient != nil {
+		if isPendingFriendRequest(d.relationshipWithUserID(*recipient)) {
+			return d.acceptFriendRequest(ctx, *recipient, msg.Content.IsImplicit)
+		}
+	}
+	return nil
+}
+
+func (d *DiscordClient) acceptFriendRequest(ctx context.Context, userID string, implicit bool) error {
 	_, err := d.Session.RequestWithBucketID(
 		http.MethodPut,
-		endpoint,
-		map[string]int{"consent_status": 2},
-		endpoint,
-		discordgo.WithReferer("https://discord.com/message-requests"),
+		discordgo.EndpointRelationship(userID),
+		map[string]bool{"confirm_stranger_request": false},
+		discordgo.EndpointRelationships(),
+		discordgo.WithContextProperties("Friends"),
+		discordgo.WithReferer("https://discord.com/channels/@me"),
 		discordgo.WithContext(ctx),
 	)
 	if err != nil {
-		return bridgev2.WrapErrorInStatus(fmt.Errorf("%w: %w", errMessageRequestNotAccepted, err)).
+		message := "Couldn't accept the friend request on Discord."
+		var restErr *discordgo.RESTError
+		if errors.As(err, &restErr) && restErr.Message != nil && restErr.Message.Code == errCodeFriendRequestNeedsConfirmation {
+			message = "Discord wants this friend request confirmed in the Discord app."
+		}
+		return bridgev2.WrapErrorInStatus(fmt.Errorf("%w: %w", errFriendRequestNotAccepted, err)).
 			WithStatus(event.MessageStatusRetriable).
-			WithMessage("Couldn't accept the message request on Discord.").
+			WithMessage(message).
 			WithSendNotice(true)
 	}
-
-	d.Session.State.Lock()
-	ch.IsMessageRequest = false
-	d.Session.State.Unlock()
-	zerolog.Ctx(ctx).Info().Bool("implicit", msg.Content.IsImplicit).Msg("Accepted Discord message request")
+	zerolog.Ctx(ctx).Info().Bool("implicit", implicit).Msg("Accepted Discord friend request")
 	return nil
 }
 

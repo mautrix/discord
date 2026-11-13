@@ -944,7 +944,12 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 }
 
 func (d *DiscordClient) handleRelationshipChange(ctx context.Context, userID, nickname string) {
+	rel := d.relationshipWithUserID(userID)
+	friendRequest := isPendingFriendRequest(rel)
 	ch := d.dmChannelForUserID(userID)
+	if ch == nil && friendRequest {
+		ch = d.openFriendRequestDM(ctx, userID)
+	}
 	if ch == nil {
 		return
 	}
@@ -956,6 +961,9 @@ func (d *DiscordClient) handleRelationshipChange(ctx context.Context, userID, ni
 		return
 	}
 	if portal == nil || portal.MXID == "" {
+		if friendRequest {
+			d.queueChannelResync(ctx, ch)
+		}
 		return
 	}
 
@@ -966,8 +974,8 @@ func (d *DiscordClient) handleRelationshipChange(ctx context.Context, userID, ni
 		name = bridgev2.DefaultChatName
 	}
 
-	rel := d.relationshipWithUserID(userID)
 	blocked := rel != nil && rel.Type == discordgo.RelationshipBlocked
+	messageRequest := ch.IsMessageRequest || friendRequest
 	d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
 		EventMeta: simplevent.EventMeta{
 			Type:      bridgev2.RemoteEventChatInfoChange,
@@ -976,11 +984,24 @@ func (d *DiscordClient) handleRelationshipChange(ctx context.Context, userID, ni
 		},
 		ChatInfoChange: &bridgev2.ChatInfoChange{
 			ChatInfo: &bridgev2.ChatInfo{
-				Name:        name,
-				UserBlocked: &blocked,
+				Name:           name,
+				UserBlocked:    &blocked,
+				MessageRequest: &messageRequest,
 			},
 		},
 	})
+}
+
+func (d *DiscordClient) openFriendRequestDM(ctx context.Context, userID string) *discordgo.Channel {
+	ch, err := d.Session.UserChannelCreate(userID, discordgo.WithContext(ctx))
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Str("user_id", userID).Msg("Failed to open DM for incoming friend request")
+		return nil
+	}
+	if err = d.Session.State.ChannelAdd(ch); err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Str("channel_id", ch.ID).Msg("Failed to add friend request DM to state")
+	}
+	return ch
 }
 
 func (d *DiscordClient) handleDiscordEvent(rawEvt any) {

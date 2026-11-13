@@ -888,18 +888,15 @@ func (d *DiscordClient) shouldBridgeChannel(
 		}
 	}
 
-	// Only ever bridge guild text channels.
-	// TODO(skip): Consider bridging voice channels (make sure to check for the
-	// right permission bits)?
-	if ch.Type != discordgo.ChannelTypeGuildText && ch.Type != discordgo.ChannelTypeGuildNews {
+	switch ch.Type {
+	case discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews,
+		discordgo.ChannelTypeGuildVoice, discordgo.ChannelTypeGuildStageVoice,
+		discordgo.ChannelTypeGuildForum, discordgo.ChannelTypeGuildMedia:
+	default:
 		return false
 	}
 
-	if !d.canSeeGuildChannel(ctx, ch) {
-		return false
-	}
-
-	return true
+	return d.canSeeGuildChannel(ctx, ch)
 }
 
 func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {

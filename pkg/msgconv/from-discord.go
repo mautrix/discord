@@ -295,6 +295,13 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 
 	var htmlParts []string
 
+	if msg.ID == msg.ChannelID {
+		session := ctx.Value(contextKeyDiscordClient).(*discordgo.Session)
+		if post, err := session.State.Channel(msg.ChannelID); err == nil && post.Name != "" {
+			htmlParts = append(htmlParts, fmt.Sprintf("<p><strong>%s</strong></p>", html.EscapeString(post.Name)))
+		}
+	}
+
 	if msg.Interaction != nil {
 		ghost, err := mc.Bridge.GetGhostByID(ctx, discordid.MakeUserID(msg.Interaction.User.ID))
 		// TODO(skip): Try doing ghost.UpdateInfoIfNecessary.

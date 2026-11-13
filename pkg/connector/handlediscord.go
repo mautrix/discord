@@ -305,6 +305,10 @@ func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.M
 		msg = &discordgo.Message{}
 	}
 
+	threadRootID := route.FromThreadRootMessageID()
+	if threadRootID != nil && discordid.ParseMessageID(*threadRootID) == msg.ID {
+		threadRootID = nil
+	}
 	return DiscordMessage{
 		DiscordEventMeta: &DiscordEventMeta{
 			Type:  typ,
@@ -312,7 +316,7 @@ func (d *DiscordClient) wrapDiscordMessage(ctx context.Context, msg *discordgo.M
 		},
 		Data:         msg,
 		Client:       d,
-		ThreadRootID: route.FromThreadRootMessageID(),
+		ThreadRootID: threadRootID,
 	}
 }
 
@@ -1194,6 +1198,7 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Msg("Failed to persist thread info from message create")
 		}
 		d.userCache.UpdateWithMessage(evt.Message)
+		d.queueMissingPostStarter(ctx, evt.Message, route)
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessage)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)

@@ -71,7 +71,7 @@ func (d *DiscordConnector) GetBridgeInfoVersion() (info, caps int) {
 }*/
 
 func capID() string {
-	base := "fi.mau.discord.capabilities.2026_10_27"
+	base := "fi.mau.discord.capabilities.2026_11_09"
 	if ffmpeg.Supported() {
 		return base + "+ffmpeg"
 	}
@@ -91,6 +91,9 @@ var discordCaps = &event.RoomFeatures{
 	Reaction: event.CapLevelFullySupported,
 	Edit:     event.CapLevelFullySupported,
 	Delete:   event.CapLevelFullySupported,
+
+	PollResultsAPI: true,
+
 	Formatting: event.FormattingFeatureMap{
 		event.FmtBold:               event.CapLevelFullySupported,
 		event.FmtItalic:             event.CapLevelFullySupported,

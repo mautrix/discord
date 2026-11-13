@@ -80,6 +80,11 @@ func (mc *MessageConverter) ToMatrix(
 	if textPart := mc.renderDiscordTextMessage(ctx, intent, portal, msg, source); textPart != nil {
 		parts = append(parts, textPart)
 	}
+	if msg.Poll != nil {
+		pollPart := mc.renderDiscordPoll(msg)
+		pollPart.ID = pollPartID
+		parts = append(parts, pollPart)
+	}
 
 	ctx = zerolog.Ctx(ctx).With().
 		Str("action", "convert discord message to matrix").
@@ -205,14 +210,16 @@ func (mc *MessageConverter) ToMatrix(
 		converted.ThreadRoot = &threadRoot
 	}
 
-	// TODO This is sorta gross; it might be worth bundling these parameters
-	// into a struct.
-	mc.addReplyToConvertedMessage(
-		ctx,
-		converted,
-		source,
-		msg,
-	)
+	if len(parts) != 1 || parts[0].Type != event.EventUnstablePollEnd {
+		// TODO This is sorta gross; it might be worth bundling these parameters
+		// into a struct.
+		mc.addReplyToConvertedMessage(
+			ctx,
+			converted,
+			source,
+			msg,
+		)
+	}
 
 	return converted
 }
@@ -291,6 +298,8 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 			MsgType: event.MsgEmote,
 			Body:    "(Joined the server.)",
 		}}
+	case MessageTypePollResult:
+		return mc.renderDiscordPollResult(ctx, portal, msg)
 	}
 
 	var htmlParts []string

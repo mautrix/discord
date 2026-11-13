@@ -1257,6 +1257,27 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}
+	case *discordgo.MessageReactionAddMany:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		for _, batch := range evt.Reactions {
+			for _, userID := range batch.Users {
+				wrappedEvt, err := d.wrapDiscordReaction(ctx, &discordgo.MessageReaction{
+					UserID:    userID,
+					MessageID: evt.MessageID,
+					Emoji:     batch.Emoji,
+					ChannelID: evt.ChannelID,
+					GuildID:   evt.GuildID,
+				}, route, true)
+				if err != nil {
+					log.Err(err).Msg("Dropping incoming reaction batch due to error")
+					break
+				}
+				d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+			}
+		}
 	// TODO case *discordgo.MessageReactionRemoveAll:
 	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
 	case *discordgo.MessageReactionRemove:

@@ -1093,7 +1093,10 @@ func (d *DiscordClient) computeMutedUntil(muted bool, cfg *discordgo.MuteConfig)
 // This method works with private channels if an empty string is passed as the
 // guild ID.
 func (d *DiscordClient) channelMutedUntil(guildID, parentID, channelID string) time.Time {
-	settings := d.guildSettingsForGuildID(guildID)
+	return d.mutedUntilWithSettings(d.guildSettingsForGuildID(guildID), parentID, channelID)
+}
+
+func (d *DiscordClient) mutedUntilWithSettings(settings *discordgo.UserGuildSettings, parentID, channelID string) time.Time {
 	if settings == nil {
 		return bridgev2.Unmuted
 	}

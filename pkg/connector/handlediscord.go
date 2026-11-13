@@ -866,6 +866,9 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		d.gatewayReady.Store(true)
 		readiedBefore := d.seenReady.Swap(true)
 
+		if evt.AuthToken != "" {
+			d.saveRefreshedToken(ctx, evt.AuthToken)
+		}
 		d.applyReadyPayload(ctx, evt)
 		// A READY after the first one means the gateway handed us a fresh
 		// session instead of resuming (our resume was refused or the session

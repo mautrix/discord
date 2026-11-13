@@ -16,7 +16,7 @@ require (
 	golang.org/x/net v0.61.0
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
-	maunium.net/go/mautrix v0.32.1-0.20261105144219-34c60c3608bd
+	maunium.net/go/mautrix v0.32.1-0.20261111004757-17e64bf38105
 )
 
 require (
@@ -50,6 +50,6 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20261109170835-8a1af10d4a17
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20261112155533-db8398b15663
 
 replace github.com/imroc/req/v3 => github.com/beeper/req/v3 v3.0.0-20260925135712-b49593750e56

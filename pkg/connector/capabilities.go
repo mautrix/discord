@@ -18,8 +18,11 @@ package connector
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"go.mau.fi/util/ffmpeg"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -78,12 +81,32 @@ func capID() string {
 	return base
 }
 
-// TODO: This limit is increased depending on user subscription status (Discord Nitro).
 const MaxTextLength = 2000
+const MaxTextLengthNitro = 4000
 
-// TODO: This limit is increased depending on user subscription status (Discord Nitro).
-// TODO: Verify this figure (10 MiB).
-const MaxFileSize = 10485760
+const MaxFileSize = 10 * 1024 * 1024
+
+func userMaxFileSize(premiumType discordgo.UserPremiumType) int64 {
+	switch premiumType {
+	case discordgo.UserPremiumTypeNitroClassic, discordgo.UserPremiumTypeNitroBasic:
+		return 50 * 1024 * 1024
+	case discordgo.UserPremiumTypeNitro:
+		return 500 * 1024 * 1024
+	default:
+		return MaxFileSize
+	}
+}
+
+func guildMaxFileSize(guild *discordgo.Guild) int64 {
+	if guild == nil {
+		return MaxFileSize
+	} else if slices.Contains(guild.Features, "MAX_FILE_SIZE_100_MB") {
+		return 100 * 1024 * 1024
+	} else if slices.Contains(guild.Features, "MAX_FILE_SIZE_50_MB") {
+		return 50 * 1024 * 1024
+	}
+	return MaxFileSize
+}
 
 var discordCaps = &event.RoomFeatures{
 	ID:       capID(),
@@ -197,10 +220,43 @@ func init() {
 }
 
 func (d *DiscordClient) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *event.RoomFeatures {
+	guildID := portal.Metadata.(*discordid.PortalMetadata).GuildID
+	caps := discordCaps
 	if portal.RoomType == database.RoomTypeDM {
-		return discordDMCaps
-	} else if portal.Metadata.(*discordid.PortalMetadata).GuildID == "" {
-		return discordNonGuildCaps
+		caps = discordDMCaps
+	} else if guildID == "" {
+		caps = discordNonGuildCaps
 	}
-	return discordCaps
+	return d.withAccountLimits(caps, guildID)
+}
+
+func (d *DiscordClient) withAccountLimits(caps *event.RoomFeatures, guildID string) *event.RoomFeatures {
+	if d.Session == nil || d.Session.State == nil {
+		return caps
+	}
+	maxText := MaxTextLength
+	maxFileSize := int64(MaxFileSize)
+	d.Session.State.RLock()
+	if user := d.Session.State.User; user != nil {
+		if user.PremiumType == discordgo.UserPremiumTypeNitro {
+			maxText = MaxTextLengthNitro
+		}
+		maxFileSize = userMaxFileSize(user.PremiumType)
+	}
+	d.Session.State.RUnlock()
+	if guildID != "" {
+		guild, _ := d.Session.State.Guild(guildID)
+		maxFileSize = max(maxFileSize, guildMaxFileSize(guild))
+	}
+	if maxText == MaxTextLength && maxFileSize == MaxFileSize {
+		return caps
+	}
+	caps = caps.Clone()
+	caps.ID += fmt.Sprintf("+limits_%d_%d", maxText, maxFileSize)
+	caps.MaxTextLength = maxText
+	for _, file := range caps.File {
+		file.MaxSize = maxFileSize
+		file.MaxCaptionLength = maxText
+	}
+	return caps
 }

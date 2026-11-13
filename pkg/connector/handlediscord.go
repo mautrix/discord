@@ -1064,6 +1064,11 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {
 			log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync guild roles from guild create event")
 		}
+		if _, bridged := d.bridgedGuildIDs()[evt.ID]; !d.Session.IsUser && bridged {
+			if err := d.syncGuild(ctx, evt.ID); err != nil {
+				log.Err(err).Str("guild_id", evt.ID).Msg("Failed to sync bot guild")
+			}
+		}
 	case *discordgo.GuildUpdate:
 		d.handleGuildUpdate(ctx, evt.Guild)
 		if err := d.syncGuildRoles(ctx, evt.ID, evt.Roles); err != nil {

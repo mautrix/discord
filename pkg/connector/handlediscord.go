@@ -98,6 +98,9 @@ func (m *DiscordMessage) ConvertEdit(
 		m.Data,
 		m.ThreadRootID,
 	)
+	if len(newlyConverted.Parts) == 0 {
+		return nil, fmt.Errorf("%w (edit converted to no parts)", bridgev2.ErrIgnoringRemoteEvent)
+	}
 
 	// Detect the legacy scheme of naively assigning incrementing part IDs
 	// without using stable identifiers, so we don't cause churn on previously

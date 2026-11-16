@@ -48,6 +48,8 @@ type MessageConverter struct {
 
 	nextDiscordUploadID atomic.Int32
 
+	unencryptedReuploads reuploadCache
+
 	MaxFileSize int64
 }
 
@@ -74,6 +76,9 @@ func NewMessageConverter(bridge *bridgev2.Bridge) *MessageConverter {
 			}
 			return escapeDiscordMarkdown(s)
 		},
+		ImageConverter: func(src, alt, title, width, height string, isEmoji bool) string {
+			return escapeDiscordMarkdown(alt)
+		},
 		SpoilerConverter: func(text, reason string, ctx format.Context) string {
 			if reason != "" {
 				return fmt.Sprintf("(%s) ||%s||", reason, text)
@@ -89,11 +94,11 @@ func NewMessageConverter(bridge *bridgev2.Bridge) *MessageConverter {
 				}
 				return text
 			} else if !discordLinkRegexFull.MatchString(href) {
-				return fmt.Sprintf("%s (%s)", escapeDiscordMarkdown(text), escapeDiscordMarkdown(href))
+				return fmt.Sprintf("%s (%s)", text, escapeDiscordMarkdown(href))
 			} else if !allowPreview {
-				return fmt.Sprintf("[%s](<%s>)", escapeDiscordMarkdown(text), href)
+				return fmt.Sprintf("[%s](<%s>)", text, href)
 			} else {
-				return fmt.Sprintf("[%s](%s)", escapeDiscordMarkdown(text), href)
+				return fmt.Sprintf("[%s](%s)", text, href)
 			}
 		},
 	}

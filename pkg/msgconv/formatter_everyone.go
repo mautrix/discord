@@ -53,7 +53,7 @@ func (n *astDiscordEveryone) String() string {
 
 type discordEveryoneParser struct{}
 
-var discordEveryoneRegex = regexp.MustCompile(`@(everyone|here)`)
+var discordEveryoneRegex = regexp.MustCompile(`^@(everyone|here)`)
 var defaultDiscordEveryoneParser = &discordEveryoneParser{}
 
 func (s *discordEveryoneParser) Trigger() []byte {

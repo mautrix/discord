@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"mime"
 	"net/url"
 	"path"
 	"strconv"
@@ -140,6 +141,13 @@ func (mc *MessageConverter) ToMatrix(
 		parts = append(parts, &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgText,
 			Body:    fmt.Sprintf("Created a thread: %s", msg.Thread.Name),
+		}})
+	}
+
+	if len(parts) == 0 && msg.Flags&discordgo.MessageFlagsLoading != 0 {
+		parts = append(parts, &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
+			MsgType: event.MsgNotice,
+			Body:    "Thinking…",
 		}})
 	}
 
@@ -851,6 +859,9 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	}
 
 	if mc.DirectMedia {
+		if content.Info.MimeType == "" {
+			content.Info.MimeType = mime.TypeByExtension(strings.ToLower(path.Ext(fileName)))
+		}
 		if mc.CacheDirectMediaAttachment != nil {
 			mc.CacheDirectMediaAttachment(mediaInfo, att.URL)
 		}

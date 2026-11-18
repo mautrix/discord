@@ -75,7 +75,7 @@ type DiscordMessage struct {
 
 func (m *DiscordMessage) ShouldCreatePortal() bool {
 	// Do not create a portal merely to bridge a message deletion or edit.
-	return m.Type == bridgev2.RemoteEventMessage
+	return m.Type == bridgev2.RemoteEventMessage && (m.route.FromChannel == nil || !m.route.FromChannel.IsSpam)
 }
 
 func (m *DiscordMessage) ConvertEdit(

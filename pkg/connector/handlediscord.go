@@ -167,6 +167,31 @@ func (m *DiscordMessage) ConvertEdit(
 		addedParts = nil
 	case textPart != nil && hasDBTextPart:
 		edit.ModifiedParts = append(edit.ModifiedParts, textPart.ToEditPart(dbTextPart))
+	}
+	for len(addedParts) > 0 {
+		idx := slices.IndexFunc(edit.DeletedParts, func(part *database.Message) bool {
+			return part.PartID != ""
+		})
+		if idx < 0 {
+			break
+		}
+		dbPart := edit.DeletedParts[idx]
+		edit.DeletedParts = slices.Delete(edit.DeletedParts, idx, idx+1)
+		newPart := addedParts[0]
+		addedParts = addedParts[1:]
+		log.Debug().
+			Str("old_part_id", string(dbPart.PartID)).
+			Str("new_part_id", string(newPart.ID)).
+			Msg("Replacing removed part with new part in place")
+		dbPart.PartID = newPart.ID
+		if textPart != nil && !hasDBTextPart && firstMediaPart == nil && newPart.Content.MsgType.IsMedia() {
+			newPart = bridgev2.MergeCaption(textPart, newPart)
+			textPart = nil
+		}
+		edit.ModifiedParts = append(edit.ModifiedParts, newPart.ToEditPart(dbPart))
+	}
+	switch {
+	case hasDBTextPart:
 	case textPart != nil && firstMediaPart != nil:
 		log.Debug().
 			Str("media_part_id", string(firstMediaPart.ID)).

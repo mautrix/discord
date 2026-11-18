@@ -30,12 +30,15 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
 var (
 	_ bridgev2.BackfillingNetworkAPI           = (*DiscordClient)(nil)
 	_ bridgev2.BackfillingNetworkAPIWithLimits = (*DiscordClient)(nil)
 )
+
+const maxConcurrentHistoryFetches = 4
 
 func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	if !d.IsLoggedIn() {
@@ -87,11 +90,20 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 			beforeID = anchorID
 		}
 	}
+	if !fetchParams.Forward && fetchParams.Cursor != "" {
+		beforeID = string(fetchParams.Cursor)
+	}
 
 	// ChannelMessages returns messages ordered from newest to oldest.
 	count := min(fetchParams.Count, 100)
+	select {
+	case d.historyFetchSem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	log.Debug().Msg("Fetching channel history for backfill")
 	msgs, err := d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
+	<-d.historyFetchSem
 	var restErr *discordgo.RESTError
 	if errors.As(err, &restErr) && restErr.Message != nil &&
 		(restErr.Message.Code == discordgo.ErrCodeMissingAccess || restErr.Message.Code == discordgo.ErrCodeUnknownChannel) {
@@ -144,7 +156,9 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 			}
 		}
 
-		// NOTE: For now, we aren't backfilling reactions. This is because:
+		// NOTE: Only the user's own reactions are backfilled, since history
+		// only says whether the user reacted (`me`). Other reactions aren't,
+		// because:
 		//
 		// - Discord does not provide enough historical reaction data in the
 		//	 response from the message history endpoint to construct valid
@@ -180,6 +194,7 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 			Sender:           sender,
 			Timestamp:        msgTs,
 			StreamOrder:      parsedMsgID,
+			Reactions:        d.ownBackfillReactions(ctx, msg),
 		})
 
 		if fetchParams.ThreadRoot == "" && msg.Flags&discordgo.MessageFlagsHasThread != 0 {
@@ -210,8 +225,13 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	if readState := d.readStateForID(channelID); !entireBatchWasProvablyRead && readState != nil && readState.LastMessageID != "" {
 		readUpTo, _ = discordgo.SnowflakeTimestamp(string(readState.LastMessageID))
 	}
+	var cursor networkid.PaginationCursor
+	if !fetchParams.Forward && len(msgs) > 0 {
+		cursor = networkid.PaginationCursor(msgs[len(msgs)-1].ID)
+	}
 	return &bridgev2.FetchMessagesResponse{
 		Messages: converted,
+		Cursor:   cursor,
 		Forward:  fetchParams.Forward,
 		MarkRead: entireBatchWasProvablyRead,
 		ReadUpTo: readUpTo,
@@ -236,4 +256,32 @@ func (d *DiscordClient) GetBackfillMaxBatchCount(
 	default:
 		return backfillQueueConfig.GetOverride("channel")
 	}
+}
+
+func (d *DiscordClient) ownBackfillReactions(ctx context.Context, msg *discordgo.Message) []*bridgev2.BackfillReaction {
+	var reactions []*bridgev2.BackfillReaction
+	selfID := d.Session.State.User.ID
+	for _, reaction := range msg.Reactions {
+		if !reaction.Me || reaction.Emoji == nil {
+			continue
+		}
+		wrapped, err := d.wrapDiscordReaction(ctx, &discordgo.MessageReaction{
+			UserID:    selfID,
+			MessageID: msg.ID,
+			ChannelID: msg.ChannelID,
+			GuildID:   msg.GuildID,
+			Emoji:     *reaction.Emoji,
+		}, &router.Route{}, true)
+		if err != nil || wrapped == nil {
+			zerolog.Ctx(ctx).Err(err).Str("message_id", msg.ID).Msg("Failed to convert own reaction while backfilling")
+			continue
+		}
+		reactions = append(reactions, &bridgev2.BackfillReaction{
+			Sender:       d.makeEventSenderWithID(selfID),
+			EmojiID:      wrapped.EmojiID,
+			Emoji:        wrapped.Emoji,
+			ExtraContent: wrapped.Extra,
+		})
+	}
+	return reactions
 }

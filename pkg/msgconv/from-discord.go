@@ -32,6 +32,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
@@ -219,6 +220,28 @@ func systemMessagePart(text string) *bridgev2.ConvertedMessagePart {
 	}}
 }
 
+func recipientChangePart(portal *bridgev2.Portal, msg *discordgo.Message) *bridgev2.ConvertedMessagePart {
+	if len(msg.Mentions) == 0 || msg.Mentions[0] == nil {
+		return nil
+	}
+	target := msg.Mentions[0]
+	isGroup := portal != nil && portal.RoomType == database.RoomTypeGroupDM
+	switch {
+	case msg.Type == discordgo.MessageTypeRecipientAdd && isGroup:
+		return systemMessagePart(fmt.Sprintf("added %s to the group.", target.DisplayName()))
+	case msg.Type == discordgo.MessageTypeRecipientAdd:
+		return systemMessagePart(fmt.Sprintf("added %s to the thread.", target.DisplayName()))
+	case msg.Author != nil && msg.Author.ID == target.ID && isGroup:
+		return systemMessagePart("left the group.")
+	case msg.Author != nil && msg.Author.ID == target.ID:
+		return systemMessagePart("left the thread")
+	case isGroup:
+		return systemMessagePart(fmt.Sprintf("removed %s from the group.", target.DisplayName()))
+	default:
+		return systemMessagePart(fmt.Sprintf("removed %s from the thread.", target.DisplayName()))
+	}
+}
+
 const forwardTemplateHTML = `<blockquote>
 <p>↷ Forwarded</p>
 %s
@@ -307,6 +330,15 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 		discordgo.MessageTypeUserPremiumGuildSubscriptionTierThree:
 		level := int(msg.Type-discordgo.MessageTypeUserPremiumGuildSubscriptionTierOne) + 1
 		return systemMessagePart(fmt.Sprintf("just boosted the server! The server has achieved Level %d!", level))
+	case discordgo.MessageTypeRecipientAdd, discordgo.MessageTypeRecipientRemove:
+		if part := recipientChangePart(portal, msg); part != nil {
+			return part
+		}
+	case discordgo.MessageTypeChannelNameChange:
+		if portal != nil && portal.RoomType == database.RoomTypeGroupDM {
+			return systemMessagePart(fmt.Sprintf("changed the group name: %s", msg.Content))
+		}
+		return systemMessagePart(fmt.Sprintf("changed the channel name: %s", msg.Content))
 	case discordgo.MessageTypeChannelFollowAdd:
 		return systemMessagePart(fmt.Sprintf("added %s to this channel. Its most important updates will show up here.", msg.Content))
 	}

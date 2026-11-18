@@ -137,6 +137,19 @@ func (mc *MessageConverter) ToMatrix(
 		}
 	}
 
+	for _, item := range collectComponentMedia(msg.Components, false) {
+		key := item.key()
+		if !handledIDs.Add(key) {
+			continue
+		}
+
+		log := log.With().Str("component_media_url", item.Media.URL).Logger()
+		if part := mc.renderDiscordComponentMedia(log.WithContext(ctx), source, msg, &item); part != nil {
+			part.ID = discordid.MakePartID(key)
+			parts = append(parts, part)
+		}
+	}
+
 	if len(parts) == 0 && msg.Thread != nil {
 		parts = append(parts, &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
 			MsgType: event.MsgText,
@@ -341,7 +354,13 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	}
 
 	if len(msg.Components) > 0 {
-		htmlParts = append(htmlParts, msgComponentTemplateHTML)
+		componentsHTML, interactive := mc.renderDiscordComponentsHTML(ctx, portal, source, msg.Components)
+		if componentsHTML != "" {
+			htmlParts = append(htmlParts, componentsHTML)
+		}
+		if interactive {
+			htmlParts = append(htmlParts, msgComponentTemplateHTML)
+		}
 	}
 
 	if len(htmlParts) == 0 {

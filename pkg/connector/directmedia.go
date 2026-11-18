@@ -34,6 +34,7 @@ import (
 	"maunium.net/go/mautrix/mediaproxy"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
+	"go.mau.fi/mautrix-discord/pkg/msgconv"
 )
 
 var (
@@ -190,7 +191,7 @@ func (d *DiscordConnector) refreshAttachmentURL(
 	}
 
 	for _, msg := range messages {
-		attachments := msg.Attachments
+		attachments := slices.Concat(msg.Attachments, msgconv.ComponentAttachments(msg))
 		for _, snapshot := range msg.MessageSnapshots {
 			if snapshot.Message != nil {
 				attachments = slices.Concat(attachments, snapshot.Message.Attachments)

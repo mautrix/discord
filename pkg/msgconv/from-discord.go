@@ -677,7 +677,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 			reupload, err := mc.ReuploadUnknownMedia(ctx, embed.Author.ProxyIconURL, false)
 
 			if err != nil {
-				log.Warn().Err(err).Msg("Failed to reupload author icon in embed")
+				logReuploadError(ctx, err, "Failed to reupload author icon in embed")
 			} else {
 				authorHTML = fmt.Sprintf(embedHTMLAuthorWithImage, reupload.MXC, authorNameHTML)
 			}
@@ -733,7 +733,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 	if embed.Image != nil {
 		reupload, err := mc.ReuploadUnknownMedia(ctx, embed.Image.ProxyURL, false)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to reupload image in embed")
+			logReuploadError(ctx, err, "Failed to reupload image in embed")
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, reupload.MXC))
 		}
@@ -762,7 +762,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 			reupload, err := mc.ReuploadUnknownMedia(ctx, embed.Footer.ProxyIconURL, false)
 
 			if err != nil {
-				log.Warn().Err(err).Msg("Failed to reupload footer icon in embed")
+				logReuploadError(ctx, err, "Failed to reupload footer icon in embed")
 			} else {
 				footerHTML = fmt.Sprintf(embedHTMLFooterWithImage, reupload.MXC, html.EscapeString(embed.Footer.Text), datePart)
 			}
@@ -790,7 +790,7 @@ func (mc *MessageConverter) renderDiscordLinkEmbedImage(
 ) {
 	reupload, err := mc.ReuploadUnknownMedia(ctx, url, true)
 	if err != nil {
-		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to reupload image in URL preview, ignoring")
+		logReuploadError(ctx, err, "Failed to reupload image in URL preview, ignoring")
 		return
 	}
 

@@ -553,8 +553,6 @@ func (d *DiscordClient) handleChannelUpdate(ctx context.Context, upd *discordgo.
 	}
 	if upd.ParentID == old.ParentID {
 		patch.ParentID = nil
-	} else if mutedUntil := d.channelMutedUntil(upd.GuildID, upd.ParentID, upd.ID); !mutedUntil.Equal(d.channelMutedUntil(upd.GuildID, old.ParentID, upd.ID)) {
-		patch.UserLocal = &bridgev2.UserLocalPortalInfo{MutedUntil: &mutedUntil}
 	}
 	if upd.IsMessageRequest == old.IsMessageRequest {
 		patch.MessageRequest = nil

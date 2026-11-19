@@ -102,6 +102,10 @@ func (d *DiscordChatResync) CheckNeedsBackfill(ctx context.Context, latestBridge
 		Bool("has_latest_bridged", latestBridged != nil).
 		Logger()
 
+	if isPostChannel(d.channel) {
+		return false, nil
+	}
+
 	if latestBridged == nil {
 		needsBackfill := d.channel.LastMessageID != ""
 		log.Debug().Bool("needs_backfill", needsBackfill).Msg("Computed needs backfill")

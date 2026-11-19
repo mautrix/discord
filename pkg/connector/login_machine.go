@@ -43,6 +43,15 @@ var ErrMissingLoginInput = bridgev2.RespError{
 	StatusCode: http.StatusBadRequest,
 }
 
+func newClientHTTPClient(rt bridgev2.FingerprintingRoundTripper) (*http.Client, error) {
+	rt.SetFingerprint("chrome")
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cookie jar: %w", err)
+	}
+	return &http.Client{Transport: rt, Jar: jar}, nil
+}
+
 var ErrClientHTTPFailed = bridgev2.RespError{
 	ErrCode:    "FI.MAU.DISCORD.CLIENT_HTTP_FAILED",
 	Err:        "The request did not complete on this device. Check your internet connection, VPN or content filter and try again.",
@@ -219,12 +228,7 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 
 func (d *DiscordMachineLogin) httpClient(ctx context.Context, clientHTTP bridgev2.FingerprintingRoundTripper) (*http.Client, error) {
 	if clientHTTP != nil {
-		clientHTTP.SetFingerprint("chrome")
-		jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create cookie jar: %w", err)
-		}
-		return &http.Client{Transport: clientHTTP, Jar: jar}, nil
+		return newClientHTTPClient(clientHTTP)
 	}
 
 	// Resolve the HTTP client settings (proxy) for use during login.

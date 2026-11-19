@@ -42,16 +42,36 @@ type DiscordRemoteAuthLogin struct {
 	captcha          *discordauth.Captcha
 }
 
+var _ bridgev2.LoginProcessWithParams = (*DiscordRemoteAuthLogin)(nil)
 var _ bridgev2.LoginProcessDisplayAndWait = (*DiscordRemoteAuthLogin)(nil)
 var _ bridgev2.LoginProcessCookies = (*DiscordRemoteAuthLogin)(nil)
 
 func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
+	return dl.StartWithParams(ctx, bridgev2.LoginStartParams{})
+}
+
+func (dl *DiscordRemoteAuthLogin) StartWithParams(ctx context.Context, params bridgev2.LoginStartParams) (*bridgev2.LoginStep, error) {
 	log := zerolog.Ctx(ctx)
 
-	log.Debug().Msg("Creating new remoteauth client")
+	log.Debug().
+		Bool("client_http", params.HTTP != nil).
+		Bool("client_websocket", params.WebSocketHTTP != nil).
+		Msg("Creating new remoteauth client")
 	restClient, wsClient, err := dl.connector.resolveTransport(ctx, "login", dl.connector.Config.ProxyLoginRemoteAuth)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't resolve proxy for remoteauth: %w", err)
+	}
+	if params.HTTP != nil {
+		restClient, err = newClientHTTPClient(params.HTTP)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if params.WebSocketHTTP != nil {
+		wsClient, err = newClientHTTPClient(params.WebSocketHTTP)
+		if err != nil {
+			return nil, err
+		}
 	}
 	client, err := remoteauth.New(wsClient, restClient)
 	if err != nil {
@@ -67,6 +87,9 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 		log.Err(err).Msg("Couldn't connect to Discord remoteauth websocket")
 		close(dl.qrChan)
 		close(dl.doneChan)
+		if isClientHTTPError(err) {
+			return nil, userVisibleLoginError(ctx, err)
+		}
 		return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to connect to Discord for QR login")).WithInternalError(err)
 	}
 	dl.remoteAuthClient = client
@@ -107,9 +130,13 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 	log.Debug().Msg("Waiting for remoteauth")
 	select {
 	case <-dl.doneChan:
-		user, err := dl.remoteAuthClient.Result()
-		if err != nil {
+		if _, err := dl.remoteAuthClient.Result(); err != nil {
 			log.Err(err).Msg("Discord remoteauth failed")
+			return dl.stepForError(ctx, err)
+		}
+		user, err := dl.remoteAuthClient.RedeemTicket(discordgo.WithContext(ctx))
+		if err != nil {
+			log.Err(err).Msg("Failed to redeem Discord remoteauth ticket")
 			return dl.stepForError(ctx, err)
 		}
 		log.Debug().Msg("Discord remoteauth succeeded")

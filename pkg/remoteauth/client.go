@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -116,13 +117,20 @@ func (c *Client) Result() (User, error) {
 }
 
 func (c *Client) RedeemTicket(options ...discordgo.RequestOption) (User, error) {
+	c.Lock()
+	ticket, user := c.ticket, c.user
+	c.Unlock()
+	if ticket == "" {
+		return User{}, errors.New("remote auth ended without a login ticket")
+	}
+
 	sess, err := discordgo.New("")
 	if err != nil {
 		return User{}, err
 	}
 	sess.Client = c.restHTTPClient
 
-	body := map[string]string{"ticket": c.ticket}
+	body := map[string]string{"ticket": ticket}
 	resp, err := sess.RequestWithBucketID(http.MethodPost, discordgo.EndpointRemoteAuthLogin, body, discordgo.EndpointRemoteAuthLogin, options...)
 	if err != nil {
 		return User{}, err
@@ -140,7 +148,6 @@ func (c *Client) RedeemTicket(options ...discordgo.RequestOption) (User, error) 
 		return User{}, err
 	}
 
-	user := c.user
 	user.Token = string(plaintext)
 	return user, nil
 }

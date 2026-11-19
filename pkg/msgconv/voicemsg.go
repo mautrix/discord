@@ -91,6 +91,14 @@ func downsampleWaveform(waveform []int, buckets int) []int {
 	return samples
 }
 
+func discordWaveformToMatrix(waveform []byte) []int {
+	samples := make([]int, len(waveform))
+	for i, sample := range waveform {
+		samples[i] = int(sample) * 4
+	}
+	return samples
+}
+
 func matrixWaveformToDiscord(samples []int, durationMs int) []byte {
 	if len(samples) == 0 {
 		return nil

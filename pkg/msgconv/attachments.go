@@ -23,7 +23,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
@@ -31,6 +34,37 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
+
+type ExternalMediaGoneError struct {
+	StatusCode int
+}
+
+func (e ExternalMediaGoneError) Error() string {
+	return fmt.Sprintf("external media is no longer available (status code %d)", e.StatusCode)
+}
+
+func (e ExternalMediaGoneError) Unwrap() error {
+	return bridgev2.ErrMediaDownloadFailed
+}
+
+func isGoneExternalMedia(downloadURL string, statusCode int) bool {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusNotFound && statusCode != http.StatusUnsupportedMediaType {
+		return false
+	}
+	parsed, err := url.Parse(downloadURL)
+	return err == nil &&
+		strings.HasPrefix(parsed.Host, "images-ext-") &&
+		strings.HasSuffix(parsed.Host, ".discordapp.net") &&
+		strings.HasPrefix(parsed.Path, "/external/")
+}
+
+func logReuploadError(ctx context.Context, err error, msg string) {
+	if errors.As(err, &ExternalMediaGoneError{}) {
+		zerolog.Ctx(ctx).Debug().Err(err).Msg(msg)
+	} else {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg(msg)
+	}
+}
 
 type ReuploadedAttachment struct {
 	MXC      id.ContentURIString
@@ -45,6 +79,33 @@ func (mc *MessageConverter) ReuploadUnknownMedia(
 	allowEncryption bool,
 ) (*ReuploadedAttachment, error) {
 	return mc.ReuploadMedia(ctx, url, "", "", -1, allowEncryption)
+}
+
+const maxReuploadCacheSize = 4096
+
+type reuploadCache struct {
+	lock    sync.Mutex
+	entries map[string]*ReuploadedAttachment
+}
+
+func (rc *reuploadCache) get(url string) *ReuploadedAttachment {
+	rc.lock.Lock()
+	defer rc.lock.Unlock()
+	return rc.entries[url]
+}
+
+func (rc *reuploadCache) put(url string, reupload *ReuploadedAttachment) {
+	rc.lock.Lock()
+	defer rc.lock.Unlock()
+	if rc.entries == nil {
+		rc.entries = make(map[string]*ReuploadedAttachment)
+	} else if len(rc.entries) >= maxReuploadCacheSize {
+		for key := range rc.entries {
+			delete(rc.entries, key)
+			break
+		}
+	}
+	rc.entries[url] = reupload
 }
 
 func mib(size int64) float64 {
@@ -66,6 +127,11 @@ func (mc *MessageConverter) ReuploadMedia(
 	if allowEncryption {
 		roomID = ctx.Value(contextKeyPortal).(*bridgev2.Portal).MXID
 	}
+	if !allowEncryption {
+		if cached := mc.unencryptedReuploads.get(downloadURL); cached != nil {
+			return cached, nil
+		}
+	}
 
 	req, err := http.NewRequest(http.MethodGet, downloadURL, nil)
 	if err != nil {
@@ -82,7 +148,13 @@ func (mc *MessageConverter) ReuploadMedia(
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode > 300 {
+	if resp.StatusCode > 300 && isGoneExternalMedia(downloadURL, resp.StatusCode) {
+		zerolog.Ctx(ctx).Debug().
+			Str("media_url", downloadURL).
+			Int("status_code", resp.StatusCode).
+			Msg("External media is no longer available")
+		return nil, ExternalMediaGoneError{StatusCode: resp.StatusCode}
+	} else if resp.StatusCode > 300 {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		logEvt := zerolog.Ctx(ctx).Error().
 			Str("media_url", downloadURL).
@@ -126,10 +198,14 @@ func (mc *MessageConverter) ReuploadMedia(
 		return nil, err
 	}
 
-	return &ReuploadedAttachment{
+	reupload := &ReuploadedAttachment{
 		Size:     int(size),
 		MXC:      mxc,
 		File:     file,
 		MimeType: mimeType,
-	}, nil
+	}
+	if !allowEncryption {
+		mc.unencryptedReuploads.put(downloadURL, reupload)
+	}
+	return reupload, nil
 }

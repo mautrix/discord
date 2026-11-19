@@ -30,7 +30,6 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"go.mau.fi/mautrix-discord/pkg/discordid"
-	"go.mau.fi/mautrix-discord/pkg/msgconv"
 	"go.mau.fi/mautrix-discord/pkg/router"
 )
 
@@ -190,7 +189,7 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 		}
 
 		convertedMsg := d.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, d.UserLogin, d.Session, msg, knownThreadRootID)
-		msgconv.MergeCaption(convertedMsg)
+		convertedMsg.MergeCaption()
 		converted = append(converted, &bridgev2.BackfillMessage{
 			ID:               discordid.MakeMessageID(msg.ID),
 			ConvertedMessage: convertedMsg,

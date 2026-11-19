@@ -22,7 +22,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
-	"maps"
 	"mime"
 	"net/url"
 	"path"
@@ -413,11 +412,9 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	}
 
 	content := format.HTMLToContent(fullHTML)
-	extraContent := map[string]any{
-		"com.beeper.linkpreviews": previews,
-	}
+	content.BeeperLinkPreviews = previews
 
-	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
+	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content}
 }
 
 func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source *bridgev2.UserLogin, msg *discordgo.Message, msgTSText string) (string, error) {
@@ -995,27 +992,4 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	}
 
 	return part
-}
-
-func MergeCaption(cm *bridgev2.ConvertedMessage) {
-	if len(cm.Parts) != 2 {
-		return
-	}
-	textPart, mediaPart := cm.Parts[0], cm.Parts[1]
-	if textPart.ID != "" || textPart.Type != event.EventMessage || textPart.Content.MsgType != event.MsgText ||
-		mediaPart.Type != event.EventMessage || !mediaPart.Content.MsgType.IsMedia() {
-		return
-	}
-	cm.Parts = []*bridgev2.ConvertedMessagePart{MergeCaptionPart(textPart, mediaPart)}
-}
-
-func MergeCaptionPart(textPart, mediaPart *bridgev2.ConvertedMessagePart) *bridgev2.ConvertedMessagePart {
-	merged := bridgev2.MergeCaption(textPart, mediaPart)
-	if textPart != nil && mediaPart != nil && len(textPart.Extra) > 0 {
-		extra := make(map[string]any, len(mediaPart.Extra)+len(textPart.Extra))
-		maps.Copy(extra, textPart.Extra)
-		maps.Copy(extra, mediaPart.Extra)
-		merged.Extra = extra
-	}
-	return merged
 }

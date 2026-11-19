@@ -17,6 +17,10 @@
 package discordid
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"time"
+
 	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/database"
 )
@@ -55,4 +59,39 @@ func (ulm *UserLoginMetadata) CopyFrom(incoming any) {
 	ulm.HeartbeatSession = discordgo.NewHeartbeatSession()
 
 	// Retain the BridgedGuildIDs from the existing login.
+}
+
+type MessageMetadata struct {
+	EditedTimestamp time.Time `json:"edited_timestamp,omitzero"`
+	ContentHash     []byte    `json:"content_hash,omitempty"`
+}
+
+func NewMessageMetadata(msg *discordgo.Message) *MessageMetadata {
+	meta := &MessageMetadata{}
+	if msg.EditedTimestamp != nil {
+		meta.EditedTimestamp = msg.EditedTimestamp.Truncate(time.Millisecond)
+	}
+	attachmentIDs := make([]string, len(msg.Attachments))
+	for i, att := range msg.Attachments {
+		attachmentIDs[i] = att.ID + "/" + att.Filename + "/" + att.Description
+	}
+	stickerIDs := make([]string, len(msg.StickerItems))
+	for i, sticker := range msg.StickerItems {
+		stickerIDs[i] = sticker.ID
+	}
+	data, err := json.Marshal(map[string]any{
+		"content":           msg.Content,
+		"embeds":            msg.Embeds,
+		"attachments":       attachmentIDs,
+		"stickers":          stickerIDs,
+		"components":        msg.Components,
+		"message_snapshots": msg.MessageSnapshots,
+		"poll":              msg.Poll,
+		"mention_everyone":  msg.MentionEveryone,
+	})
+	if err == nil {
+		hash := sha256.Sum256(data)
+		meta.ContentHash = hash[:]
+	}
+	return meta
 }

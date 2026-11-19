@@ -30,5 +30,8 @@ func (d *DiscordConnector) GetDBMetaTypes() database.MetaTypes {
 		UserLogin: func() any {
 			return &discordid.UserLoginMetadata{}
 		},
+		Message: func() any {
+			return &discordid.MessageMetadata{}
+		},
 	}
 }

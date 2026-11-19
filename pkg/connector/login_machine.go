@@ -176,7 +176,7 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 			BrowserVersion:    discordgo.DroidBrowserVersion,
 			OSVersion:         "10",
 			ReleaseChannel:    "stable",
-			ClientBuildNumber: 497254,
+			ClientBuildNumber: discordgo.DroidClientBuildNumber(),
 			ClientLaunchID:    uuid.NewString(),
 			LaunchSignature:   launchSig,
 			ClientAppState:    "focused",

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -29,6 +30,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
 	"go.mau.fi/util/l10n"
+	"golang.org/x/net/publicsuffix"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
@@ -42,7 +44,22 @@ var ErrMissingLoginInput = bridgev2.RespError{
 	StatusCode: http.StatusBadRequest,
 }
 
+var ErrClientHTTPFailed = bridgev2.RespError{
+	ErrCode:    "FI.MAU.DISCORD.CLIENT_HTTP_FAILED",
+	Err:        "The request did not complete on this device. Check your internet connection, VPN or content filter and try again.",
+	StatusCode: http.StatusBadRequest,
+}
+
+func isClientHTTPError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "error from client: ")
+}
+
 func userVisibleLoginError(ctx context.Context, err error) error {
+	if isClientHTTPError(err) {
+		zerolog.Ctx(ctx).Err(err).Msg("Discord login request failed on the client")
+		return ErrClientHTTPFailed.WithInternalError(err)
+	}
+
 	var apiErr discordauth.APIError
 	if !errors.As(err, &apiErr) {
 		return userVisibleRESTError(ctx, err)
@@ -150,9 +167,11 @@ type DiscordMachineLogin struct {
 	*DiscordGenericLogin
 	Machine *discordauth.AuthMachine
 
+	personality  discordauth.Personality
 	mfaChallenge *discordauth.LoginMFARequired
 }
 
+var _ bridgev2.LoginProcessWithParams = (*DiscordMachineLogin)(nil)
 var _ bridgev2.LoginProcessUserInput = (*DiscordMachineLogin)(nil)
 var _ bridgev2.LoginProcessCookies = (*DiscordMachineLogin)(nil)
 
@@ -193,30 +212,37 @@ func NewDiscordMachineLogin(ctx context.Context, login *DiscordGenericLogin) (*D
 		},
 	}
 
+	return &DiscordMachineLogin{
+		DiscordGenericLogin: login,
+		personality:         personality,
+	}, nil
+}
+
+func (d *DiscordMachineLogin) httpClient(ctx context.Context, clientHTTP bridgev2.FingerprintingRoundTripper) (*http.Client, error) {
+	if clientHTTP != nil {
+		clientHTTP.SetFingerprint("chrome")
+		jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cookie jar: %w", err)
+		}
+		return &http.Client{Transport: clientHTTP, Jar: jar}, nil
+	}
+
 	// Resolve the HTTP client settings (proxy) for use during login.
 	// NOTE(skip): This is grossly tangled. Think of a way to restructure this.
 	var settings exhttp.ClientSettings
-	if login.connector.Config.ProxyLoginMachine {
-		settings, err = login.connector.resolveHTTPClientSettings(ctx, "login")
+	if d.connector.Config.ProxyLoginMachine {
+		var err error
+		settings, err = d.connector.resolveHTTPClientSettings(ctx, "login")
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve proxy: %w", err)
 		}
 	} else {
-		settings = login.connector.Bridge.GetHTTPClientSettings()
+		settings = d.connector.Bridge.GetHTTPClientSettings()
 	}
-
-	http, err := discordtransport.CompileTransport(settings, discordtransport.TransportOptions{
+	return discordtransport.CompileTransport(settings, discordtransport.TransportOptions{
 		CookieJar: true,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create http client: %w", err)
-	}
-
-	ml := &DiscordMachineLogin{
-		DiscordGenericLogin: login,
-	}
-	ml.Machine = discordauth.NewAuthMachine(ctx, http, &personality)
-	return ml, nil
 }
 
 func (d *DiscordMachineLogin) Cancel() {
@@ -515,7 +541,21 @@ func captchaStep(ctx context.Context, cap *discordauth.Captcha) (*bridgev2.Login
 }
 
 func (d *DiscordMachineLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
+	return d.StartWithParams(ctx, bridgev2.LoginStartParams{})
+}
+
+func (d *DiscordMachineLogin) StartWithParams(ctx context.Context, params bridgev2.LoginStartParams) (*bridgev2.LoginStep, error) {
+	zerolog.Ctx(ctx).Debug().Bool("client_http", params.HTTP != nil).Msg("Starting Discord machine login")
+	httpClient, err := d.httpClient(ctx, params.HTTP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create http client: %w", err)
+	}
+	d.Machine = discordauth.NewAuthMachine(ctx, httpClient, &d.personality)
+
 	if err := d.Machine.Prepare(ctx); err != nil {
+		if isClientHTTPError(err) {
+			return nil, userVisibleLoginError(ctx, err)
+		}
 		zerolog.Ctx(ctx).Err(err).Msg("Failed to prepare Discord login")
 		return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to prepare Discord login")).WithInternalError(err)
 	}

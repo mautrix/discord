@@ -188,9 +188,11 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 			intent = ghost.Intent
 		}
 
+		convertedMsg := d.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, d.UserLogin, d.Session, msg, knownThreadRootID)
+		convertedMsg.MergeCaption()
 		converted = append(converted, &bridgev2.BackfillMessage{
 			ID:               discordid.MakeMessageID(msg.ID),
-			ConvertedMessage: d.connector.MsgConv.ToMatrix(ctx, fetchParams.Portal, intent, d.UserLogin, d.Session, msg, knownThreadRootID),
+			ConvertedMessage: convertedMsg,
 			Sender:           sender,
 			Timestamp:        msgTs,
 			StreamOrder:      parsedMsgID,

@@ -384,8 +384,19 @@ func (d *DiscordClient) orderedEventChannelID(event any) string {
 	if channelID == "" || d.Session == nil || d.Session.State == nil {
 		return channelID
 	}
-	if ch, err := d.Session.State.Channel(channelID); err == nil && ch.IsThread() && ch.ParentID != "" {
-		return ch.ParentID
+	if ch, err := d.Session.State.Channel(channelID); err == nil {
+		if ch.IsThread() && ch.ParentID != "" {
+			return ch.ParentID
+		}
+		return channelID
+	}
+	dbThread, err := d.connector.DB.Thread.GetByThreadChannelID(
+		d.UserLogin.Log.WithContext(context.Background()),
+		discordid.ParseUserLoginID(d.UserLogin.ID),
+		channelID,
+	)
+	if err == nil && dbThread != nil && dbThread.ParentChannelID != "" {
+		return dbThread.ParentChannelID
 	}
 	return channelID
 }

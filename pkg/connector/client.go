@@ -282,6 +282,19 @@ func (d *DiscordClient) tokenInvalidated(ctx context.Context, circumstance strin
 	}
 }
 
+func (d *DiscordClient) saveRefreshedToken(ctx context.Context, token string) {
+	meta := d.userLoginMetadata()
+	if meta.Token == token {
+		return
+	}
+	log := zerolog.Ctx(ctx)
+	log.Info().Msg("Discord sent a refreshed token in READY, saving it")
+	meta.Token = token
+	if err := d.UserLogin.Save(ctx); err != nil {
+		log.Err(err).Msg("Failed to save refreshed token")
+	}
+}
+
 func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, prevStop *context.CancelFunc) {
 	retryCtx, cancel := context.WithCancel(ctx)
 	if prevStop == nil {

@@ -636,29 +636,25 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 	dms := slices.Clone(d.Session.State.PrivateChannels)
 	d.Session.State.RUnlock()
 
-	// Only queue portal-creating resyncs for the top n private channels with
-	// recent activity (that haven't already been synced above).
 	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
 		ats, _ := discordgo.SnowflakeTimestamp(a.LastMessageID)
 		bts, _ := discordgo.SnowflakeTimestamp(b.LastMessageID)
 		return bts.Compare(ats)
 	})
-	// TODO(skip): This is startup_private_channel_create_limit. Support this
-	// in the config.
-	maxDms := min(10, len(dms))
-	recentDmsSynced := 0
-	for _, dm := range dms[:maxDms] {
-		if resyncedExistingPrivateChannels.Has(dm.ID) {
+	newDmsSynced := 0
+	for _, dm := range dms {
+		// Empty channels get a portal when their first message arrives.
+		if dm.LastMessageID == "" || resyncedExistingPrivateChannels.Has(dm.ID) {
 			continue
 		}
-		log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
+		log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel without portal")
 		d.queueChannelResync(ctx, dm)
-		recentDmsSynced++
+		newDmsSynced++
 	}
 
 	log.Info().
 		Int("existing_private_portals_synced", len(resyncedExistingPrivateChannels)).
-		Int("recent_dms_synced", recentDmsSynced).
+		Int("new_dms_synced", newDmsSynced).
 		Int("dms_total", len(dms)).
 		Msg("Synced private channels")
 }

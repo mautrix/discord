@@ -76,7 +76,7 @@ type DiscordMessage struct {
 
 func (m *DiscordMessage) ShouldCreatePortal() bool {
 	// Do not create a portal merely to bridge a message deletion or edit.
-	return m.Type == bridgev2.RemoteEventMessage
+	return m.Type == bridgev2.RemoteEventMessage && (m.route.FromChannel == nil || !m.route.FromChannel.IsSpam)
 }
 
 func (m *DiscordMessage) ConvertEdit(
@@ -99,6 +99,9 @@ func (m *DiscordMessage) ConvertEdit(
 		m.Data,
 		m.ThreadRootID,
 	)
+	if len(newlyConverted.Parts) == 0 {
+		return nil, fmt.Errorf("%w (edit converted to no parts)", bridgev2.ErrIgnoringRemoteEvent)
+	}
 
 	// Detect the legacy scheme of naively assigning incrementing part IDs
 	// without using stable identifiers, so we don't cause churn on previously
@@ -356,6 +359,8 @@ func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
 	return r.Extra
 }
 
+const superReactionEmojiIDPrefix = "burst:"
+
 func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, route *router.Route, beingAdded bool) (*DiscordReaction, error) {
 	if reaction == nil {
 		return nil, nil
@@ -411,6 +416,9 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 		// A Unicode emoji.
 		emojiID = reaction.Emoji.Name
 		matrixEmoji = variationselector.Add(reaction.Emoji.Name)
+	}
+	if reaction.Burst {
+		emojiID = superReactionEmojiIDPrefix + emojiID
 	}
 
 	return &DiscordReaction{
@@ -1048,7 +1056,6 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		// (All missed gateway events have been replayed, and all subsequent
 		// events will be new.)
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
-		d.refreshSafetyHub(ctx)
 		d.pokeVitals(ctx)
 		d.sendCurrentState(ctx)
 	case *discordgo.InvalidAuth:
@@ -1259,6 +1266,27 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			log.Err(err).Msg("Dropping incoming reaction due to error")
 		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+		}
+	case *discordgo.MessageReactionAddMany:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		for _, batch := range evt.Reactions {
+			for _, userID := range batch.Users {
+				wrappedEvt, err := d.wrapDiscordReaction(ctx, &discordgo.MessageReaction{
+					UserID:    userID,
+					MessageID: evt.MessageID,
+					Emoji:     batch.Emoji,
+					ChannelID: evt.ChannelID,
+					GuildID:   evt.GuildID,
+				}, route, true)
+				if err != nil {
+					log.Err(err).Msg("Dropping incoming reaction batch due to error")
+					break
+				}
+				d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+			}
 		}
 	// TODO case *discordgo.MessageReactionRemoveAll:
 	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)

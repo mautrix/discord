@@ -51,7 +51,13 @@ var DiscordGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
 			ContactList:    true,
 			Search:         true,
 		},
-		GroupCreation: map[string]bridgev2.GroupTypeCapabilities{},
+		GroupCreation: map[string]bridgev2.GroupTypeCapabilities{
+			"group": {
+				TypeDescription: "a group DM",
+				Name:            bridgev2.GroupFieldCapability{Allowed: true, MaxLength: 100},
+				Participants:    bridgev2.GroupFieldCapability{Allowed: true, Required: true, MinLength: 1, MaxLength: 9},
+			},
+		},
 	},
 }
 

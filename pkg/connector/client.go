@@ -61,6 +61,9 @@ type DiscordClient struct {
 	markedOpened     map[string]time.Time
 	markedOpenedLock sync.Mutex
 
+	channelEvents     map[string][]any
+	channelEventsLock sync.Mutex
+
 	// A map of guild ID (or "" for the settings concerning private channels)
 	// to its corresponding UserGuildSettings.
 	guildSettings     map[string]*discordgo.UserGuildSettings
@@ -115,6 +118,7 @@ func (d *DiscordConnector) LoadUserLogin(ctx context.Context, login *bridgev2.Us
 		readStates:      make(map[string]*discordgo.ReadState),
 		relationships:   make(map[string]*discordgo.Relationship),
 		historyFetchSem: make(chan struct{}, maxConcurrentHistoryFetches),
+		channelEvents:   make(map[string][]any),
 	}
 	login.Client = &cl
 
@@ -368,7 +372,85 @@ func (d *DiscordClient) handleDiscordEventSync(event any) {
 	// else we might end up inadvertently relying on goroutine scheduling.
 	d.handleDiscordStateEvent(event)
 
-	go d.handleDiscordEvent(event)
+	if channelID := d.orderedEventChannelID(event); channelID != "" {
+		d.queueChannelEvent(channelID, event)
+	} else {
+		go d.handleDiscordEvent(event)
+	}
+}
+
+func (d *DiscordClient) orderedEventChannelID(event any) string {
+	channelID := eventChannelID(event)
+	if channelID == "" || d.Session == nil || d.Session.State == nil {
+		return channelID
+	}
+	if ch, err := d.Session.State.Channel(channelID); err == nil {
+		if ch.IsThread() && ch.ParentID != "" {
+			return ch.ParentID
+		}
+		return channelID
+	}
+	dbThread, err := d.connector.DB.Thread.GetByThreadChannelID(
+		d.UserLogin.Log.WithContext(context.Background()),
+		discordid.ParseUserLoginID(d.UserLogin.ID),
+		channelID,
+	)
+	if err == nil && dbThread != nil && dbThread.ParentChannelID != "" {
+		return dbThread.ParentChannelID
+	}
+	return channelID
+}
+
+func eventChannelID(event any) string {
+	var msg *discordgo.Message
+	var reaction *discordgo.MessageReaction
+	switch evt := event.(type) {
+	case *discordgo.MessageCreate:
+		msg = evt.Message
+	case *discordgo.MessageUpdate:
+		msg = evt.Message
+	case *discordgo.MessageDelete:
+		msg = evt.Message
+	case *discordgo.MessageReactionAdd:
+		reaction = evt.MessageReaction
+	case *discordgo.MessageReactionRemove:
+		reaction = evt.MessageReaction
+	case *discordgo.MessageReactionAddMany:
+		return evt.ChannelID
+	}
+	if msg != nil {
+		return msg.ChannelID
+	} else if reaction != nil {
+		return reaction.ChannelID
+	}
+	return ""
+}
+
+func (d *DiscordClient) queueChannelEvent(channelID string, event any) {
+	d.channelEventsLock.Lock()
+	queue, running := d.channelEvents[channelID]
+	d.channelEvents[channelID] = append(queue, event)
+	d.channelEventsLock.Unlock()
+	if !running {
+		go d.runChannelEvents(channelID)
+	}
+}
+
+func (d *DiscordClient) runChannelEvents(channelID string) {
+	for {
+		d.channelEventsLock.Lock()
+		queue := d.channelEvents[channelID]
+		if len(queue) == 0 {
+			delete(d.channelEvents, channelID)
+			d.channelEventsLock.Unlock()
+			return
+		}
+		event := queue[0]
+		queue[0] = nil
+		d.channelEvents[channelID] = queue[1:]
+		d.channelEventsLock.Unlock()
+		d.handleDiscordEvent(event)
+	}
 }
 
 func (d *DiscordClient) connect(ctx context.Context) error {

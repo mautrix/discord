@@ -498,8 +498,17 @@ func (d *DiscordClient) IsLoggedIn() bool {
 }
 
 func (d *DiscordClient) LogoutRemote(ctx context.Context) {
-	// FIXME(skip): Implement.
 	d.Disconnect()
+	if d.Session == nil || !d.userLoginMetadata().OwnsSession || !d.HasToken() {
+		return
+	}
+	_, err := d.Session.RequestWithBucketID(http.MethodPost, discordgo.EndpointLogout, map[string]any{
+		"provider":      nil,
+		"voip_provider": nil,
+	}, discordgo.EndpointLogout)
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to log out of Discord")
+	}
 }
 
 // beginFullSync kicks off a full account sync (remote profile, private

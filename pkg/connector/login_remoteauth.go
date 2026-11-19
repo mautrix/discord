@@ -149,7 +149,7 @@ func (dl *DiscordRemoteAuthLogin) stepForError(ctx context.Context, err error) (
 }
 
 func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, user remoteauth.User) (*bridgev2.LoginStep, error) {
-	ul, err := dl.FinalizeCreatingLogin(ctx, user.Token)
+	ul, err := dl.FinalizeCreatingLogin(ctx, user.Token, true)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't log in via remoteauth: %w", err)
 	}

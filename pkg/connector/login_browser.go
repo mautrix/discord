@@ -80,7 +80,7 @@ func (dl *DiscordBrowserLogin) SubmitCookies(ctx context.Context, cookies map[st
 	}
 	log.Debug().Msg("Logging in with submitted cookie")
 
-	ul, err := dl.FinalizeCreatingLogin(ctx, token)
+	ul, err := dl.FinalizeCreatingLogin(ctx, token, false)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't log in via browser: %w", err)
 	}

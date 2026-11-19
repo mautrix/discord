@@ -390,14 +390,25 @@ func (d *DiscordClient) handleDiscordEventSync(event any) {
 	if d.isUnbridgedGuildEvent(event) {
 		return
 	}
-	if channelID := orderedEventChannelID(event); channelID != "" {
+	if channelID := d.orderedEventChannelID(event); channelID != "" {
 		d.queueChannelEvent(channelID, event)
 	} else {
 		go d.handleDiscordEvent(event)
 	}
 }
 
-func orderedEventChannelID(event any) string {
+func (d *DiscordClient) orderedEventChannelID(event any) string {
+	channelID := eventChannelID(event)
+	if channelID == "" || d.Session == nil || d.Session.State == nil {
+		return channelID
+	}
+	if ch, err := d.Session.State.Channel(channelID); err == nil && ch.IsThread() && ch.ParentID != "" {
+		return ch.ParentID
+	}
+	return channelID
+}
+
+func eventChannelID(event any) string {
 	var msg *discordgo.Message
 	var reaction *discordgo.MessageReaction
 	switch evt := event.(type) {

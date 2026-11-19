@@ -215,14 +215,6 @@ func (p *serverPendingLogin) process(client *Client) error {
 	client.Lock()
 	client.ticket = p.Ticket
 	client.Unlock()
-	user, err := client.RedeemTicket()
-	if err != nil {
-		return err
-	}
-
-	client.Lock()
-	client.user = user
-	client.Unlock()
 
 	client.Close()
 

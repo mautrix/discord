@@ -88,6 +88,10 @@ func (m *DiscordMessage) ConvertEdit(
 		Str("action", "convert discord edit").Logger()
 	ctx = log.WithContext(ctx)
 
+	if m.Data.Poll != nil {
+		return nil, fmt.Errorf("%w (poll messages can't be edited)", bridgev2.ErrIgnoringRemoteEvent)
+	}
+
 	// FIXME(skip): This will always reupload attachments, super wasteful.
 	newlyConverted := m.Client.connector.MsgConv.ToMatrix(
 		ctx,

@@ -977,6 +977,9 @@ func (d *DiscordClient) syncGuild(ctx context.Context, guildID string) error {
 }
 
 func (d *DiscordClient) subscribeGuild(ctx context.Context, guildID string) {
+	if !d.Session.IsUser {
+		return
+	}
 	log := zerolog.Ctx(ctx)
 
 	log.Debug().Msg("Subscribing to guild")

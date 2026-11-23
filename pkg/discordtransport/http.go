@@ -118,7 +118,7 @@ func forceHTTP1ChromeFingerprint(c *req.Client) {
 
 		// NOTE: The ClientHelloID here _must_ match what req's
 		// ImpersonateChrome uses.
-		spec, err := utls.UTLSIdToSpec(utls.HelloChrome_120)
+		spec, err := utls.UTLSIdToSpec(utls.HelloChrome_Auto)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to build Chrome uTLS spec: %w", err)
 		}

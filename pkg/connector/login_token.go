@@ -40,7 +40,7 @@ func (dl *DiscordTokenLogin) Start(ctx context.Context) (*bridgev2.LoginStep, er
 				{
 					Type: bridgev2.LoginInputFieldTypePassword,
 					ID:   "token",
-					Name: "Discord user account token",
+					Name: msgFieldTokenName.Message(),
 					// Cribbed from https://regex101.com/r/1GMR0y/1.
 					Pattern: `^(mfa\.[a-zA-Z0-9_-]{20,})|([a-zA-Z0-9_-]{23,}\.[a-zA-Z0-9_-]{6,7}\.[a-zA-Z0-9_-]{27,})$`,
 				},

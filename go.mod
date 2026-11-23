@@ -12,11 +12,11 @@ require (
 	github.com/refraction-networking/utls v1.8.2
 	github.com/rs/zerolog v1.35.1
 	github.com/yuin/goldmark v1.8.7
-	go.mau.fi/util v0.11.2-0.20261123182504-13194d8788b7
+	go.mau.fi/util v0.11.2-0.20261123232031-42f343a1bef8
 	golang.org/x/net v0.62.0
 	golang.org/x/term v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
-	maunium.net/go/mautrix v0.33.1-0.20261123182552-2fd758b53ce1
+	maunium.net/go/mautrix v0.33.1-0.20261123232130-ca9c6fb3c83f
 )
 
 require (

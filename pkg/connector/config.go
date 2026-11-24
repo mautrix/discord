@@ -56,20 +56,11 @@ type Config struct {
 
 	LogWhenDroppingMessages bool `yaml:"log_when_dropping_messages"`
 
-	// Proxy is a static proxy address (HTTP or SOCKS5) for connecting to
-	// Discord. Ignored when GetProxyFrom is set.
-	Proxy string `yaml:"proxy"`
-
 	// ProxyLoginMachine and ProxyLoginRemoteAuth control whether the
 	// respective login flows route through the configured proxy. See
 	// example-config.yaml for the tradeoffs. Both default to true.
 	ProxyLoginMachine    bool `yaml:"proxy_login_machine"`
 	ProxyLoginRemoteAuth bool `yaml:"proxy_login_remoteauth"`
-
-	// GetProxyFrom is an HTTP endpoint that returns a JSON body with a string
-	// field called proxy_url, used to dynamically assign a proxy. It is
-	// re-fetched on every (re)connect so each session egresses from one IP.
-	GetProxyFrom string `yaml:"get_proxy_from"`
 
 	// ProxyMedia controls whether avatar, icon, and attachment downloads also
 	// go through the proxy. The gateway websocket and REST API always use it.
@@ -175,8 +166,6 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "custom_emoji_reactions")
 	helper.Copy(up.Bool, "per_message_profiles_on_every_message_hack")
 	helper.Copy(up.Bool, "log_when_dropping_messages")
-	helper.Copy(up.Str, "proxy")
-	helper.Copy(up.Str, "get_proxy_from")
 	helper.Copy(up.Bool, "proxy_media")
 	helper.Copy(up.Bool, "proxy_direct_media")
 	helper.Copy(up.Bool, "proxy_login_machine")

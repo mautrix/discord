@@ -1258,6 +1258,9 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		if !bridged {
 			return
 		}
+		if evt.Member != nil {
+			d.userCache.UpdateWithUser(evt.Member.User)
+		}
 		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, route, true)
 		if err != nil {
 			log.Err(err).Msg("Dropping incoming reaction due to error")

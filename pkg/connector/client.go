@@ -420,34 +420,27 @@ func (d *DiscordClient) orderedEventChannelID(event any) string {
 }
 
 func eventChannelID(event any) string {
-	var msg *discordgo.Message
-	var reaction *discordgo.MessageReaction
 	switch evt := event.(type) {
 	case *discordgo.MessageCreate:
-		msg = evt.Message
+		return evt.ChannelID
 	case *discordgo.MessageUpdate:
-		msg = evt.Message
+		return evt.ChannelID
 	case *discordgo.MessageDelete:
-		msg = evt.Message
+		return evt.ChannelID
 	case *discordgo.MessageReactionAdd:
-		reaction = evt.MessageReaction
+		return evt.ChannelID
 	case *discordgo.MessageReactionRemove:
-		reaction = evt.MessageReaction
+		return evt.ChannelID
 	case *discordgo.MessageReactionRemoveAll:
-		reaction = evt.MessageReaction
+		return evt.ChannelID
 	case *discordgo.MessageReactionRemoveEmoji:
-		reaction = evt.MessageReaction
+		return evt.ChannelID
 	case *discordgo.MessageReactionAddMany:
 		return evt.ChannelID
 	case *discordgo.MessageDeleteBulk:
 		return evt.ChannelID
 	case *discordgo.MessageAck:
 		return evt.ChannelID
-	}
-	if msg != nil {
-		return msg.ChannelID
-	} else if reaction != nil {
-		return reaction.ChannelID
 	}
 	return ""
 }

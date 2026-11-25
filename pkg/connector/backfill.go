@@ -102,7 +102,14 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 		return nil, ctx.Err()
 	}
 	log.Debug().Msg("Fetching channel history for backfill")
-	msgs, err := d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
+	var msgs []*discordgo.Message
+	var err error
+	if fetchParams.Forward {
+		count = fetchParams.Count
+		msgs, err = d.fetchMessagesNewerThan(channelID, afterID, count, refererOpt)
+	} else {
+		msgs, err = d.Session.ChannelMessages(channelID, count, beforeID, afterID, "", refererOpt)
+	}
 	<-d.historyFetchSem
 	var restErr *discordgo.RESTError
 	if errors.As(err, &restErr) && restErr.Message != nil &&
@@ -256,6 +263,36 @@ func (d *DiscordClient) GetBackfillMaxBatchCount(
 	default:
 		return backfillQueueConfig.GetOverride("channel")
 	}
+}
+
+func (d *DiscordClient) fetchMessagesNewerThan(channelID, afterID string, count int, opts ...discordgo.RequestOption) ([]*discordgo.Message, error) {
+	if afterID != "" {
+		limit := min(count, 100)
+		page, err := d.Session.ChannelMessages(channelID, limit, "", afterID, "", opts...)
+		if err != nil || len(page) < limit {
+			return page, err
+		}
+	}
+	var msgs []*discordgo.Message
+	beforeID := ""
+	for len(msgs) < count {
+		limit := min(count-len(msgs), 100)
+		page, err := d.Session.ChannelMessages(channelID, limit, beforeID, "", "", opts...)
+		if err != nil {
+			return msgs, err
+		}
+		for _, msg := range page {
+			if afterID != "" && compareMessageIDs(msg.ID, afterID) <= 0 {
+				return msgs, nil
+			}
+			msgs = append(msgs, msg)
+		}
+		if len(page) < limit {
+			break
+		}
+		beforeID = page[len(page)-1].ID
+	}
+	return msgs, nil
 }
 
 func (d *DiscordClient) ownBackfillReactions(ctx context.Context, msg *discordgo.Message) []*bridgev2.BackfillReaction {

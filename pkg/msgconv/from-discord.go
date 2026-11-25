@@ -575,9 +575,16 @@ func mediaFailedMessage(err error) *event.MessageEventContent {
 	}
 }
 
+func unrecoveredMediaPart(part *bridgev2.ConvertedMessagePart, cached *discordid.MediaMetadata) *bridgev2.ConvertedMessagePart {
+	if part != nil && !part.Content.MsgType.IsMedia() {
+		part.DBMetadata = &discordid.MessageMetadata{Media: cached}
+	}
+	return part
+}
+
 func (mc *MessageConverter) renderDiscordVideoEmbed(ctx context.Context, embed *discordgo.MessageEmbed, cached *discordid.MediaMetadata) *bridgev2.ConvertedMessagePart {
 	if cached != nil && cached.Unavailable {
-		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{MsgType: event.MsgFile}, DBMetadata: &discordid.MessageMetadata{Media: cached}}
+		return unrecoveredMediaPart(mc.renderDiscordVideoEmbed(ctx, embed, nil), cached)
 	}
 	var proxyURL string
 	isVideo := embed.Video != nil && embed.Video.ProxyURL != ""
@@ -925,7 +932,7 @@ func (mc *MessageConverter) renderDiscordAttachment(
 		cached = previous[0]
 	}
 	if cached != nil && cached.Unavailable {
-		return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{MsgType: event.MsgFile}, DBMetadata: &discordid.MessageMetadata{Media: cached}}
+		return unrecoveredMediaPart(mc.renderDiscordAttachment(ctx, att, mediaInfo), cached)
 	}
 
 	fileName, err := attachmentFileName(att)

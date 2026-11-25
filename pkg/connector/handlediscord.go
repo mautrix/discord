@@ -172,7 +172,7 @@ func (m *DiscordMessage) ConvertEdit(
 		dbPart, ok := beforePartsByID[part.ID]
 		if !ok {
 			addedParts = append(addedParts, part)
-		} else if part.Content.MsgType.IsMedia() {
+		} else if part.Content.MsgType.IsMedia() || isUnrecoveredMedia(part) {
 			mediaEdits = append(mediaEdits, part)
 			if firstMediaPart == nil {
 				firstMediaPart = part
@@ -199,13 +199,15 @@ func (m *DiscordMessage) ConvertEdit(
 		edit.DeletedParts = slices.DeleteFunc(edit.DeletedParts, func(part *database.Message) bool {
 			return part == dbTextPart
 		})
-		dbTextPart.PartID = addedParts[0].ID
 		if part := mediaEditPart(bridgev2.MergeCaption(textPart, addedParts[0]), dbTextPart); part != nil {
+			dbTextPart.PartID = addedParts[0].ID
 			edit.ModifiedParts = append(edit.ModifiedParts, part)
 		}
 		addedParts = nil
 	case textPart != nil && hasDBTextPart:
-		edit.ModifiedParts = append(edit.ModifiedParts, textEditPart(textPart, dbTextPart))
+		if part := textEditPart(textPart, dbTextPart); part != nil {
+			edit.ModifiedParts = append(edit.ModifiedParts, part)
+		}
 	case textPart != nil && firstMediaPart != nil:
 		captionedMediaPart = firstMediaDBPart
 		log.Debug().
@@ -321,8 +323,18 @@ func addMetadataUpdates(edit *bridgev2.ConvertedEdit, updates []*database.Messag
 	}
 }
 
+func isUnrecoveredMedia(part *bridgev2.ConvertedMessagePart) bool {
+	meta, _ := part.DBMetadata.(*discordid.MessageMetadata)
+	return meta != nil && meta.Media != nil && meta.Media.Unavailable
+}
+
 func textEditPart(converted *bridgev2.ConvertedMessagePart, existing *database.Message) *bridgev2.ConvertedEditPart {
-	if meta, ok := existing.Metadata.(*discordid.MessageMetadata); ok && meta.Media != nil && meta.Media.Unavailable {
+	meta, _ := existing.Metadata.(*discordid.MessageMetadata)
+	after, _ := converted.DBMetadata.(*discordid.MessageMetadata)
+	if meta != nil && after != nil && len(meta.ContentHash) > 0 && bytes.Equal(meta.ContentHash, after.ContentHash) && meta.EditedTimestamp.Equal(after.EditedTimestamp) {
+		return nil
+	}
+	if meta != nil && meta.Media != nil && meta.Media.Unavailable {
 		meta.Media = nil
 	}
 	return converted.ToEditPart(existing)
@@ -331,13 +343,10 @@ func textEditPart(converted *bridgev2.ConvertedMessagePart, existing *database.M
 func mediaEditPart(converted *bridgev2.ConvertedMessagePart, existing *database.Message) *bridgev2.ConvertedEditPart {
 	before, _ := existing.Metadata.(*discordid.MessageMetadata)
 	after, _ := converted.DBMetadata.(*discordid.MessageMetadata)
-	if after != nil && after.Media != nil && after.Media.Unavailable {
-		converted.DBMetadata = &discordid.MessageMetadata{EditedTimestamp: after.EditedTimestamp, ContentHash: after.ContentHash}
-		part := converted.ToEditPart(existing)
-		part.DontBridge = true
-		return part
+	if isUnrecoveredMedia(converted) {
+		return nil
 	}
-	if before == nil || before.Media == nil || after == nil || after.Media == nil {
+	if before == nil || before.Media == nil || before.Media.Unavailable || after == nil || after.Media == nil {
 		return converted.ToEditPart(existing)
 	}
 	old, next := before.Media, after.Media
@@ -434,12 +443,14 @@ func legacyConvertEdit(ctx context.Context, converted *bridgev2.ConvertedMessage
 
 	parts := make([]*bridgev2.ConvertedEditPart, 0, len(existing))
 	for pi, part := range converted.Parts {
-		if part.Content.MsgType.IsMedia() {
-			if edit := mediaEditPart(part, existing[pi]); edit != nil {
-				parts = append(parts, edit)
-			}
+		var edit *bridgev2.ConvertedEditPart
+		if part.Content.MsgType.IsMedia() || isUnrecoveredMedia(part) {
+			edit = mediaEditPart(part, existing[pi])
 		} else {
-			parts = append(parts, textEditPart(part, existing[pi]))
+			edit = textEditPart(part, existing[pi])
+		}
+		if edit != nil {
+			parts = append(parts, edit)
 		}
 	}
 

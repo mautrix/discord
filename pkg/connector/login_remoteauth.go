@@ -70,9 +70,13 @@ func (dl *DiscordRemoteAuthLogin) StartWithParams(ctx context.Context, params br
 		Bool("client_http", params.HTTP != nil).
 		Bool("client_websocket", params.WebSocketHTTP != nil).
 		Msg("Creating new remoteauth client")
-	restClient, wsClient, err := dl.connector.resolveTransport(ctx, "login", dl.connector.Config.ProxyLoginRemoteAuth)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't resolve proxy for remoteauth: %w", err)
+	var restClient, wsClient *http.Client
+	var err error
+	if params.HTTP == nil || params.WebSocketHTTP == nil {
+		restClient, wsClient, err = dl.connector.resolveTransport(ctx, "login", dl.connector.Config.ProxyLoginRemoteAuth)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't resolve proxy for remoteauth: %w", err)
+		}
 	}
 	if params.HTTP != nil {
 		restClient, err = newClientHTTPClient(params.HTTP)

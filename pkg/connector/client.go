@@ -441,6 +441,8 @@ func eventChannelID(event any) string {
 		return evt.ChannelID
 	case *discordgo.MessageDeleteBulk:
 		return evt.ChannelID
+	case *discordgo.MessageAck:
+		return evt.ChannelID
 	}
 	if msg != nil {
 		return msg.ChannelID

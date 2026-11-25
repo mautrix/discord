@@ -414,11 +414,9 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	}
 
 	content := format.HTMLToContent(fullHTML)
-	extraContent := map[string]any{
-		"com.beeper.linkpreviews": previews,
-	}
+	content.BeeperLinkPreviews = previews
 
-	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
+	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content}
 }
 
 var errForwardedPortalNotFound = errors.New("containing portal for forwarded message doesn't exist")

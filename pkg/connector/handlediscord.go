@@ -287,7 +287,9 @@ func (m *DiscordMessage) GetTransactionID() networkid.TransactionID {
 }
 
 func (m *DiscordMessage) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI) (*bridgev2.ConvertedMessage, error) {
-	return m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data, m.ThreadRootID), nil
+	converted := m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data, m.ThreadRootID)
+	converted.MergeCaption()
+	return converted, nil
 }
 
 func (m *DiscordMessage) GetID() networkid.MessageID {

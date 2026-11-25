@@ -18,16 +18,32 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
+	"go.mau.fi/mautrix-discord/pkg/discordauth"
 	"go.mau.fi/mautrix-discord/pkg/remoteauth"
 )
 
 const LoginFlowIDRemoteAuth = "qr"
+
+var ErrQRLoginCancelled = bridgev2.RespError{
+	ErrCode:    "FI.MAU.DISCORD.QR_LOGIN_CANCELLED",
+	Err:        "The login was cancelled in the Discord app. Scan a new QR code to try again.",
+	StatusCode: http.StatusBadRequest,
+}
+
+var ErrQRLoginEnded = bridgev2.RespError{
+	ErrCode:    "FI.MAU.DISCORD.QR_LOGIN_ENDED",
+	Err:        "Discord ended the QR login before it was approved. Scan a new QR code to try again.",
+	StatusCode: http.StatusBadRequest,
+}
 
 type DiscordRemoteAuthLogin struct {
 	*DiscordGenericLogin
@@ -36,9 +52,11 @@ type DiscordRemoteAuthLogin struct {
 	remoteAuthClient *remoteauth.Client
 	qrChan           chan string
 	doneChan         chan struct{}
+	captcha          *discordauth.Captcha
 }
 
 var _ bridgev2.LoginProcessDisplayAndWait = (*DiscordRemoteAuthLogin)(nil)
+var _ bridgev2.LoginProcessCookies = (*DiscordRemoteAuthLogin)(nil)
 
 func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
 	log := zerolog.Ctx(ctx)
@@ -75,7 +93,7 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 		return &bridgev2.LoginStep{
 			Type:         bridgev2.LoginStepTypeDisplayAndWait,
 			StepID:       "fi.mau.discord.qr",
-			Instructions: "On your phone, find “Scan QR Code” in Discord’s settings.",
+			Instructions: msgStepQRInstructions.Message(),
 			DisplayAndWaitParams: &bridgev2.LoginDisplayAndWaitParams{
 				Type: bridgev2.LoginDisplayTypeQR,
 				Data: qrCode,
@@ -103,9 +121,15 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 	select {
 	case <-dl.doneChan:
 		user, err := dl.remoteAuthClient.Result()
-		if err != nil {
+		if errors.Is(err, remoteauth.ErrCancelled) {
+			log.Debug().Msg("Discord remoteauth was cancelled on the phone")
+			return nil, ErrQRLoginCancelled
+		} else if err != nil {
 			log.Err(err).Msg("Discord remoteauth failed")
-			return nil, userVisibleLoginError(ctx, fmt.Errorf("discord remoteauth failed: %w", err))
+			return dl.stepForError(ctx, err)
+		} else if user.Token == "" {
+			log.Warn().Msg("Discord remoteauth ended without a token")
+			return nil, ErrQRLoginEnded
 		}
 		log.Debug().Msg("Discord remoteauth succeeded")
 
@@ -114,6 +138,33 @@ func (dl *DiscordRemoteAuthLogin) Wait(ctx context.Context) (*bridgev2.LoginStep
 		log.Debug().Msg("Cancelled while waiting for remoteauth to complete")
 		return nil, ctx.Err()
 	}
+}
+
+func (dl *DiscordRemoteAuthLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
+	solution := cookies[CaptchaExtractionField]
+	if solution == "" {
+		return nil, ErrMissingLoginInput.AppendMessage(": captcha solution")
+	}
+
+	user, err := dl.remoteAuthClient.RedeemTicket(discordgo.WithContext(ctx), func(cfg *discordgo.RequestConfig) {
+		cfg.Request.Header.Set(discordauth.HeaderCaptchaKey, solution)
+		dl.captcha.UpdateHeaders(&cfg.Request.Header)
+	})
+	if err != nil {
+		return dl.stepForError(ctx, err)
+	}
+	return dl.finalizeSuccessfulLogin(ctx, user)
+}
+
+func (dl *DiscordRemoteAuthLogin) stepForError(ctx context.Context, err error) (*bridgev2.LoginStep, error) {
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) {
+		if captcha := discordauth.CheckCaptcha(ctx, restErr.Response, restErr.ResponseBody); captcha != nil {
+			dl.captcha = captcha
+			return captchaStep(ctx, captcha)
+		}
+	}
+	return nil, userVisibleLoginError(ctx, fmt.Errorf("discord remoteauth failed: %w", err))
 }
 
 func (dl *DiscordRemoteAuthLogin) finalizeSuccessfulLogin(ctx context.Context, user remoteauth.User) (*bridgev2.LoginStep, error) {

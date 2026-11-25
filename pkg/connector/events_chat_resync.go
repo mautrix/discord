@@ -67,7 +67,7 @@ func (d *DiscordChatResync) GetChatInfo(ctx context.Context, portal *bridgev2.Po
 }
 
 func (d *DiscordChatResync) ShouldCreatePortal() bool {
-	return d.createPortal
+	return d.createPortal && !d.channel.IsSpam
 }
 
 // compareMessageIDs compares two Discord message IDs.

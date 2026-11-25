@@ -50,6 +50,6 @@ require (
 	maunium.net/go/mauflag v1.0.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20261125152851-04ebc1e7fe24
+replace github.com/bwmarrin/discordgo => github.com/beeper/discordgo v0.0.0-20261125174159-173b67849398
 
 replace github.com/imroc/req/v3 => github.com/beeper/req/v3 v3.0.0-20260925135712-b49593750e56

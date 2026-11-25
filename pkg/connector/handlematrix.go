@@ -47,6 +47,7 @@ var (
 	_ bridgev2.MuteHandlingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.UserBlockingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.MessageRequestAcceptingNetworkAPI = (*DiscordClient)(nil)
+	_ bridgev2.DeleteChatHandlingNetworkAPI      = (*DiscordClient)(nil)
 )
 
 type contextKey int
@@ -414,6 +415,9 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 
 	removing := removal.TargetReaction
 	emojiID := removing.EmojiID
+	if strings.HasPrefix(string(emojiID), superReactionEmojiIDPrefix) {
+		return bridgev2.WrapErrorInStatus(errors.New("super reactions can't be removed from Matrix")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
 	channelID := parentChannelID
 	threadChannelID := ""
@@ -437,7 +441,7 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 		channelID,
 		discordid.ParseMessageID(removing.MessageID),
 		discordid.ParseEmojiID(emojiID),
-		discordid.ParseUserLoginID(d.UserLogin.ID),
+		discordid.ParseUserID(removing.SenderID),
 		makeDiscordReferer(guildID, parentChannelID, threadChannelID),
 	)
 	if isUnknownMessage(err) {
@@ -527,13 +531,10 @@ func (d *DiscordClient) HandleMatrixReadReceipt(ctx context.Context, msg *bridge
 	} else {
 		var err error
 		if threadScoped && threadRootRemoteID != "" {
-			targetMessage, err = d.UserLogin.Bridge.DB.Message.GetLastThreadMessage(ctx, msg.Portal.PortalKey, discordid.MakeMessageID(threadRootRemoteID))
+			targetMessage, err = d.UserLogin.Bridge.DB.Message.GetLastPartAtOrBeforeTimeInThread(ctx, msg.Portal.PortalKey, discordid.MakeMessageID(threadRootRemoteID), msg.ReadUpTo)
 			if err != nil {
 				log.Err(err).Msg("Failed to find latest thread message")
 				return err
-			}
-			if targetMessage != nil && targetMessage.Timestamp.After(msg.ReadUpTo) {
-				targetMessage = nil
 			}
 		} else {
 			targetMessage, err = d.UserLogin.Bridge.DB.Message.GetLastPartAtOrBeforeTime(ctx, msg.Portal.PortalKey, msg.ReadUpTo)
@@ -747,5 +748,21 @@ func (d *DiscordClient) HandleMatrixBlockUser(ctx context.Context, msg *bridgev2
 		}
 		err = d.Session.RelationshipDelete(*recipient)
 	}
+	return d.tryWrappingError(ctx, err)
+}
+
+func (d *DiscordClient) HandleMatrixDeleteChat(ctx context.Context, msg *bridgev2.MatrixDeleteChat) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+	if msg.Content.DeleteForEveryone {
+		return bridgev2.WrapErrorInStatus(errors.New("deleting chats for everyone is not supported on Discord")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	ch := d.channelWithID(ctx, channelID)
+	if ch == nil || (ch.Type != discordgo.ChannelTypeDM && ch.Type != discordgo.ChannelTypeGroupDM) {
+		return bridgev2.WrapErrorInStatus(errors.New("only direct messages and group DMs can be deleted")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
+	_, err := d.Session.ChannelDelete(channelID, makeDiscordReferer("", channelID, ""), discordgo.WithQueryParam("silent", "false"))
 	return d.tryWrappingError(ctx, err)
 }

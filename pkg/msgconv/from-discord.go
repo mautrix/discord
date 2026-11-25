@@ -17,11 +17,14 @@
 package msgconv
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
+	"mime"
 	"net/url"
 	"path"
 	"strconv"
@@ -32,6 +35,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmaps"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/format"
@@ -71,6 +75,9 @@ func (mc *MessageConverter) ToMatrix(
 	ctx = context.WithValue(ctx, contextKeyIntent, intent)
 	ctx = context.WithValue(ctx, contextKeyPortal, portal)
 	ctx = context.WithValue(ctx, contextKeyDiscordClient, session)
+	if msg.Type == discordgo.MessageTypeThreadStarterMessage {
+		return &bridgev2.ConvertedMessage{}
+	}
 	predictedLength := len(msg.Attachments) + len(msg.StickerItems)
 	if msg.Content != "" {
 		predictedLength++
@@ -143,6 +150,13 @@ func (mc *MessageConverter) ToMatrix(
 		}})
 	}
 
+	if len(parts) == 0 && msg.Flags&discordgo.MessageFlagsLoading != 0 {
+		parts = append(parts, &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
+			MsgType: event.MsgNotice,
+			Body:    "Thinking…",
+		}})
+	}
+
 	if len(parts) == 0 {
 		log.Warn().
 			Int("message_type", int(msg.Type)).
@@ -207,6 +221,35 @@ func (mc *MessageConverter) ToMatrix(
 	)
 
 	return converted
+}
+
+func systemMessagePart(text string) *bridgev2.ConvertedMessagePart {
+	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &event.MessageEventContent{
+		MsgType: event.MsgEmote,
+		Body:    text,
+	}}
+}
+
+func recipientChangePart(portal *bridgev2.Portal, msg *discordgo.Message) *bridgev2.ConvertedMessagePart {
+	if len(msg.Mentions) == 0 || msg.Mentions[0] == nil {
+		return nil
+	}
+	target := msg.Mentions[0]
+	isGroup := portal != nil && portal.RoomType == database.RoomTypeGroupDM
+	switch {
+	case msg.Type == discordgo.MessageTypeRecipientAdd && isGroup:
+		return systemMessagePart(fmt.Sprintf("added %s to the group.", target.DisplayName()))
+	case msg.Type == discordgo.MessageTypeRecipientAdd:
+		return systemMessagePart(fmt.Sprintf("added %s to the thread.", target.DisplayName()))
+	case msg.Author != nil && msg.Author.ID == target.ID && isGroup:
+		return systemMessagePart("left the group.")
+	case msg.Author != nil && msg.Author.ID == target.ID:
+		return systemMessagePart("left the thread")
+	case isGroup:
+		return systemMessagePart(fmt.Sprintf("removed %s from the group.", target.DisplayName()))
+	default:
+		return systemMessagePart(fmt.Sprintf("removed %s from the thread.", target.DisplayName()))
+	}
 }
 
 const forwardTemplateHTML = `<blockquote>
@@ -283,6 +326,31 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 			MsgType: event.MsgEmote,
 			Body:    "(Joined the server.)",
 		}}
+	case discordgo.MessageTypeChannelPinnedMessage:
+		return systemMessagePart("pinned a message to this channel.")
+	case discordgo.MessageTypeThreadCreated:
+		return systemMessagePart(fmt.Sprintf("started a thread: %s", msg.Content))
+	case discordgo.MessageTypeUserPremiumGuildSubscription:
+		if times, err := strconv.Atoi(msg.Content); err == nil && times > 1 {
+			return systemMessagePart(fmt.Sprintf("just boosted the server %d times!", times))
+		}
+		return systemMessagePart("just boosted the server!")
+	case discordgo.MessageTypeUserPremiumGuildSubscriptionTierOne,
+		discordgo.MessageTypeUserPremiumGuildSubscriptionTierTwo,
+		discordgo.MessageTypeUserPremiumGuildSubscriptionTierThree:
+		level := int(msg.Type-discordgo.MessageTypeUserPremiumGuildSubscriptionTierOne) + 1
+		return systemMessagePart(fmt.Sprintf("just boosted the server! The server has achieved Level %d!", level))
+	case discordgo.MessageTypeRecipientAdd, discordgo.MessageTypeRecipientRemove:
+		if part := recipientChangePart(portal, msg); part != nil {
+			return part
+		}
+	case discordgo.MessageTypeChannelNameChange:
+		if portal != nil && portal.RoomType == database.RoomTypeGroupDM {
+			return systemMessagePart(fmt.Sprintf("changed the group name: %s", msg.Content))
+		}
+		return systemMessagePart(fmt.Sprintf("changed the channel name: %s", msg.Content))
+	case discordgo.MessageTypeChannelFollowAdd:
+		return systemMessagePart(fmt.Sprintf("added %s to this channel. Its most important updates will show up here.", msg.Content))
 	}
 
 	var htmlParts []string
@@ -346,12 +414,12 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	}
 
 	content := format.HTMLToContent(fullHTML)
-	extraContent := map[string]any{
-		"com.beeper.linkpreviews": previews,
-	}
+	content.BeeperLinkPreviews = previews
 
-	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
+	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content}
 }
+
+var errForwardedPortalNotFound = errors.New("containing portal for forwarded message doesn't exist")
 
 func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source *bridgev2.UserLogin, msg *discordgo.Message, msgTSText string) (string, error) {
 	router, ok := source.Client.(router.Router)
@@ -368,7 +436,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 		return "", fmt.Errorf("couldn't get containing portal for forwarded message: %w", err)
 	}
 	if forwardedFromPortal == nil {
-		return "", fmt.Errorf("containing portal for forwarded message doesn't exist")
+		return "", errForwardedPortalNotFound
 	}
 
 	origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, discordid.MakeMessageID(msg.MessageReference.MessageID))
@@ -379,7 +447,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 	if origMessage != nil {
 		// We've bridged the message that was forwarded, so we can link to it directly.
 		return fmt.Sprintf(
-			`<a href="%s">#%s • %s</a>`,
+			`<a href="%s">%s • %s</a>`,
 			forwardedFromPortal.MXID.EventURI(origMessage.MXID, mc.Bridge.Matrix.ServerName()),
 			forwardedFromPortal.Name,
 			msgTSText,
@@ -390,7 +458,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 		// We don't have the message but we have the portal (and it has a room),
 		// so link to that.
 		return fmt.Sprintf(
-			`<a href="%s">#%s</a> • %s`,
+			`<a href="%s">%s</a> • %s`,
 			forwardedFromPortal.MXID.URI(mc.Bridge.Matrix.ServerName()),
 			forwardedFromPortal.Name,
 			msgTSText,
@@ -413,7 +481,17 @@ func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal
 	}
 	msgTSText := snapshot.Timestamp.Format("2006-01-02 15:04 MST")
 	origLink, err := mc.forwardedMessageOrigLink(ctx, source, msg, msgTSText)
-	if err != nil {
+	if errors.Is(err, errForwardedPortalNotFound) {
+		log.Debug().Msg("Forwarded message is from a channel without a portal, linking to Discord")
+		ref := msg.MessageReference
+		origLink = fmt.Sprintf(
+			`<a href="https://discord.com/channels/%s/%s/%s">unknown channel</a> • %s`,
+			cmp.Or(ref.GuildID, "@me"),
+			ref.ChannelID,
+			ref.MessageID,
+			msgTSText,
+		)
+	} else if err != nil {
 		log.Err(err).Msg("Failed to render original link to forwarded message, using generic placeholder")
 		origLink = fmt.Sprintf("unknown channel • %s", msgTSText)
 	}
@@ -669,7 +747,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 			reupload, err := mc.ReuploadUnknownMedia(ctx, embed.Author.ProxyIconURL, false)
 
 			if err != nil {
-				log.Warn().Err(err).Msg("Failed to reupload author icon in embed")
+				logReuploadError(ctx, err, "Failed to reupload author icon in embed")
 			} else {
 				authorHTML = fmt.Sprintf(embedHTMLAuthorWithImage, reupload.MXC, authorNameHTML)
 			}
@@ -725,7 +803,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 	if embed.Image != nil {
 		reupload, err := mc.ReuploadUnknownMedia(ctx, embed.Image.ProxyURL, false)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to reupload image in embed")
+			logReuploadError(ctx, err, "Failed to reupload image in embed")
 		} else {
 			htmlParts = append(htmlParts, fmt.Sprintf(embedHTMLImage, reupload.MXC))
 		}
@@ -754,7 +832,7 @@ func (mc *MessageConverter) renderDiscordRichEmbed(ctx context.Context, source *
 			reupload, err := mc.ReuploadUnknownMedia(ctx, embed.Footer.ProxyIconURL, false)
 
 			if err != nil {
-				log.Warn().Err(err).Msg("Failed to reupload footer icon in embed")
+				logReuploadError(ctx, err, "Failed to reupload footer icon in embed")
 			} else {
 				footerHTML = fmt.Sprintf(embedHTMLFooterWithImage, reupload.MXC, html.EscapeString(embed.Footer.Text), datePart)
 			}
@@ -782,7 +860,7 @@ func (mc *MessageConverter) renderDiscordLinkEmbedImage(
 ) {
 	reupload, err := mc.ReuploadUnknownMedia(ctx, url, true)
 	if err != nil {
-		zerolog.Ctx(ctx).Warn().Err(err).Msg("Failed to reupload image in URL preview, ignoring")
+		logReuploadError(ctx, err, "Failed to reupload image in URL preview, ignoring")
 		return
 	}
 
@@ -851,6 +929,9 @@ func (mc *MessageConverter) renderDiscordAttachment(
 	}
 
 	if mc.DirectMedia {
+		if content.Info.MimeType == "" {
+			content.Info.MimeType = mime.TypeByExtension(strings.ToLower(path.Ext(fileName)))
+		}
 		if mc.CacheDirectMediaAttachment != nil {
 			mc.CacheDirectMediaAttachment(mediaInfo, att.URL)
 		}
@@ -899,9 +980,9 @@ func (mc *MessageConverter) renderDiscordAttachment(
 		if att.Waveform != nil {
 			// Bridge a voice message.
 
-			// TODO convert waveform
 			extra["org.matrix.msc1767.audio"] = map[string]any{
 				"duration": int(att.DurationSeconds * 1000),
+				"waveform": discordWaveformToMatrix(att.Waveform),
 			}
 			extra["org.matrix.msc3245.voice"] = map[string]any{}
 		}

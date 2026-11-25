@@ -25,6 +25,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 
+	"go.mau.fi/util/l10n"
+
 	"go.mau.fi/mautrix-discord/pkg/discordid"
 )
 
@@ -96,8 +98,8 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 	return ul, nil
 }
 
-func (dl *DiscordGenericLogin) CompleteInstructions() string {
-	return fmt.Sprintf("Logged in as %s", dl.DiscordUser.Username)
+func (dl *DiscordGenericLogin) CompleteInstructions() l10n.Message {
+	return msgStepCompleteInstructions.Render(l10n.Params{"username": dl.DiscordUser.Username})
 }
 
 func (dl *DiscordGenericLogin) Cancel() {

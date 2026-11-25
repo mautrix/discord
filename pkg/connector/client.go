@@ -422,19 +422,19 @@ func (d *DiscordClient) orderedEventChannelID(event any) string {
 func eventChannelID(event any) string {
 	switch evt := event.(type) {
 	case *discordgo.MessageCreate:
-		return evt.ChannelID
+		return messageChannelID(evt.Message)
 	case *discordgo.MessageUpdate:
-		return evt.ChannelID
+		return messageChannelID(evt.Message)
 	case *discordgo.MessageDelete:
-		return evt.ChannelID
+		return messageChannelID(evt.Message)
 	case *discordgo.MessageReactionAdd:
-		return evt.ChannelID
+		return reactionChannelID(evt.MessageReaction)
 	case *discordgo.MessageReactionRemove:
-		return evt.ChannelID
+		return reactionChannelID(evt.MessageReaction)
 	case *discordgo.MessageReactionRemoveAll:
-		return evt.ChannelID
+		return reactionChannelID(evt.MessageReaction)
 	case *discordgo.MessageReactionRemoveEmoji:
-		return evt.ChannelID
+		return reactionChannelID(evt.MessageReaction)
 	case *discordgo.MessageReactionAddMany:
 		return evt.ChannelID
 	case *discordgo.MessageDeleteBulk:
@@ -443,6 +443,20 @@ func eventChannelID(event any) string {
 		return evt.ChannelID
 	}
 	return ""
+}
+
+func messageChannelID(msg *discordgo.Message) string {
+	if msg == nil {
+		return ""
+	}
+	return msg.ChannelID
+}
+
+func reactionChannelID(reaction *discordgo.MessageReaction) string {
+	if reaction == nil {
+		return ""
+	}
+	return reaction.ChannelID
 }
 
 func (d *DiscordClient) queueChannelEvent(channelID string, event any) {

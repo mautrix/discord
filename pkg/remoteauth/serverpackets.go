@@ -22,9 +22,7 @@ func (c *Client) processMessages() {
 	defer c.Close()
 
 	for {
-		c.Lock()
 		_, packet, err := c.conn.Read(c.connCtx)
-		c.Unlock()
 
 		if err != nil {
 			if code := websocket.CloseStatus(err); code != -1 && code != websocket.StatusNormalClosure {

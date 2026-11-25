@@ -122,9 +122,6 @@ func (mc *MessageConverter) ToDiscord(
 		// Since we only support real users at the moment, always ignore the
 		// returned allowed mentions.
 		req.Content, _ = mc.ConvertMatrixMessageContent(ctx, msg.Portal, content, parseAllowedLinkPreviews(msg.Event.Content.Raw))
-		if content.MsgType == event.MsgEmote {
-			req.Content = fmt.Sprintf("_%s_", req.Content)
-		}
 	}
 
 	switch content.MsgType {
@@ -218,6 +215,11 @@ func (mc *MessageConverter) ConvertMatrixMessageContent(ctx context.Context, por
 		RepliedUser: true,
 	}
 
+	if content.MsgType.IsMedia() && content.GetCaption() == "" {
+		return "", allowedMentions
+	}
+
+	var text string
 	if content.Format == event.FormatHTML && len(content.FormattedBody) > 0 {
 		ctx := format.NewContext(ctx)
 		ctx.ReturnData[formatterContextInputAllowedLinkPreviewsKey] = allowedLinkPreviews
@@ -226,8 +228,12 @@ func (mc *MessageConverter) ConvertMatrixMessageContent(ctx context.Context, por
 		if content.Mentions != nil {
 			ctx.ReturnData[formatterContextInputAllowedMentionsKey] = content.Mentions.UserIDs
 		}
-		return variationselector.FullyQualify(mc.HTMLParser.Parse(content.FormattedBody, ctx)), allowedMentions
+		text = variationselector.FullyQualify(mc.HTMLParser.Parse(content.FormattedBody, ctx))
 	} else {
-		return variationselector.FullyQualify(escapeDiscordMarkdown(content.Body)), allowedMentions
+		text = variationselector.FullyQualify(escapeDiscordMarkdown(content.Body))
 	}
+	if content.MsgType == event.MsgEmote {
+		text = fmt.Sprintf("_%s_", text)
+	}
+	return text, allowedMentions
 }

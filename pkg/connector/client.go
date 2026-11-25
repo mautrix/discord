@@ -433,7 +433,13 @@ func eventChannelID(event any) string {
 		reaction = evt.MessageReaction
 	case *discordgo.MessageReactionRemove:
 		reaction = evt.MessageReaction
+	case *discordgo.MessageReactionRemoveAll:
+		reaction = evt.MessageReaction
+	case *discordgo.MessageReactionRemoveEmoji:
+		reaction = evt.MessageReaction
 	case *discordgo.MessageReactionAddMany:
+		return evt.ChannelID
+	case *discordgo.MessageDeleteBulk:
 		return evt.ChannelID
 	}
 	if msg != nil {

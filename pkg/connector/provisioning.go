@@ -246,13 +246,7 @@ func (p *ProvisioningAPI) bridgeGuild(w http.ResponseWriter, r *http.Request, lo
 		Str("guild_id", guildID).
 		Msg("requested to bridge guild via provisioning api")
 
-	meta := login.Metadata.(*discordid.UserLoginMetadata)
-
-	if meta.BridgedGuildIDs == nil {
-		meta.BridgedGuildIDs = map[string]bool{}
-	}
-	_, alreadyBridged := meta.BridgedGuildIDs[guildID]
-	meta.BridgedGuildIDs[guildID] = true
+	alreadyBridged := client.setGuildBridged(guildID, true)
 
 	if err := login.Save(r.Context()); err != nil {
 		p.log.Err(err).Msg("Failed to save login after guild bridge request")
@@ -415,10 +409,7 @@ func (p *ProvisioningAPI) unbridgeGuild(w http.ResponseWriter, r *http.Request, 
 
 	// Immediately record user intent by committing the change to UserLogin
 	// metadata, even if the portal deletion we're about to attempt fails.
-	meta := login.Metadata.(*discordid.UserLoginMetadata)
-	if meta.BridgedGuildIDs != nil {
-		delete(meta.BridgedGuildIDs, guildID)
-	}
+	client.setGuildBridged(guildID, false)
 	if err := login.Save(ctx); err != nil {
 		log.Err(err).Msg("Failed to save login after guild unbridge request")
 		mautrix.MUnknown.WithMessage("failed to save login: %v", err).Write(w)

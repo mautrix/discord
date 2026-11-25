@@ -326,7 +326,6 @@ configuration allows it, before vitals are poked:
   - When your account standing changes for whatever reason, Discord sends a
     system message that is flagged as urgent.
 - Gateway `READY`.
-- Gateway `RESUMED`.
 
 The Gateway seemingly does not dedicate an event to Safety Hub information
 changing, so the bridge must fetch it opportunistically.

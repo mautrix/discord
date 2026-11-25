@@ -83,6 +83,8 @@ type DiscordClient struct {
 	lastSendAttemptMutex sync.Mutex
 	lastSendAttempt      *SendAttempt
 
+	bridgedGuildsLock sync.RWMutex
+
 	vitalsMu  sync.Mutex // guards vitals and safetyHub
 	vitals    *vitals
 	safetyHub *discordgo.SafetyHub // last fetched safety hub information when permitted
@@ -282,6 +284,19 @@ func (d *DiscordClient) tokenInvalidated(ctx context.Context, circumstance strin
 	}
 }
 
+func (d *DiscordClient) saveRefreshedToken(ctx context.Context, token string) {
+	meta := d.userLoginMetadata()
+	if meta.Token == token {
+		return
+	}
+	log := zerolog.Ctx(ctx)
+	log.Info().Msg("Discord sent a refreshed token in READY, saving it")
+	meta.Token = token
+	if err := d.UserLogin.Save(ctx); err != nil {
+		log.Err(err).Msg("Failed to save refreshed token")
+	}
+}
+
 func (d *DiscordClient) connectRetrying(ctx context.Context, retryCount int, prevStop *context.CancelFunc) {
 	retryCtx, cancel := context.WithCancel(ctx)
 	if prevStop == nil {
@@ -368,7 +383,60 @@ func (d *DiscordClient) handleDiscordEventSync(event any) {
 	// else we might end up inadvertently relying on goroutine scheduling.
 	d.handleDiscordStateEvent(event)
 
+	if d.isUnbridgedGuildEvent(event) {
+		return
+	}
 	go d.handleDiscordEvent(event)
+}
+
+func (d *DiscordClient) isUnbridgedGuildEvent(event any) bool {
+	var guildID string
+	switch evt := event.(type) {
+	case *discordgo.Event:
+		return true
+	case *discordgo.MessageCreate:
+		if evt.Message == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageUpdate:
+		if evt.Message == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageDelete:
+		if evt.Message == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageReactionAdd:
+		if evt.MessageReaction == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.MessageReactionRemove:
+		if evt.MessageReaction == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.TypingStart:
+		guildID = evt.GuildID
+	case *discordgo.ThreadCreate:
+		if evt.Channel == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.ThreadUpdate:
+		if evt.Channel == nil {
+			return false
+		}
+		guildID = evt.GuildID
+	case *discordgo.ThreadListSync:
+		guildID = evt.GuildID
+	default:
+		return false
+	}
+	return guildID != "" && !d.guildIsBridged(guildID)
 }
 
 func (d *DiscordClient) connect(ctx context.Context) error {
@@ -636,29 +704,25 @@ func (d *DiscordClient) syncPrivateChannels(ctx context.Context) {
 	dms := slices.Clone(d.Session.State.PrivateChannels)
 	d.Session.State.RUnlock()
 
-	// Only queue portal-creating resyncs for the top n private channels with
-	// recent activity (that haven't already been synced above).
 	slices.SortFunc(dms, func(a, b *discordgo.Channel) int {
 		ats, _ := discordgo.SnowflakeTimestamp(a.LastMessageID)
 		bts, _ := discordgo.SnowflakeTimestamp(b.LastMessageID)
 		return bts.Compare(ats)
 	})
-	// TODO(skip): This is startup_private_channel_create_limit. Support this
-	// in the config.
-	maxDms := min(10, len(dms))
-	recentDmsSynced := 0
-	for _, dm := range dms[:maxDms] {
-		if resyncedExistingPrivateChannels.Has(dm.ID) {
+	newDmsSynced := 0
+	for _, dm := range dms {
+		// Empty channels get a portal when their first message arrives.
+		if dm.LastMessageID == "" || resyncedExistingPrivateChannels.Has(dm.ID) {
 			continue
 		}
-		log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel with recent activity")
+		log.Debug().Str("channel_id", dm.ID).Msg("Syncing private channel without portal")
 		d.queueChannelResync(ctx, dm)
-		recentDmsSynced++
+		newDmsSynced++
 	}
 
 	log.Info().
 		Int("existing_private_portals_synced", len(resyncedExistingPrivateChannels)).
-		Int("recent_dms_synced", recentDmsSynced).
+		Int("new_dms_synced", newDmsSynced).
 		Int("dms_total", len(dms)).
 		Msg("Synced private channels")
 }
@@ -734,11 +798,13 @@ func (d *DiscordClient) bridgedGuildIDs() map[string]struct{} {
 	bridgingGuildIDs := map[string]struct{}{}
 
 	// guilds that were bridged via the provisioning api
+	d.bridgedGuildsLock.RLock()
 	for guildID, bridged := range meta.BridgedGuildIDs {
 		if bridged {
 			bridgingGuildIDs[guildID] = struct{}{}
 		}
 	}
+	d.bridgedGuildsLock.RUnlock()
 
 	// guilds that were declared in the configuration file
 	for _, guildID := range d.connector.Config.Guilds.BridgingGuildIDs {
@@ -746,6 +812,29 @@ func (d *DiscordClient) bridgedGuildIDs() map[string]struct{} {
 	}
 
 	return bridgingGuildIDs
+}
+
+func (d *DiscordClient) guildIsBridged(guildID string) bool {
+	d.bridgedGuildsLock.RLock()
+	bridged := d.userLoginMetadata().BridgedGuildIDs[guildID]
+	d.bridgedGuildsLock.RUnlock()
+	return bridged || slices.Contains(d.connector.Config.Guilds.BridgingGuildIDs, guildID)
+}
+
+func (d *DiscordClient) setGuildBridged(guildID string, bridged bool) (wasBridged bool) {
+	d.bridgedGuildsLock.Lock()
+	defer d.bridgedGuildsLock.Unlock()
+	meta := d.userLoginMetadata()
+	_, wasBridged = meta.BridgedGuildIDs[guildID]
+	if bridged {
+		if meta.BridgedGuildIDs == nil {
+			meta.BridgedGuildIDs = map[string]bool{}
+		}
+		meta.BridgedGuildIDs[guildID] = true
+	} else {
+		delete(meta.BridgedGuildIDs, guildID)
+	}
+	return
 }
 
 func (d *DiscordClient) syncGuilds(ctx context.Context) {
@@ -1093,7 +1182,10 @@ func (d *DiscordClient) computeMutedUntil(muted bool, cfg *discordgo.MuteConfig)
 // This method works with private channels if an empty string is passed as the
 // guild ID.
 func (d *DiscordClient) channelMutedUntil(guildID, parentID, channelID string) time.Time {
-	settings := d.guildSettingsForGuildID(guildID)
+	return d.mutedUntilWithSettings(d.guildSettingsForGuildID(guildID), parentID, channelID)
+}
+
+func (d *DiscordClient) mutedUntilWithSettings(settings *discordgo.UserGuildSettings, parentID, channelID string) time.Time {
 	if settings == nil {
 		return bridgev2.Unmuted
 	}

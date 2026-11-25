@@ -75,7 +75,7 @@ type DiscordMessage struct {
 
 func (m *DiscordMessage) ShouldCreatePortal() bool {
 	// Do not create a portal merely to bridge a message deletion or edit.
-	return m.Type == bridgev2.RemoteEventMessage
+	return m.Type == bridgev2.RemoteEventMessage && (m.route.FromChannel == nil || !m.route.FromChannel.IsSpam)
 }
 
 func (m *DiscordMessage) ConvertEdit(
@@ -98,6 +98,9 @@ func (m *DiscordMessage) ConvertEdit(
 		m.Data,
 		m.ThreadRootID,
 	)
+	if len(newlyConverted.Parts) == 0 {
+		return nil, fmt.Errorf("%w (edit converted to no parts)", bridgev2.ErrIgnoringRemoteEvent)
+	}
 
 	// Detect the legacy scheme of naively assigning incrementing part IDs
 	// without using stable identifiers, so we don't cause churn on previously
@@ -284,7 +287,9 @@ func (m *DiscordMessage) GetTransactionID() networkid.TransactionID {
 }
 
 func (m *DiscordMessage) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI) (*bridgev2.ConvertedMessage, error) {
-	return m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data, m.ThreadRootID), nil
+	converted := m.Client.connector.MsgConv.ToMatrix(ctx, portal, intent, m.Client.UserLogin, m.Client.Session, m.Data, m.ThreadRootID)
+	converted.MergeCaption()
+	return converted, nil
 }
 
 func (m *DiscordMessage) GetID() networkid.MessageID {
@@ -353,6 +358,8 @@ func (r *DiscordReaction) GetReactionExtraContent() map[string]any {
 	return r.Extra
 }
 
+const superReactionEmojiIDPrefix = "burst:"
+
 func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *discordgo.MessageReaction, route *router.Route, beingAdded bool) (*DiscordReaction, error) {
 	if reaction == nil {
 		return nil, nil
@@ -408,6 +415,9 @@ func (d *DiscordClient) wrapDiscordReaction(ctx context.Context, reaction *disco
 		// A Unicode emoji.
 		emojiID = reaction.Emoji.Name
 		matrixEmoji = variationselector.Add(reaction.Emoji.Name)
+	}
+	if reaction.Burst {
+		emojiID = superReactionEmojiIDPrefix + emojiID
 	}
 
 	return &DiscordReaction{
@@ -767,17 +777,6 @@ func (d *DiscordClient) handlePresenceUpdate(ctx context.Context, evt *discordgo
 	ghost.UpdateInfo(ctx, d.getUserInfo(ctx, merged))
 }
 
-type DiscordReadReceipt struct {
-	*simplevent.Receipt
-	ThreadRoot networkid.MessageID
-}
-
-var _ bridgev2.RemoteReadReceiptWithThread = (*DiscordReadReceipt)(nil)
-
-func (r *DiscordReadReceipt) GetReceiptThread() networkid.MessageID {
-	return r.ThreadRoot
-}
-
 func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.MessageAck, bridged bool, route *router.Route) {
 	d.readStatesLock.Lock()
 	zerolog.Ctx(ctx).Trace().
@@ -795,16 +794,14 @@ func (d *DiscordClient) handleMessageAck(ctx context.Context, ack *discordgo.Mes
 	d.readStatesLock.Unlock()
 
 	if bridged {
-		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &DiscordReadReceipt{
-			Receipt: &simplevent.Receipt{
-				EventMeta: simplevent.EventMeta{
-					Type:              bridgev2.RemoteEventReadReceipt,
-					PortalKey:         route.PortalKey,
-					Sender:            d.selfEventSender(),
-					UncertainReceiver: route.Uncertain,
-				},
-				LastTarget: discordid.MakeMessageID(ack.MessageID),
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Receipt{
+			EventMeta: simplevent.EventMeta{
+				Type:              bridgev2.RemoteEventReadReceipt,
+				PortalKey:         route.PortalKey,
+				Sender:            d.selfEventSender(),
+				UncertainReceiver: route.Uncertain,
 			},
+			LastTarget: discordid.MakeMessageID(ack.MessageID),
 			ThreadRoot: ptr.Val(route.FromThreadRootMessageID()),
 		})
 	}
@@ -831,7 +828,35 @@ func (d *DiscordClient) channelIsBridged(ctx context.Context, channelID string) 
 func (d *DiscordClient) handleUserGuildSettingsUpdate(ctx context.Context, evt *discordgo.UserGuildSettingsUpdate) {
 	log := zerolog.Ctx(ctx)
 	log.Debug().Msg("Handling user guild settings update")
+	oldSettings := d.guildSettingsForGuildID(evt.GuildID)
 	d.applySingleGuildSettings(evt.UserGuildSettings)
+
+	for portal := range d.existingPortals(ctx) {
+		if portal.MXID == "" || portal.Metadata.(*discordid.PortalMetadata).GuildID != evt.GuildID {
+			continue
+		}
+		channelID := discordid.ParseChannelPortalID(portal.ID)
+		ch := d.channelWithID(ctx, channelID)
+		if ch == nil {
+			continue
+		}
+		mutedUntil := d.mutedUntilWithSettings(evt.UserGuildSettings, ch.ParentID, ch.ID)
+		if mutedUntil.Equal(d.mutedUntilWithSettings(oldSettings, ch.ParentID, ch.ID)) {
+			continue
+		}
+		d.UserLogin.QueueRemoteEvent(&simplevent.ChatInfoChange{
+			EventMeta: simplevent.EventMeta{
+				Type:      bridgev2.RemoteEventChatInfoChange,
+				PortalKey: portal.PortalKey,
+				Timestamp: time.Now(),
+			},
+			ChatInfoChange: &bridgev2.ChatInfoChange{
+				ChatInfo: &bridgev2.ChatInfo{
+					UserLocal: &bridgev2.UserLocalPortalInfo{MutedUntil: &mutedUntil},
+				},
+			},
+		})
+	}
 }
 
 func messageCtx(ctx context.Context, msg *discordgo.Message) (context.Context, *zerolog.Logger) {
@@ -879,6 +904,9 @@ func (d *DiscordClient) handleDiscordStateEvent(rawEvt any) {
 		d.gatewayReady.Store(true)
 		readiedBefore := d.seenReady.Swap(true)
 
+		if evt.AuthToken != "" {
+			d.saveRefreshedToken(ctx, evt.AuthToken)
+		}
 		d.applyReadyPayload(ctx, evt)
 		// A READY after the first one means the gateway handed us a fresh
 		// session instead of resuming (our resume was refused or the session
@@ -1058,7 +1086,6 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		// (All missed gateway events have been replayed, and all subsequent
 		// events will be new.)
 		log.Info().Msg("Received RESUMED dispatch from discordgo")
-		d.refreshSafetyHub(ctx)
 		d.pokeVitals(ctx)
 		d.sendCurrentState(ctx)
 	case *discordgo.InvalidAuth:
@@ -1258,11 +1285,26 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 
 		wrappedEvt := d.wrapDiscordMessage(ctx, evt.Message, route, bridgev2.RemoteEventMessageRemove)
 		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
-	// TODO *discordgo.MessageDeleteBulk
+	case *discordgo.MessageDeleteBulk:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		for _, messageID := range evt.Messages {
+			wrappedEvt := d.wrapDiscordMessage(ctx, &discordgo.Message{
+				ID:        messageID,
+				ChannelID: evt.ChannelID,
+				GuildID:   evt.GuildID,
+			}, route, bridgev2.RemoteEventMessageRemove)
+			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &wrappedEvt)
+		}
 	case *discordgo.MessageReactionAdd:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
 			return
+		}
+		if evt.Member != nil {
+			d.userCache.UpdateWithUser(evt.Member.User)
 		}
 		wrappedEvt, err := d.wrapDiscordReaction(ctx, evt.MessageReaction, route, true)
 		if err != nil {
@@ -1270,8 +1312,37 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 		} else {
 			d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
 		}
-	// TODO case *discordgo.MessageReactionRemoveAll:
-	// TODO case *discordgo.MessageReactionRemoveEmoji: (needs impl. in discordgo)
+	case *discordgo.MessageReactionAddMany:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if !bridged {
+			return
+		}
+		for _, batch := range evt.Reactions {
+			for _, userID := range batch.Users {
+				wrappedEvt, err := d.wrapDiscordReaction(ctx, &discordgo.MessageReaction{
+					UserID:    userID,
+					MessageID: evt.MessageID,
+					Emoji:     batch.Emoji,
+					ChannelID: evt.ChannelID,
+					GuildID:   evt.GuildID,
+				}, route, true)
+				if err != nil {
+					log.Err(err).Msg("Dropping incoming reaction batch due to error")
+					break
+				}
+				d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, wrappedEvt)
+			}
+		}
+	case *discordgo.MessageReactionRemoveAll:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if bridged {
+			d.queueReactionClear(ctx, evt.MessageReaction, false, route)
+		}
+	case *discordgo.MessageReactionRemoveEmoji:
+		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
+		if bridged {
+			d.queueReactionClear(ctx, evt.MessageReaction, true, route)
+		}
 	case *discordgo.MessageReactionRemove:
 		bridged, route := d.channelIsBridged(ctx, evt.ChannelID)
 		if !bridged {
@@ -1308,5 +1379,38 @@ func (d *DiscordClient) handleDiscordEvent(rawEvt any) {
 			return
 		}
 		d.queueGuildDeletion(ctx, evt.ID)
+	}
+}
+
+func (d *DiscordClient) queueReactionClear(ctx context.Context, reaction *discordgo.MessageReaction, onlyThisEmoji bool, route *router.Route) {
+	log := zerolog.Ctx(ctx).With().Str("message_id", reaction.MessageID).Bool("only_this_emoji", onlyThisEmoji).Logger()
+	var emojiID networkid.EmojiID
+	if onlyThisEmoji {
+		wrapped, err := d.wrapDiscordReaction(ctx, reaction, route, false)
+		if err != nil || wrapped == nil {
+			log.Err(err).Msg("Failed to convert cleared reaction emoji")
+			return
+		}
+		emojiID = wrapped.EmojiID
+	}
+	reactions, err := d.connector.Bridge.DB.Reaction.GetAllToMessage(ctx, route.PortalKey.Receiver, discordid.MakeMessageID(reaction.MessageID))
+	if err != nil {
+		log.Err(err).Msg("Failed to get reactions to clear")
+		return
+	}
+	for _, existing := range reactions {
+		if onlyThisEmoji && existing.EmojiID != emojiID && existing.EmojiID != superReactionEmojiIDPrefix+emojiID {
+			continue
+		}
+		d.UserLogin.Bridge.QueueRemoteEvent(d.UserLogin, &simplevent.Reaction{
+			EventMeta: simplevent.EventMeta{
+				Type:              bridgev2.RemoteEventReactionRemove,
+				PortalKey:         route.PortalKey,
+				Sender:            d.makeEventSenderWithID(discordid.ParseUserID(existing.SenderID)),
+				UncertainReceiver: route.Uncertain,
+			},
+			TargetMessage: existing.MessageID,
+			EmojiID:       existing.EmojiID,
+		})
 	}
 }

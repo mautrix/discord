@@ -44,6 +44,7 @@ var (
 	_ bridgev2.NetworkConnector               = (*DiscordConnector)(nil)
 	_ bridgev2.MaxFileSizeingNetwork          = (*DiscordConnector)(nil)
 	_ bridgev2.TransactionIDGeneratingNetwork = (*DiscordConnector)(nil)
+	_ bridgev2.ProxyingNetwork                = (*DiscordConnector)(nil)
 )
 
 func (d *DiscordConnector) Init(bridge *bridgev2.Bridge) {

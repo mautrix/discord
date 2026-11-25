@@ -80,7 +80,7 @@ func (dl *DiscordRemoteAuthLogin) Start(ctx context.Context) (*bridgev2.LoginSte
 		return &bridgev2.LoginStep{
 			Type:         bridgev2.LoginStepTypeDisplayAndWait,
 			StepID:       "fi.mau.discord.qr",
-			Instructions: "On your phone, find “Scan QR Code” in Discord’s settings.",
+			Instructions: msgStepQRInstructions.Message(),
 			DisplayAndWaitParams: &bridgev2.LoginDisplayAndWaitParams{
 				Type: bridgev2.LoginDisplayTypeQR,
 				Data: qrCode,

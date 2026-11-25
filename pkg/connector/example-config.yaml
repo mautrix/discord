@@ -63,15 +63,8 @@ log_when_dropping_messages: true
 # provisioning API instead.
 extev_polls: false
 
-# Static proxy address (HTTP or SOCKS5) for connecting to Discord.
-proxy:
-# HTTP endpoint to request a new proxy address from, for dynamically assigned
-# proxies. The endpoint must return a JSON body with a string field called
-# proxy_url. It is re-fetched on every (re)connect so each session egresses from
-# one consistent IP.
-get_proxy_from:
-# Should avatar, icon, and attachment downloads also go through the proxy? The
-# gateway websocket and REST API always use it (when proxying).
+# Should avatar, icon, and attachment downloads also go through the top-level
+# proxy? The gateway websocket and REST API always use it (when proxying).
 proxy_media: false
 # When a proxy is configured, should the "machine" bridgev2 login flow
 # configure its HTTP client with the proxy?

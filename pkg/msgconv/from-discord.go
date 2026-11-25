@@ -17,9 +17,11 @@
 package msgconv
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 	"mime"
@@ -428,6 +430,8 @@ func (mc *MessageConverter) renderDiscordTextMessage(ctx context.Context, intent
 	return &bridgev2.ConvertedMessagePart{Type: event.EventMessage, Content: &content, Extra: extraContent}
 }
 
+var errForwardedPortalNotFound = errors.New("containing portal for forwarded message doesn't exist")
+
 func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source *bridgev2.UserLogin, msg *discordgo.Message, msgTSText string) (string, error) {
 	router, ok := source.Client.(router.Router)
 	if !ok {
@@ -443,7 +447,7 @@ func (mc *MessageConverter) forwardedMessageOrigLink(ctx context.Context, source
 		return "", fmt.Errorf("couldn't get containing portal for forwarded message: %w", err)
 	}
 	if forwardedFromPortal == nil {
-		return "", fmt.Errorf("containing portal for forwarded message doesn't exist")
+		return "", errForwardedPortalNotFound
 	}
 
 	origMessage, err := mc.Bridge.DB.Message.GetFirstPartByID(ctx, source.ID, discordid.MakeMessageID(msg.MessageReference.MessageID))
@@ -488,7 +492,17 @@ func (mc *MessageConverter) forwardedMessageHTMLPart(ctx context.Context, portal
 	}
 	msgTSText := snapshot.Timestamp.Format("2006-01-02 15:04 MST")
 	origLink, err := mc.forwardedMessageOrigLink(ctx, source, msg, msgTSText)
-	if err != nil {
+	if errors.Is(err, errForwardedPortalNotFound) {
+		log.Debug().Msg("Forwarded message is from a channel without a portal, linking to Discord")
+		ref := msg.MessageReference
+		origLink = fmt.Sprintf(
+			`<a href="https://discord.com/channels/%s/%s/%s">unknown channel</a> • %s`,
+			cmp.Or(ref.GuildID, "@me"),
+			ref.ChannelID,
+			ref.MessageID,
+			msgTSText,
+		)
+	} else if err != nil {
 		log.Err(err).Msg("Failed to render original link to forwarded message, using generic placeholder")
 		origLink = fmt.Sprintf("unknown channel • %s", msgTSText)
 	}

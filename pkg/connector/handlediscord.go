@@ -89,6 +89,16 @@ func (m *DiscordMessage) ConvertEdit(
 		Str("action", "convert discord edit").Logger()
 	ctx = log.WithContext(ctx)
 
+	newMeta := discordid.NewMessageMetadata(m.Data)
+	var lastEditTS time.Time
+	for _, part := range existingParts {
+		meta, _ := part.Metadata.(*discordid.MessageMetadata)
+		if meta != nil && meta.EditedTimestamp.After(lastEditTS) {
+			lastEditTS = meta.EditedTimestamp
+		}
+	}
+	hideEdited := !newMeta.EditedTimestamp.After(lastEditTS)
+
 	// FIXME(skip): This will always reupload attachments, super wasteful.
 	newlyConverted := m.Client.connector.MsgConv.ToMatrix(
 		ctx,
@@ -107,7 +117,11 @@ func (m *DiscordMessage) ConvertEdit(
 	// without using stable identifiers, so we don't cause churn on previously
 	// bridged messages that are edited.
 	if isLegacyNumericParts(existingParts) {
-		return legacyConvertEdit(ctx, newlyConverted, existingParts)
+		edit, err := legacyConvertEdit(ctx, newlyConverted, existingParts)
+		if edit != nil && hideEdited {
+			hideEditedParts(edit)
+		}
+		return edit, err
 	}
 
 	beforePartsByID := make(map[networkid.PartID]*database.Message, len(existingParts))
@@ -181,8 +195,20 @@ func (m *DiscordMessage) ConvertEdit(
 			Int("added_part_count", len(addedParts)).
 			Msg("Ignoring parts added in edit")
 	}
+	if hideEdited {
+		hideEditedParts(edit)
+	}
 
 	return edit, nil
+}
+
+func hideEditedParts(edit *bridgev2.ConvertedEdit) {
+	for _, part := range edit.ModifiedParts {
+		if part.TopLevelExtra == nil {
+			part.TopLevelExtra = make(map[string]any)
+		}
+		part.TopLevelExtra["com.beeper.dont_render_edited"] = true
+	}
 }
 
 func (m *DiscordMessage) hasAttachment(partID networkid.PartID) bool {

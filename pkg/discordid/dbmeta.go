@@ -17,6 +17,8 @@
 package discordid
 
 import (
+	"time"
+
 	"github.com/bwmarrin/discordgo"
 	"maunium.net/go/mautrix/bridgev2/database"
 )
@@ -55,4 +57,16 @@ func (ulm *UserLoginMetadata) CopyFrom(incoming any) {
 	ulm.HeartbeatSession = discordgo.NewHeartbeatSession()
 
 	// Retain the BridgedGuildIDs from the existing login.
+}
+
+type MessageMetadata struct {
+	EditedTimestamp time.Time `json:"edited_timestamp,omitzero"`
+}
+
+func NewMessageMetadata(msg *discordgo.Message) *MessageMetadata {
+	meta := &MessageMetadata{}
+	if msg.EditedTimestamp != nil {
+		meta.EditedTimestamp = msg.EditedTimestamp.Truncate(time.Millisecond)
+	}
+	return meta
 }

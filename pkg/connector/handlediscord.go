@@ -17,7 +17,6 @@
 package connector
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"runtime/debug"
@@ -91,19 +90,12 @@ func (m *DiscordMessage) ConvertEdit(
 	ctx = log.WithContext(ctx)
 
 	newMeta := discordid.NewMessageMetadata(m.Data)
-	contentUnchanged := len(newMeta.ContentHash) > 0 && len(existingParts) > 0
 	var lastEditTS time.Time
 	for _, part := range existingParts {
 		meta, _ := part.Metadata.(*discordid.MessageMetadata)
-		if meta == nil || !bytes.Equal(meta.ContentHash, newMeta.ContentHash) {
-			contentUnchanged = false
-		}
 		if meta != nil && meta.EditedTimestamp.After(lastEditTS) {
 			lastEditTS = meta.EditedTimestamp
 		}
-	}
-	if contentUnchanged {
-		return nil, fmt.Errorf("%w (content hash didn't change)", bridgev2.ErrIgnoringRemoteEvent)
 	}
 	hideEdited := !newMeta.EditedTimestamp.After(lastEditTS)
 

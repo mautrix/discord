@@ -39,9 +39,6 @@ func defaultThreadRootMessageID(ch *discordgo.Channel) string {
 	if ch == nil || !isThread(ch) {
 		return ""
 	}
-	if ch.Type == discordgo.ChannelTypeGuildPrivateThread {
-		return ""
-	}
 	return ch.ID
 }
 

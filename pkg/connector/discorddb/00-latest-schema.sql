@@ -1,4 +1,4 @@
--- v0 -> v3 (compatible with v1+): latest schema
+-- v0 -> v4 (compatible with v1+): latest schema
 
 -- https://docs.discord.com/developers/resources/emoji#emoji-object
 CREATE TABLE custom_emoji (
@@ -40,7 +40,7 @@ CREATE TABLE discord_thread (
 
     -- The ID of the thread's "root" message. For public threads, this will
     -- match `id` and therefore the message that the thread originates from.
-    -- For private threads, this will be NULL.
+    -- Private threads have no starter message, so this is the thread ID too.
     root_message_id   TEXT,
 
     -- The Discord channel ID that the thread belongs to.

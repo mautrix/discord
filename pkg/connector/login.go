@@ -29,23 +29,23 @@ func (d *DiscordConnector) GetLoginFlows() []bridgev2.LoginFlow {
 	return []bridgev2.LoginFlow{
 		{
 			ID:          LoginFlowIDBrowser,
-			Name:        "Browser",
-			Description: "Log in to your Discord account in a web browser.",
+			Name:        msgFlowBrowserName.Message(),
+			Description: msgFlowBrowserDescription.Message(),
 		},
 		{
 			ID:          LoginFlowIDRemoteAuth,
-			Name:        "QR Code",
-			Description: "Scan a QR code with the Discord mobile app to log in.",
+			Name:        msgFlowQRName.Message(),
+			Description: msgFlowQRDescription.Message(),
 		},
 		{
 			ID:          LoginFlowIDToken,
-			Name:        "Token",
-			Description: "Provide a Discord user token to connect with.",
+			Name:        msgFlowTokenName.Message(),
+			Description: msgFlowTokenDescription.Message(),
 		},
 		{
 			ID:          LoginFlowIDMachine,
-			Name:        "Email/Phone & Password",
-			Description: "Log in with an email or phone number and a password. Supports multi-factor authentication (e.g. TOTP, SMS, etc.)",
+			Name:        msgFlowMachineName.Message(),
+			Description: msgFlowMachineDescription.Message(),
 		},
 	}
 }

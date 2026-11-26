@@ -4,12 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/coder/websocket"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 type serverPacket interface {
@@ -24,9 +23,7 @@ func (c *Client) processMessages() {
 	defer c.Close()
 
 	for {
-		c.Lock()
 		_, packet, err := c.conn.Read(c.connCtx)
-		c.Unlock()
 
 		if err != nil {
 			if code := websocket.CloseStatus(err); code != -1 && code != websocket.StatusNormalClosure {
@@ -127,9 +124,13 @@ func (h *serverHello) process(client *Client) error {
 		<-time.After(duration)
 
 		client.Lock()
+		if client.closed || client.ticket != "" {
+			client.Unlock()
+			return
+		}
 		client.err = fmt.Errorf("timed out after %s", duration)
-		client.Close()
 		client.Unlock()
+		client.Close()
 	}()
 
 	i := clientInit{}
@@ -211,22 +212,17 @@ type serverPendingLogin struct {
 }
 
 func (p *serverPendingLogin) process(client *Client) error {
-	sess, err := discordgo.New("")
-	if err != nil {
-		return err
-	}
-	sess.Client = client.restHTTPClient
-	encryptedToken, err := sess.RemoteAuthLogin(p.Ticket)
-	if err != nil {
-		return err
-	}
-
-	plaintext, err := client.decrypt(encryptedToken)
+	client.Lock()
+	client.ticket = p.Ticket
+	client.Unlock()
+	user, err := client.RedeemTicket()
 	if err != nil {
 		return err
 	}
 
-	client.user.Token = string(plaintext)
+	client.Lock()
+	client.user = user
+	client.Unlock()
 
 	client.Close()
 
@@ -238,8 +234,8 @@ func (p *serverPendingLogin) process(client *Client) error {
 // /////////////////////////////////////////////////////////////////////////////
 type serverCancel struct{}
 
-func (c *serverCancel) process(client *Client) error {
-	client.Close()
+var ErrCancelled = errors.New("login was cancelled on the phone")
 
-	return nil
+func (c *serverCancel) process(client *Client) error {
+	return ErrCancelled
 }

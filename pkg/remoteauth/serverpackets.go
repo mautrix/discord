@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,9 +23,7 @@ func (c *Client) processMessages() {
 	defer c.Close()
 
 	for {
-		c.Lock()
 		_, packet, err := c.conn.Read(c.connCtx)
-		c.Unlock()
 
 		if err != nil {
 			if code := websocket.CloseStatus(err); code != -1 && code != websocket.StatusNormalClosure {
@@ -235,8 +234,8 @@ func (p *serverPendingLogin) process(client *Client) error {
 // /////////////////////////////////////////////////////////////////////////////
 type serverCancel struct{}
 
-func (c *serverCancel) process(client *Client) error {
-	client.Close()
+var ErrCancelled = errors.New("login was cancelled on the phone")
 
-	return nil
+func (c *serverCancel) process(client *Client) error {
+	return ErrCancelled
 }

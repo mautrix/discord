@@ -50,6 +50,7 @@ var (
 	_ bridgev2.UserBlockingNetworkAPI            = (*DiscordClient)(nil)
 	_ bridgev2.MessageRequestAcceptingNetworkAPI = (*DiscordClient)(nil)
 	_ bridgev2.MarkedUnreadHandlingNetworkAPI    = (*DiscordClient)(nil)
+	_ bridgev2.DeleteChatHandlingNetworkAPI      = (*DiscordClient)(nil)
 )
 
 type contextKey int
@@ -417,6 +418,9 @@ func (d *DiscordClient) HandleMatrixReactionRemove(ctx context.Context, removal 
 
 	removing := removal.TargetReaction
 	emojiID := removing.EmojiID
+	if strings.HasPrefix(string(emojiID), superReactionEmojiIDPrefix) {
+		return bridgev2.WrapErrorInStatus(errors.New("super reactions can't be removed from Matrix")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
 	parentChannelID := discordid.ParseChannelPortalID(removal.Portal.ID)
 	channelID := parentChannelID
 	threadChannelID := ""
@@ -835,4 +839,20 @@ func (d *DiscordClient) lastTopLevelMessages(ctx context.Context, portalKey netw
 		}
 	}
 	return
+}
+
+func (d *DiscordClient) HandleMatrixDeleteChat(ctx context.Context, msg *bridgev2.MatrixDeleteChat) error {
+	if !d.IsLoggedIn() {
+		return bridgev2.ErrNotLoggedIn
+	}
+	if msg.Content.DeleteForEveryone {
+		return bridgev2.WrapErrorInStatus(errors.New("deleting chats for everyone is not supported on Discord")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
+	channelID := discordid.ParseChannelPortalID(msg.Portal.ID)
+	ch := d.channelWithID(ctx, channelID)
+	if ch == nil || (ch.Type != discordgo.ChannelTypeDM && ch.Type != discordgo.ChannelTypeGroupDM) {
+		return bridgev2.WrapErrorInStatus(errors.New("only direct messages and group DMs can be deleted")).WithIsCertain(true).WithErrorAsMessage().WithErrorReason(event.MessageStatusUnsupported).WithStatus(event.MessageStatusFail)
+	}
+	_, err := d.Session.ChannelDelete(channelID, makeDiscordReferer("", channelID, ""), discordgo.WithQueryParam("silent", "false"))
+	return d.tryWrappingError(ctx, err)
 }

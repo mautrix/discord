@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
+	"go.mau.fi/util/l10n"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 
@@ -224,7 +225,7 @@ func (d *DiscordMachineLogin) Cancel() {
 
 // initialCredsStep returns the very first login step needed to kick off the
 // authentication flow (email or phone number and password).
-func initialCredsStep(instructions string) *bridgev2.LoginStep {
+func initialCredsStep(instructions l10n.Message) *bridgev2.LoginStep {
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
 		StepID:       LoginStepIDMachineInitialCreds,
@@ -234,32 +235,25 @@ func initialCredsStep(instructions string) *bridgev2.LoginStep {
 				{
 					Type: bridgev2.LoginInputFieldTypeUsername,
 					ID:   InputDataFieldIDUsernameOrPhone,
-					Name: "Email or phone number",
+					Name: msgFieldUsernameOrPhoneName.Message(),
 				},
 				{
 					Type: bridgev2.LoginInputFieldTypePassword,
 					ID:   InputDataFieldIDPassword,
-					Name: "Password",
+					Name: msgFieldPasswordName.Message(),
 				},
 			},
 		},
 	}
 }
 
-const newLocationInstructionPreamble = "Your login was correct, but Discord " +
-	"detected Beeper as a new login location."
-const textedCodeInstruction = "Enter the code Discord just texted you."
-
 func emailVerificationStep(retrying bool) *bridgev2.LoginStep {
 	// Forcing a dummy input like this isn't ideal by any means, but
 	// chat-command login and Beeper iOS cannot handle a user_input step with
 	// no inputs.
-	instructions := newLocationInstructionPreamble + " Check your email for a " +
-		"verification link, then choose the option below to continue."
+	instructions := msgStepEmailVerificationInstructions.Message()
 	if retrying {
-		instructions = "Discord hasn’t confirmed this login yet. Open the " +
-			"newest email from Discord and tap Verify Login, then choose the " +
-			"option below to continue."
+		instructions = msgStepEmailVerificationRetryInstructions.Message()
 	}
 
 	return &bridgev2.LoginStep{
@@ -271,9 +265,9 @@ func emailVerificationStep(retrying bool) *bridgev2.LoginStep {
 				{
 					Type: bridgev2.LoginInputFieldTypeSelect,
 					ID:   InputDataFieldIDEmailVerification,
-					Name: "Verification",
-					Options: []string{
-						"I’ve verified the login",
+					Name: msgFieldEmailVerificationName.Message(),
+					Options: []bridgev2.LoginInputOption{
+						{Value: "I’ve verified the login", Label: msgFieldEmailVerificationOptVerified.Message()},
 					},
 				},
 			},
@@ -284,12 +278,12 @@ func emailVerificationStep(retrying bool) *bridgev2.LoginStep {
 type smsCodeStepOptions struct {
 	loginStepID  string
 	inputFieldID string
-	instructions string // optional, defaults to [textedCodeInstruction]
+	instructions l10n.Message // optional, defaults to [msgStepMFASMSInstructions]
 }
 
 func smsCodeStep(opts smsCodeStepOptions) *bridgev2.LoginStep {
-	if opts.instructions == "" {
-		opts.instructions = textedCodeInstruction
+	if opts.instructions.IsZero() {
+		opts.instructions = msgStepMFASMSInstructions.Message()
 	}
 
 	return &bridgev2.LoginStep{
@@ -299,9 +293,9 @@ func smsCodeStep(opts smsCodeStepOptions) *bridgev2.LoginStep {
 		UserInputParams: &bridgev2.LoginUserInputParams{
 			Fields: []bridgev2.LoginInputDataField{
 				{
-					Description: "The code might take a moment to arrive.",
+					Description: msgFieldSMSCodeDescription.Message(),
 					ID:          opts.inputFieldID,
-					Name:        "Verification code",
+					Name:        msgFieldSMSCodeName.Message(),
 					// TODO enforce length
 					Pattern: `^(\d+)$`,
 					Type:    bridgev2.LoginInputFieldType2FACode,
@@ -327,25 +321,26 @@ func (d *DiscordMachineLogin) mfaMethodStep(ctx context.Context, prompt *discord
 		Logger()
 	log.Info().Msg("Entering MFA login flow")
 
-	mfaOptions := make([]string, 0, 3)
+	mfaOptions := make([]bridgev2.LoginInputOption, 0, 3)
 	if challenge.SMSEnabled {
-		mfaOptions = append(mfaOptions, string(mfaSms))
+		mfaOptions = append(mfaOptions, bridgev2.LoginInputOption{Value: string(mfaSms), Label: msgFieldMFAMethodOptSMS.Message()})
 	}
 	if challenge.TOTPEnabled {
-		mfaOptions = append(mfaOptions, string(mfaTotp))
+		mfaOptions = append(mfaOptions, bridgev2.LoginInputOption{Value: string(mfaTotp), Label: msgFieldMFAMethodOptTOTP.Message()})
 	}
 	if challenge.BackupCodesAccepted {
-		mfaOptions = append(mfaOptions, string(mfaBackup))
+		mfaOptions = append(mfaOptions, bridgev2.LoginInputOption{Value: string(mfaBackup), Label: msgFieldMFAMethodOptBackup.Message()})
 	}
 	if len(mfaOptions) == 0 {
 		return nil, fmt.Errorf("no supported MFA methods available (WebAuthn is unimplemented)")
 	}
 
-	instructions := "How do you want to verify it’s you?"
+	instructions := msgStepMFAMethodInstructions.Message()
 	if prompt.Reason != "" {
-		instructions = "That code didn’t work. Choose how you’d like to verify and try again."
 		if challenge.BackupCodesAccepted {
-			instructions += " If your authenticator app isn’t working, you can use a backup code instead."
+			instructions = msgStepMFAMethodRetryBackupInstructions.Message()
+		} else {
+			instructions = msgStepMFAMethodRetryInstructions.Message()
 		}
 	}
 
@@ -359,7 +354,7 @@ func (d *DiscordMachineLogin) mfaMethodStep(ctx context.Context, prompt *discord
 				{
 					Type:    bridgev2.LoginInputFieldTypeSelect,
 					ID:      InputDataFieldIDMFAMethod,
-					Name:    "Verification Method",
+					Name:    msgFieldMFAMethodName.Message(),
 					Options: mfaOptions,
 				},
 			},
@@ -373,14 +368,14 @@ func mfaCodeStep(authType discordauth.AuthenticatorType) (*bridgev2.LoginStep, e
 		return &bridgev2.LoginStep{
 			Type:         bridgev2.LoginStepTypeUserInput,
 			StepID:       LoginStepIDMachineMFABackup,
-			Instructions: "If your authenticator app is unavailable, you can sign in with a backup code. Backup codes are meant for emergencies only.",
+			Instructions: msgStepMFABackupInstructions.Message(),
 			UserInputParams: &bridgev2.LoginUserInputParams{
 				Fields: []bridgev2.LoginInputDataField{
 					{
 						Type:        bridgev2.LoginInputFieldTypePassword,
 						ID:          InputDataFieldIDMFABackupCode,
-						Name:        "Backup code",
-						Description: "You won’t be able to use this backup code again.",
+						Name:        msgFieldMFABackupCodeName.Message(),
+						Description: msgFieldMFABackupCodeDescription.Message(),
 					},
 				},
 			},
@@ -389,13 +384,13 @@ func mfaCodeStep(authType discordauth.AuthenticatorType) (*bridgev2.LoginStep, e
 		return &bridgev2.LoginStep{
 			Type:         bridgev2.LoginStepTypeUserInput,
 			StepID:       LoginStepIDMachineMFATOTP,
-			Instructions: "Enter the code from your authenticator app.",
+			Instructions: msgStepMFATOTPInstructions.Message(),
 			UserInputParams: &bridgev2.LoginUserInputParams{
 				Fields: []bridgev2.LoginInputDataField{
 					{
 						Type: bridgev2.LoginInputFieldType2FACode,
 						ID:   InputDataFieldIDMFATOTPCode,
-						Name: "Authentication code",
+						Name: msgFieldMFATOTPCodeName.Message(),
 						// TODO enforce length
 						Pattern: `^(\d+)$`,
 					},
@@ -503,7 +498,7 @@ func captchaStep(ctx context.Context, cap *discordauth.Captcha) (*bridgev2.Login
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeCookies,
 		StepID:       LoginStepIDMachineCaptcha,
-		Instructions: "Discord is presenting a CAPTCHA challenge.",
+		Instructions: msgStepCaptchaInstructions.Message(),
 		CookiesParams: &bridgev2.LoginCookiesParams{
 			URL:       captchaPageURL,
 			ExtractJS: extractJS,
@@ -625,7 +620,11 @@ func (d *DiscordMachineLogin) stepForPrompt(ctx context.Context, prompt *discord
 
 	switch {
 	case prompt.CredsPrompt != nil:
-		return initialCredsStep(prompt.CredsPrompt.Reason), nil
+		var instructions l10n.Message
+		if prompt.CredsPrompt.Reason != "" {
+			instructions = msgStepCredsInvalidInstructions.Message()
+		}
+		return initialCredsStep(instructions), nil
 	case prompt.EmailVerifyPrompt != nil:
 		log.Info().
 			Bool("retrying", prompt.EmailVerifyPrompt.Retrying).
@@ -633,11 +632,9 @@ func (d *DiscordMachineLogin) stepForPrompt(ctx context.Context, prompt *discord
 		return emailVerificationStep(prompt.EmailVerifyPrompt.Retrying), nil
 	case prompt.PhoneVerifyPrompt != nil:
 		log.Info().Msg("Prompting user to verify the IP address via SMS")
-		var instructions string
+		instructions := msgStepSMSVerificationInstructions.Message()
 		if prompt.PhoneVerifyPrompt.Retrying {
-			instructions = "That code didn’t work. Check your information and try again."
-		} else {
-			instructions = fmt.Sprintf("%s %s", newLocationInstructionPreamble, textedCodeInstruction)
+			instructions = msgStepSMSVerificationRetryInstructions.Message()
 		}
 		return smsCodeStep(smsCodeStepOptions{
 			loginStepID:  LoginStepIDMachineSMSVerification,

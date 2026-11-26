@@ -131,6 +131,14 @@ func (uc *UserCache) UpdateWithUser(user *discordgo.User) {
 //
 // If there is no cached user to merge into, nil is returned.
 func (uc *UserCache) MergePartialUser(partial *discordgo.User) *discordgo.User {
+	return uc.mergePartialUser(partial, false, false)
+}
+
+func (uc *UserCache) MergePresenceUser(update *discordgo.PresenceUpdate) *discordgo.User {
+	return uc.mergePartialUser(update.User, update.UserAvatarPresent, update.UserGlobalNamePresent)
+}
+
+func (uc *UserCache) mergePartialUser(partial *discordgo.User, avatarPresent, globalNamePresent bool) *discordgo.User {
 	if partial == nil || partial.ID == "" {
 		return nil
 	}
@@ -144,18 +152,17 @@ func (uc *UserCache) MergePartialUser(partial *discordgo.User) *discordgo.User {
 	}
 
 	// Copy before we mutate, as the pointer is shared.
-	// TODO: This doesn't distinguish between an empty field and an absent one.
 	merged := *existing
 	if partial.Username != "" {
 		merged.Username = partial.Username
 	}
-	if partial.GlobalName != "" {
+	if partial.GlobalName != "" || globalNamePresent {
 		merged.GlobalName = partial.GlobalName
 	}
 	if partial.Discriminator != "" {
 		merged.Discriminator = partial.Discriminator
 	}
-	if partial.Avatar != "" {
+	if partial.Avatar != "" || avatarPresent {
 		merged.Avatar = partial.Avatar
 	}
 

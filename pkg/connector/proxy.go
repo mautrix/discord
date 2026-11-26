@@ -18,77 +18,23 @@ package connector
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exhttp"
-	"maunium.net/go/mautrix"
 
 	"go.mau.fi/mautrix-discord/pkg/discordtransport"
 )
 
-const proxyResolveTimeout = 30 * time.Second
-
-type respGetProxy struct {
-	ProxyURL string `json:"proxy_url"`
-}
-
 // proxyConfigured reports whether any proxy (static or dynamic) is configured.
 func (d *DiscordConnector) proxyConfigured() bool {
-	return d.Config.GetProxyFrom != "" || d.Config.Proxy != ""
+	return d.Bridge.Config.Proxy.IsConfigured()
 }
 
-// getProxy returns the effective proxy URL to use for Discord traffic
-// according to the config.
-func (d *DiscordConnector) getProxy(ctx context.Context, reason string) (string, error) {
-	if d.Config.GetProxyFrom == "" {
-		// Use the static proxy, if any.
-		return d.Config.Proxy, nil
-	}
-
-	parsed, err := url.Parse(d.Config.GetProxyFrom)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse dynamic proxy endpoint address: %w", err)
-	}
-
-	q := parsed.Query()
-	q.Set("reason", reason)
-	parsed.RawQuery = q.Encode()
-
-	ctx, cancel := context.WithTimeout(ctx, proxyResolveTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to prepare dynamic proxy request: %w", err)
-	}
-	req.Header.Set("User-Agent", mautrix.DefaultUserAgent)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send dynamic proxy request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		return "", fmt.Errorf("unexpected status code %d", resp.StatusCode)
-	}
-
-	var respData respGetProxy
-	err = json.NewDecoder(resp.Body).Decode(&respData)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	// Treat an empty proxy_url as a resolution failure.
-	if respData.ProxyURL == "" {
-		return "", fmt.Errorf("dynamic proxy endpoint returned an empty proxy_url")
-	}
-
-	return respData.ProxyURL, nil
-}
+func (d *DiscordConnector) SupportsProxy() {}
 
 // resolveHTTPClientSettings returns the HTTP client settings that are currently
 // at play. This includes any configured proxy (fetching a dynamic proxy if
@@ -102,7 +48,7 @@ func (d *DiscordConnector) resolveHTTPClientSettings(
 	ctx context.Context,
 	reason string,
 ) (exhttp.ClientSettings, error) {
-	proxyURL, err := d.getProxy(ctx, reason)
+	proxyURL, err := d.Bridge.GetProxy(ctx, reason)
 	if err != nil {
 		return exhttp.ClientSettings{}, fmt.Errorf("failed to get proxy: %w", err)
 	}

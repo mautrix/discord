@@ -53,7 +53,7 @@ func (dl *DiscordBrowserLogin) Start(ctx context.Context) (*bridgev2.LoginStep, 
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeCookies,
 		StepID:       "fi.mau.discord.cookies",
-		Instructions: "Log in with Discord.",
+		Instructions: msgStepCookiesInstructions.Message(),
 		CookiesParams: &bridgev2.LoginCookiesParams{
 			URL:       "https://discord.com/login",
 			UserAgent: "",

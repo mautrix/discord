@@ -7,7 +7,7 @@ import (
 )
 
 func (d *DiscordClient) refreshSafetyHub(ctx context.Context) {
-	if !d.connector.Config.ReportScrubbedAccountStanding {
+	if !d.Session.IsUser || !d.connector.Config.ReportScrubbedAccountStanding {
 		return
 	}
 

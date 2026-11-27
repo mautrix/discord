@@ -38,6 +38,7 @@ var (
 	_ bridgev2.GhostDMCreatingNetworkAPI     = (*DiscordClient)(nil)
 	_ bridgev2.ContactListingNetworkAPI      = (*DiscordClient)(nil)
 	_ bridgev2.UserSearchingNetworkAPI       = (*DiscordClient)(nil)
+	_ bridgev2.GroupCreatingNetworkAPI       = (*DiscordClient)(nil)
 	_ bridgev2.IdentifierValidatingNetwork   = (*DiscordConnector)(nil)
 )
 
@@ -120,6 +121,67 @@ func (d *DiscordClient) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 	return &bridgev2.CreateChatResponse{
 		PortalKey:  d.portalKeyForChannel(ch),
 		PortalInfo: chatInfo,
+	}, nil
+}
+
+func (d *DiscordClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCreateParams) (*bridgev2.CreateChatResponse, error) {
+	if d.Session == nil {
+		return nil, bridgev2.ErrNotLoggedIn
+	}
+
+	recipientIDs := make([]string, len(params.Participants))
+	for i, userID := range params.Participants {
+		recipientIDs[i] = discordid.ParseUserID(userID)
+	}
+	var ch *discordgo.Channel
+	var err error
+	if len(recipientIDs) == 1 {
+		ch, err = d.Session.GroupDMCreate(nil, discordgo.WithContext(ctx))
+	} else {
+		ch, err = d.Session.GroupDMCreate(recipientIDs, discordgo.WithContext(ctx))
+	}
+	if err != nil {
+		zerolog.Ctx(ctx).Err(err).Msg("Failed to create group DM")
+		var restErr *discordgo.RESTError
+		if errors.As(err, &restErr) && restErr.Response != nil && restErr.Response.StatusCode == http.StatusForbidden {
+			return nil, bridgev2.RespError(mautrix.MForbidden.WithMessage("Discord doesn't allow creating this group DM")).WithInternalError(err)
+		}
+		return nil, bridgev2.RespError(mautrix.MUnknown.WithMessage("Failed to create group DM")).WithInternalError(err)
+	}
+
+	var failed map[networkid.UserID]*bridgev2.CreateChatFailedParticipant
+	if len(recipientIDs) == 1 {
+		err = d.Session.ChannelRecipientAdd(ch.ID, recipientIDs[0], makeDiscordReferer("", ch.ID, ""), discordgo.WithContext(ctx))
+		if err != nil {
+			zerolog.Ctx(ctx).Err(err).Str("channel_id", ch.ID).Msg("Failed to add user to new group DM")
+			failed = map[networkid.UserID]*bridgev2.CreateChatFailedParticipant{
+				params.Participants[0]: {Reason: err.Error()},
+			}
+		} else if user := d.userCache.Resolve(ctx, recipientIDs[0]); user != nil {
+			ch.Recipients = append(ch.Recipients, user)
+		}
+	}
+
+	if params.Name != nil && params.Name.Name != "" {
+		edited, err := d.Session.ChannelEdit(ch.ID, &discordgo.ChannelEdit{Name: params.Name.Name}, makeDiscordReferer("", ch.ID, ""), discordgo.WithContext(ctx))
+		if err != nil {
+			zerolog.Ctx(ctx).Warn().Err(err).Str("channel_id", ch.ID).Msg("Failed to set name of new group DM")
+		} else {
+			ch.Name = edited.Name
+		}
+	}
+
+	if err = d.Session.State.ChannelAdd(ch); err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Str("channel_id", ch.ID).Msg("Failed to add created group DM to state")
+	}
+	chatInfo, err := d.getChannelChatInfo(ctx, ch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chat info: %w", err)
+	}
+	return &bridgev2.CreateChatResponse{
+		PortalKey:          d.portalKeyForChannel(ch),
+		PortalInfo:         chatInfo,
+		FailedParticipants: failed,
 	}, nil
 }
 

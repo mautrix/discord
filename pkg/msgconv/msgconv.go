@@ -41,6 +41,7 @@ type MessageConverter struct {
 	// per-message profile is unconditionally attached to every converted
 	// message part.
 	PerMessageProfiles bool
+	ExtEvPolls         bool
 
 	CacheDirectMediaAttachment func(info *discordid.MediaInfo, discordURL string)
 

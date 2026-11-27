@@ -56,6 +56,8 @@ type Config struct {
 
 	LogWhenDroppingMessages bool `yaml:"log_when_dropping_messages"`
 
+	ExtEvPolls bool `yaml:"extev_polls"`
+
 	// ProxyLoginMachine and ProxyLoginRemoteAuth control whether the
 	// respective login flows route through the configured proxy. See
 	// example-config.yaml for the tradeoffs. Both default to true.
@@ -166,6 +168,7 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "custom_emoji_reactions")
 	helper.Copy(up.Bool, "per_message_profiles_on_every_message_hack")
 	helper.Copy(up.Bool, "log_when_dropping_messages")
+	helper.Copy(up.Bool, "extev_polls")
 	helper.Copy(up.Bool, "proxy_media")
 	helper.Copy(up.Bool, "proxy_direct_media")
 	helper.Copy(up.Bool, "proxy_login_machine")

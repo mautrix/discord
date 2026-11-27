@@ -58,6 +58,11 @@ per_message_profiles_on_every_message_hack: false
 # only includes metadata such as channel and message ID.
 log_when_dropping_messages: true
 
+# Should polls be sent using unstable MSC3381 event types?
+# Votes aren't bridged individually; clients can fetch results through the
+# provisioning API instead.
+extev_polls: false
+
 # Should avatar, icon, and attachment downloads also go through the top-level
 # proxy? The gateway websocket and REST API always use it (when proxying).
 proxy_media: false

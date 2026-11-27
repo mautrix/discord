@@ -114,6 +114,9 @@ var discordCaps = &event.RoomFeatures{
 	Reaction: event.CapLevelFullySupported,
 	Edit:     event.CapLevelFullySupported,
 	Delete:   event.CapLevelFullySupported,
+
+	PollResultsAPI: true,
+
 	Formatting: event.FormattingFeatureMap{
 		event.FmtBold:               event.CapLevelFullySupported,
 		event.FmtItalic:             event.CapLevelFullySupported,

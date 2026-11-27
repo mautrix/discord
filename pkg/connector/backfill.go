@@ -113,7 +113,7 @@ func (d *DiscordClient) FetchMessages(ctx context.Context, fetchParams bridgev2.
 	<-d.historyFetchSem
 	var restErr *discordgo.RESTError
 	if errors.As(err, &restErr) && restErr.Message != nil &&
-		(restErr.Message.Code == discordgo.ErrCodeMissingAccess || restErr.Message.Code == discordgo.ErrCodeUnknownChannel) {
+		(restErr.Message.Code == discordgo.ErrCodeMissingAccess || restErr.Message.Code == discordgo.ErrCodeUnknownChannel || restErr.Message.Code == errCodeMissingAgeGatedAccess) {
 		log.Warn().Err(err).Msg("Channel history is inaccessible, nothing to backfill")
 		return &bridgev2.FetchMessagesResponse{
 			Forward: fetchParams.Forward,

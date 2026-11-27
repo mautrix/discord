@@ -55,7 +55,7 @@ func (dl *DiscordTokenLogin) SubmitUserInput(ctx context.Context, input map[stri
 		return nil, fmt.Errorf("no token provided")
 	}
 
-	ul, err := dl.FinalizeCreatingLogin(ctx, token)
+	ul, err := dl.FinalizeCreatingLogin(ctx, token, false)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't login from token: %w", err)
 	}

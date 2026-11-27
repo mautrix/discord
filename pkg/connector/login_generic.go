@@ -48,7 +48,7 @@ type DiscordGenericLogin struct {
 	DiscordUser *discordgo.User
 }
 
-func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token string) (*bridgev2.UserLogin, error) {
+func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token string, ownsSession bool) (*bridgev2.UserLogin, error) {
 	log := zerolog.Ctx(ctx).With().Str("action", "finalize login").Logger()
 
 	// TODO we don't need an entire discordgo session for this as we're just
@@ -84,6 +84,7 @@ func (dl *DiscordGenericLogin) FinalizeCreatingLogin(ctx context.Context, token 
 		Metadata: &discordid.UserLoginMetadata{
 			Token:            token,
 			HeartbeatSession: session.HeartbeatSession,
+			OwnsSession:      ownsSession,
 		},
 	}, &bridgev2.NewLoginParams{
 		DeleteOnConflict: true,

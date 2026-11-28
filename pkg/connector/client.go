@@ -878,6 +878,9 @@ func (d *DiscordClient) canSeeGuildChannel(ctx context.Context, ch *discordgo.Ch
 	}
 
 	canView := perms&discordgo.PermissionViewChannel > 0
+	if ch.Type == discordgo.ChannelTypeGuildVoice || ch.Type == discordgo.ChannelTypeGuildStageVoice {
+		canView = canView && perms&discordgo.PermissionVoiceConnect > 0
+	}
 	log.Trace().
 		Int64("permissions", perms).
 		Bool("channel_visible", canView).
